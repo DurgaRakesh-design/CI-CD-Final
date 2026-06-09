@@ -23,12 +23,16 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
       const payload = await runGapAnalysis({ packageSignals: workspaceData.package_signals, documents });
       setResult(payload);
       onGapsFound?.(payload);
-      setDocuments?.(prev => prev.map((doc) => ({
-        ...doc,
-        approved: false,
-        status: 'review',
-        lastEdited: new Date().toISOString(),
-      })));
+      setDocuments?.(prev => {
+        const impactedIds = findImpactedDocumentIds(payload, prev);
+        if (!impactedIds.size) return prev;
+        return prev.map((doc) => impactedIds.has(doc.id) ? ({
+          ...doc,
+          approved: false,
+          status: 'review',
+          lastEdited: new Date().toISOString(),
+        }) : doc);
+      });
     } catch (err) {
       setError(err.message || 'Gap analysis failed.');
     } finally {
@@ -141,6 +145,36 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
       </div>
     </motion.div>
   );
+}
+
+function findImpactedDocumentIds(gapResults, documents) {
+  const impacted = new Set();
+  const findings = Array.isArray(gapResults?.findings) ? gapResults.findings : [];
+  findings.forEach((gap) => {
+    const matched = findMatchingDocument(gap, documents);
+    if (matched) impacted.add(matched.id);
+  });
+  return impacted;
+}
+
+function findMatchingDocument(gap, documents) {
+  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
+  const explicitId = String(gap?.relatedDocumentId || '').trim();
+  if (explicitId) {
+    const byId = documents.find((doc) => doc.id === explicitId);
+    if (byId) return byId;
+  }
+  const related = normalize(`${gap?.relatedDocument || ''} ${gap?.module || ''}`);
+  if (!related || related === 'brd bdd' || related === 'bdd' || related === 'brd') return null;
+  return documents.find((doc) => {
+    const title = normalize(doc.title);
+    const module = normalize(doc.module);
+    return title.includes(related) || module.includes(related) || related.includes(title) || related.includes(module);
+  }) || null;
+}
+
+function normalize(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function SummaryCard({ label, value, tone }) {

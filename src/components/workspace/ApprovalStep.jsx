@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, ArrowRight, ArrowLeft, CheckCircle2, FileText, Code2, Lock, Unlock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,15 +6,6 @@ import { Button } from '@/components/ui/button';
 export default function ApprovalStep({ documents, setDocuments, onNext, onBack, onData }) {
   const allBDDApproved = documents.filter(d => d.type === 'BDD').every(d => d.approved);
   const allApproved = documents.every(d => d.approved);
-
-  useEffect(() => {
-    setDocuments(prev => prev.map(doc => ({
-      ...doc,
-      approved: false,
-      status: 'review',
-      lastEdited: new Date().toISOString(),
-    })));
-  }, [setDocuments]);
 
   const toggleApproval = (id) => {
     setDocuments(prev => prev.map(doc => doc.id === id ? {

@@ -1,8 +1,15 @@
-export async function generateRequirementSuite({ packageSignals, uploadedRequirements = [], gapResults = null }) {
+export async function generateRequirementSuite({
+  packageSignals,
+  uploadedRequirements = [],
+  gapResults = null,
+  generationMode = 'initial',
+  targetDocument = null,
+  targetGap = null,
+}) {
   const response = await fetch('/.netlify/functions/generate-documents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ packageSignals, uploadedRequirements, gapResults }),
+    body: JSON.stringify({ packageSignals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
   });
   const payload = await response.json();
   if (!response.ok) {

@@ -5,47 +5,64 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 
   try {
-    const { packageSignals, uploadedRequirements = [], gapResults = null } = parseEventBody(event);
+    const {
+      packageSignals,
+      uploadedRequirements = [],
+      gapResults = null,
+      generationMode = "initial",
+      targetDocument = null,
+      targetGap = null,
+    } = parseEventBody(event);
     const signals = compactSignals(packageSignals);
-    const aiPayload = await generateWithAI(signals, uploadedRequirements, gapResults).catch((error) => {
+    const aiPayload = await generateWithAI(signals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap).catch((error) => {
     console.warn("generate-documents: AI unavailable, using deterministic fallback", error.message);
     return null;
   });
-    return json(200, aiPayload || deterministicSuite(signals, gapResults));
+    return json(200, aiPayload || deterministicSuite(signals, gapResults, generationMode, targetDocument, targetGap));
   } catch (error) {
     console.error("generate-documents failed", error);
     return json(500, { message: error.message || "Document generation failed." });
   }
 };
 
-async function generateWithAI(signals, uploadedRequirements, gapResults) {
+async function generateWithAI(signals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap) {
   const system = [
     "You are a senior Business Analyst and QA architect.",
     "Generate production-grade BRD and BDD documents for a Java application.",
     "Use only the provided package signals and uploaded requirement notes.",
-    "BDD must be valid Gherkin and split into multiple feature files by real modules/capabilities.",
-    "Cover backend behavior and any discovered UI/endpoints. Do not invent unrelated products.",
+    "BDD must be valid Gherkin and split into feature files by real business capabilities only.",
+    "Never create BDDs for generic technical layers such as Entity Layer, Controller Layer, Repository Layer, Service Layer, Config, or Application unless they represent a real user/business workflow.",
+    "Cover behavior that can be inferred from class names, endpoints, validation annotations, domain entities, and package/module names. Do not invent unrelated products.",
     "Write a substantial businessView for each BDD: include feature purpose, user goal, business outcome, validations, and a short scenario summary in plain English.",
+    "When regenerating a document, preserve the original document identity and improve only the relevant missing/weak coverage.",
+    "When generating from unlinked gaps, create new BDD feature files only for those gaps and avoid duplicating existing BDD modules.",
     "Return JSON only with keys: brd, bddFiles, qualityNotes.",
   ].join(" ");
   const user = JSON.stringify({
+    generationMode,
     instructions: {
+      initial: "For initial generation, create one BRD and 1-8 BDD files based only on real business capabilities detected in the package.",
+      regenerate_document: "For regenerate_document, return only the improved target document type when possible. Keep the same module/title intent and incorporate the supplied linked findings.",
+      generate_from_gap: "For generate_from_gap, create one focused BDD for the selected unlinked gap.",
+      generate_from_unlinked_gaps: "For generate_from_unlinked_gaps, group gaps by business capability and create focused BDD files for each group.",
       brd: "Create one BRD with overview, actors, in-scope capabilities, business rules, validations, non-functional expectations, assumptions, and acceptance criteria.",
-      bddFiles: "Create 2-8 BDD feature files depending on project size. Each has title, module, businessView, and gherkin. Scenarios must be specific, testable, and grounded in classes/endpoints/methods.",
+      bddFiles: "Each BDD must have title, module, businessView, and gherkin. Scenarios must be specific, testable, and grounded in classes/endpoints/methods.",
       traceability: "Each BDD scenario should align with a detected module/class/endpoint when possible.",
     },
     packageSignals: signals,
     uploadedRequirements,
     gapResults,
+    targetDocument,
+    targetGap,
   });
   const result = await callOpenAI({ system, user, temperature: 0.15 });
   if (!isMeaningfulSuite(result)) return null;
   return normalizeSuite(result, "ai_generated");
 }
 
-function deterministicSuite(signals, gapResults = null) {
+function deterministicSuite(signals, gapResults = null, generationMode = "initial", targetDocument = null, targetGap = null) {
   const project = signals.projectName || "Java Application";
-  const modules = chooseModules(signals);
+  const modules = chooseModules(signals, gapResults, generationMode, targetDocument, targetGap);
   const brdContent = [
     `# Business Requirements Document`,
     `## ${project}`,
@@ -136,24 +153,41 @@ function buildFeature(signals, module, gapResults = null) {
   };
 }
 
-function chooseModules(signals) {
-  const modules = [...new Set([...(signals.modules || [])])].filter(Boolean);
+function chooseModules(signals, gapResults = null, generationMode = "initial", targetDocument = null, targetGap = null) {
+  if (generationMode === "regenerate_document" && targetDocument?.module) return [targetDocument.module];
+  if (generationMode === "generate_from_gap" && targetGap?.module) return [targetGap.module];
+  if (generationMode === "generate_from_unlinked_gaps") {
+    const gapModules = [...new Set((gapResults?.findings || []).map((gap) => gap.module).filter(Boolean))]
+      .filter((module) => !isTechnicalModule(module));
+    if (gapModules.length) return gapModules.slice(0, 8);
+  }
+  const modules = [...new Set([...(signals.modules || [])])].filter(Boolean).filter((module) => !isTechnicalModule(module));
   if (modules.length) return modules.slice(0, 6);
-  const annotations = new Set((signals.classes || []).flatMap((item) => item.annotations || []));
-  if (annotations.size) return [...annotations].map((item) => `${titleCase(item)} Layer`).slice(0, 6);
+  const domainNames = [...new Set((signals.classes || [])
+    .filter((item) => !(item.annotations || []).some((annotation) => ["controller", "repository", "configuration"].includes(String(annotation).toLowerCase())))
+    .map((item) => titleCase(String(item.className || '').replace(/(Service|Controller|Repository|Entity|Config|Configuration)$/i, '')))
+    .filter((name) => name && !isTechnicalModule(name)))];
+  if (domainNames.length) return domainNames.slice(0, 6);
   return ["Core Business Operations"];
 }
 
+function isTechnicalModule(module) {
+  return /^(entity|controller|repository|service|config|configuration|application|dto|model|mapper|util|utility)\b/i.test(String(module || '').trim())
+    || /\b(layer|package|class|component)$/i.test(String(module || '').trim());
+}
+
 function normalizeSuite(payload, source) {
+  const brd = payload.brd || {};
+  const bddFiles = Array.isArray(payload.bddFiles) ? payload.bddFiles : [];
   return {
     source,
     brd: {
-      id: payload.brd.id || "brd-application-overview",
-      title: payload.brd.title || "BRD - Application Overview",
-      module: payload.brd.module || "Application",
-      content: payload.brd.content || payload.brd.businessView || payload.brd.markdown || payload.brd.body || payload.brd.description || "",
+      id: brd.id || "brd-application-overview",
+      title: brd.title || "BRD - Application Overview",
+      module: brd.module || "Application",
+      content: brd.content || brd.businessView || brd.markdown || brd.body || brd.description || "",
     },
-    bddFiles: payload.bddFiles.map((doc, index) => ({
+    bddFiles: bddFiles.map((doc, index) => ({
       id: doc.id || `bdd-${index + 1}`,
       title: doc.title || `BDD - Feature ${index + 1}`,
       module: doc.module || "Application",
