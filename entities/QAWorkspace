@@ -1,0 +1,88 @@
+{
+  "name": "QAWorkspace",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Workspace name"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "in_progress",
+        "review",
+        "approved",
+        "pipeline_ready",
+        "executing",
+        "completed"
+      ],
+      "default": "draft"
+    },
+    "current_step": {
+      "type": "number",
+      "default": 0
+    },
+    "package_name": {
+      "type": "string"
+    },
+    "package_source": {
+      "type": "string",
+      "enum": [
+        "upload",
+        "repository"
+      ]
+    },
+    "platform": {
+      "type": "string"
+    },
+    "tech_stack": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "string"
+    },
+    "requirement_source": {
+      "type": "string",
+      "enum": [
+        "uploaded",
+        "ai_generated"
+      ]
+    },
+    "brd_approved": {
+      "type": "boolean",
+      "default": false
+    },
+    "bdd_approved": {
+      "type": "boolean",
+      "default": false
+    },
+    "gap_analysis_run": {
+      "type": "boolean",
+      "default": false
+    },
+    "pipeline_unlocked": {
+      "type": "boolean",
+      "default": false
+    },
+    "pipeline_status": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "running",
+        "success",
+        "failed"
+      ],
+      "default": "idle"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
