@@ -1,0 +1,75 @@
+{
+  "name": "QADocument",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "type": "string",
+      "description": "Associated workspace ID"
+    },
+    "title": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "BRD",
+        "BDD"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "uploaded",
+        "ai_generated",
+        "repository"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "review",
+        "approved",
+        "rejected"
+      ],
+      "default": "draft"
+    },
+    "content": {
+      "type": "string",
+      "description": "Document content (markdown or gherkin)"
+    },
+    "gherkin_content": {
+      "type": "string",
+      "description": "Gherkin feature file content for BDD documents"
+    },
+    "file_url": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number",
+      "default": 1
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "title",
+    "type",
+    "workspace_id"
+  ]
+}
