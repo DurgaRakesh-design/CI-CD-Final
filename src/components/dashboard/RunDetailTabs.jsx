@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
   FlaskConical, GitPullRequest, Bot, Code2, Monitor, FileBarChart, GitBranch,
-  CheckCircle2, XCircle, AlertTriangle, Download, ExternalLink
+  CheckCircle2, XCircle, Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 

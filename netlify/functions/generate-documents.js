@@ -7,10 +7,10 @@ exports.handler = async (event) => {
   try {
     const { packageSignals, uploadedRequirements = [] } = parseEventBody(event);
     const signals = compactSignals(packageSignals);
-    const aiPayload = await generateWithAI(signals, uploadedRequirements).catch((error) => {
-      console.warn("generate-documents: AI unavailable, using deterministic fallback", error.message);
-      return null;
-    });
+  const aiPayload = await generateWithAI(signals, uploadedRequirements).catch((error) => {
+    console.warn("generate-documents: AI unavailable, using deterministic fallback", error.message);
+    return null;
+  });
     return json(200, aiPayload || deterministicSuite(signals));
   } catch (error) {
     console.error("generate-documents failed", error);
@@ -37,7 +37,7 @@ async function generateWithAI(signals, uploadedRequirements) {
     uploadedRequirements,
   });
   const result = await callOpenAI({ system, user, temperature: 0.15 });
-  if (!result?.brd || !Array.isArray(result?.bddFiles) || !result.bddFiles.length) return null;
+  if (!isMeaningfulSuite(result)) return null;
   return normalizeSuite(result, "ai_generated");
 }
 
@@ -133,15 +133,30 @@ function normalizeSuite(payload, source) {
       id: payload.brd.id || "brd-application-overview",
       title: payload.brd.title || "BRD - Application Overview",
       module: payload.brd.module || "Application",
-      content: payload.brd.content || "",
+      content: payload.brd.content || payload.brd.businessView || payload.brd.markdown || payload.brd.body || payload.brd.description || "",
     },
     bddFiles: payload.bddFiles.map((doc, index) => ({
       id: doc.id || `bdd-${index + 1}`,
       title: doc.title || `BDD - Feature ${index + 1}`,
       module: doc.module || "Application",
-      businessView: doc.businessView || doc.content || "",
-      gherkin: doc.gherkin || doc.content || "",
+      businessView: doc.businessView || doc.content || doc.description || "",
+      gherkin: doc.gherkin || doc.content || doc.businessView || "",
     })),
     qualityNotes: payload.qualityNotes || [],
   };
+}
+
+function isMeaningfulSuite(payload) {
+  const brdText = String(
+    payload?.brd?.content ||
+      payload?.brd?.businessView ||
+      payload?.brd?.markdown ||
+      payload?.brd?.body ||
+      payload?.brd?.description ||
+      ''
+  ).trim();
+  const bdds = Array.isArray(payload?.bddFiles) ? payload.bddFiles : [];
+  if (!brdText || brdText.length < 120) return false;
+  if (!bdds.length) return false;
+  return bdds.some((doc) => String(doc?.gherkin || doc?.content || doc?.businessView || doc?.description || '').trim().length > 80);
 }

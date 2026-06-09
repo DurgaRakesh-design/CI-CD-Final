@@ -2,7 +2,6 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, ArrowRight, ArrowLeft, CheckCircle2, FileText, Code2, Lock, Unlock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 
 export default function ApprovalStep({ documents, setDocuments, onNext, onBack, onData }) {
   const allBDDApproved = documents.filter(d => d.type === 'BDD').every(d => d.approved);
@@ -47,7 +46,7 @@ export default function ApprovalStep({ documents, setDocuments, onNext, onBack, 
                 : <Code2 className={`w-5 h-5 shrink-0 ${doc.approved ? 'text-emerald-600' : 'text-violet-500'}`} />}
               <div className="min-w-0">
                 <p className="font-medium text-sm truncate">{doc.title}</p>
-                <p className="text-xs text-muted-foreground">{doc.type} · {doc.module}</p>
+                <p className="text-xs text-muted-foreground">{doc.type} - {doc.module}</p>
               </div>
             </div>
             <Button

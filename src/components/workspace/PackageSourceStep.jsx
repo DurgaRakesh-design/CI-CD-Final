@@ -1,20 +1,20 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, FolderOpen, Package, ArrowRight, FileArchive, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { listUploadedPackages } from '@/services/pipelineService';
 
-export default function PackageSourceStep({ onNext, onData }) {
-  const [source, setSource] = useState(null);
-  const [fileName, setFileName] = useState('');
-  const [packageFile, setPackageFile] = useState(null);
-  const [selectedRepo, setSelectedRepo] = useState(null);
+export default function PackageSourceStep({ workspaceData, onNext, onData }) {
+  const [source, setSource] = useState(workspaceData?.package_source || null);
+  const [fileName, setFileName] = useState(workspaceData?.package_name || '');
+  const [packageFile, setPackageFile] = useState(workspaceData?.package_file || null);
+  const [selectedRepo, setSelectedRepo] = useState(workspaceData?.selected_package || null);
   const [repos, setRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [repoError, setRepoError] = useState('');
 
-  const loadRepos = async () => {
+  const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
     setRepoError('');
     try {
@@ -24,7 +24,24 @@ export default function PackageSourceStep({ onNext, onData }) {
     } finally {
       setLoadingRepos(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (source === 'repository' && !repos.length && !loadingRepos) loadRepos();
+  }, [source, repos.length, loadingRepos, loadRepos]);
+
+  useEffect(() => {
+    if (!source) return;
+    const packageName = source === 'upload' ? fileName : selectedRepo?.name || '';
+    onData({
+      package_source: source,
+      package_name: packageName,
+      package_file: packageFile,
+      selected_package: source === 'repository' ? selectedRepo : null,
+      branch: 'develop',
+      version: 'unversioned',
+    });
+  }, [source, fileName, packageFile, selectedRepo, onData]);
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
@@ -41,15 +58,6 @@ export default function PackageSourceStep({ onNext, onData }) {
   };
 
   const handleProceed = () => {
-    const packageName = source === 'upload' ? fileName : selectedRepo?.name;
-    onData({
-      package_source: source,
-      package_name: packageName,
-      package_file: packageFile,
-      selected_package: source === 'repository' ? selectedRepo : null,
-      branch: 'develop',
-      version: 'unversioned',
-    });
     onNext();
   };
 
@@ -140,7 +148,7 @@ export default function PackageSourceStep({ onNext, onData }) {
                   <Package className="w-5 h-5 text-muted-foreground shrink-0" />
                   <div className="min-w-0">
                     <p className="font-medium text-sm truncate">{repo.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{repo.path} · {Math.max(1, Math.round((repo.size || 0) / 1024))} KB</p>
+                    <p className="text-xs text-muted-foreground truncate">{repo.path} - {Math.max(1, Math.round((repo.size || 0) / 1024))} KB</p>
                   </div>
                 </div>
                 {selectedRepo?.path === repo.path && <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />}

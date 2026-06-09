@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileUp, Bot, ArrowRight, ArrowLeft, FileText, CheckCircle2, File, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-export default function RequirementSourceStep({ onNext, onBack, onData }) {
-  const [source, setSource] = useState(null);
-  const [brdFile, setBrdFile] = useState(null);
-  const [bddFiles, setBddFiles] = useState([]);
+export default function RequirementSourceStep({ workspaceData, onNext, onBack, onData }) {
+  const [source, setSource] = useState(
+    workspaceData?.requirement_source === 'uploaded'
+      ? 'attach'
+      : workspaceData?.requirement_source === 'ai_generated'
+        ? 'generate'
+        : null
+  );
+  const [brdFile, setBrdFile] = useState(workspaceData?.brd_file || null);
+  const [bddFiles, setBddFiles] = useState(workspaceData?.bdd_files || []);
 
   const handleBrdUpload = (e) => {
     const file = e.target.files?.[0];
@@ -33,12 +39,30 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
     source === 'generate' ||
     (source === 'attach' && brdFile !== null && bddFiles.length > 0);
 
-  const handleProceed = () => {
+  const requirementSignature = useMemo(() => {
+    if (source === 'attach') {
+      const brdName = brdFile?.name || 'no-brd';
+      const bddNames = bddFiles.map((file) => file.name).join('|') || 'no-bdd';
+      return `uploaded|brd:${brdName}|bdd:${bddNames}`;
+    }
+    const packageName = workspaceData?.package_name || workspaceData?.selected_package?.name || workspaceData?.package_file?.name || 'package';
+    const packageSource = workspaceData?.package_source || 'unknown';
+    const platform = workspaceData?.platform || 'Java';
+    const version = workspaceData?.version || 'unversioned';
+    return `generated|package:${packageName}|source:${packageSource}|platform:${platform}|version:${version}`;
+  }, [bddFiles, brdFile, source, workspaceData]);
+
+  useEffect(() => {
+    if (!source) return;
     onData({
       requirement_source: source === 'attach' ? 'uploaded' : 'ai_generated',
       brd_file: brdFile,
       bdd_files: bddFiles,
+      requirement_signature: requirementSignature,
     });
+  }, [source, brdFile, bddFiles, requirementSignature, onData]);
+
+  const handleProceed = () => {
     onNext();
   };
 
@@ -92,12 +116,11 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
       <AnimatePresence>
         {source === 'attach' && (
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5">
-
-            {/* BRD — single file */}
+            {/* BRD - single file */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Badge className="bg-blue-100 text-blue-700 border-0 text-xs font-semibold">BRD</Badge>
-                <span className="text-xs text-muted-foreground">Business Requirements Document — single file only</span>
+                <span className="text-xs text-muted-foreground">Business Requirements Document - single file only</span>
               </div>
               {!brdFile ? (
                 <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 cursor-pointer hover:bg-blue-50 transition-colors">
@@ -121,11 +144,11 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
               )}
             </div>
 
-            {/* BDDs — multiple files */}
+            {/* BDDs - multiple files */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Badge className="bg-violet-100 text-violet-700 border-0 text-xs font-semibold">BDD</Badge>
-                <span className="text-xs text-muted-foreground">Behavior-Driven Documents — multiple files allowed</span>
+                <span className="text-xs text-muted-foreground">Behavior-Driven Documents - multiple files allowed</span>
               </div>
               <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed border-violet-200 bg-violet-50/40 cursor-pointer hover:bg-violet-50 transition-colors">
                 <Plus className="w-5 h-5 text-violet-500 shrink-0" />

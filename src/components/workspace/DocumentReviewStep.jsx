@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
+import { createDocumentDocxBlob } from '@/services/docx';
 
 export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack }) {
   const [selectedId, setSelectedId] = useState('');
@@ -49,7 +50,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
     return () => {
       cancelled = true;
     };
-  }, [workspaceData.requirement_source]);
+  }, [documents.length, setDocuments, workspaceData]);
 
   const selectedDoc = useMemo(
     () => documents.find((doc) => doc.id === selectedId) || documents[0],
@@ -64,7 +65,11 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   const handleApprove = (docId) => updateDoc(docId, { approved: true, status: 'approved' });
 
   const handleEditStart = () => {
-    setEditContent(selectedDoc?.type === 'BDD' && viewMode === 'gherkin' ? selectedDoc.gherkinContent : selectedDoc?.content || '');
+    setEditContent(
+      selectedDoc?.type === 'BDD' && viewMode === 'gherkin'
+        ? selectedDoc.gherkinContent || selectedDoc.content || ''
+        : selectedDoc?.content || ''
+    );
     setIsEditing(true);
   };
 
@@ -77,16 +82,14 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
     setIsEditing(false);
   };
 
-  const downloadDoc = (doc) => {
-    const content = doc.type === 'BDD' ? doc.gherkinContent || doc.content : doc.content;
-    const extension = doc.type === 'BDD' ? 'feature' : 'md';
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const downloadDoc = async (doc) => {
+    const blob = await createDocumentDocxBlob(doc);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${doc.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${extension}`;
+    anchor.download = `${doc.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.docx`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   if (loading) {
@@ -178,7 +181,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
               {selectedDoc && (
                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => downloadDoc(selectedDoc)}>
                   <Download className="w-3 h-3 mr-1" />
-                  Download
+                  DOCX
                 </Button>
               )}
             </div>
@@ -187,9 +190,17 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             {isEditing ? (
               <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="min-h-[420px] font-mono text-sm" />
             ) : (
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/80">
-                {selectedDoc?.type === 'BDD' && viewMode === 'gherkin' ? selectedDoc?.gherkinContent : selectedDoc?.content}
-              </pre>
+              selectedDoc?.content?.trim() || selectedDoc?.gherkinContent?.trim() ? (
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/80">
+                  {selectedDoc?.type === 'BDD' && viewMode === 'gherkin'
+                    ? selectedDoc?.gherkinContent || selectedDoc?.content || ''
+                    : selectedDoc?.content || ''}
+                </pre>
+              ) : (
+                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground bg-muted/20">
+                  No document content was generated for this item. Regenerate the workspace documents or upload a source file to continue.
+                </div>
+              )
             )}
           </div>
         </div>

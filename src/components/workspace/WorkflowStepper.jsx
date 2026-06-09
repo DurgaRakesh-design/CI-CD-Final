@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { Package, FileText, Search, BarChart3, ShieldCheck, GitBranch, Check } from 'lucide-react';
 
 const steps = [

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import WorkflowStepper from '../components/workspace/WorkflowStepper';
 import PackageSourceStep from '../components/workspace/PackageSourceStep';
@@ -10,26 +10,34 @@ import ApprovalStep from '../components/workspace/ApprovalStep';
 import PipelineTriggerStep from '../components/workspace/PipelineTriggerStep';
 
 export default function QAWorkspace() {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [workspaceData, setWorkspaceData] = useState({
-    name: 'New QA Session',
-    status: 'draft',
-  });
-  const [gapResults, setGapResults] = useState(null);
-  const [documents, setDocuments] = useState([]);
+  const [persisted] = useState(() => loadPersistedState());
+  const [internalStep, setInternalStep] = useState(persisted.internalStep);
+  const [workspaceData, setWorkspaceData] = useState(persisted.workspaceData);
+  const [gapResults, setGapResults] = useState(persisted.gapResults);
+  const [documents, setDocuments] = useState(persisted.documents);
 
   const updateData = (data) => {
     setWorkspaceData(prev => ({ ...prev, ...data }));
   };
 
-  const goNext = () => setCurrentStep(prev => Math.min(prev + 1, 5));
-
-  // Map steps: 0=Package Source, 1=Package Detection (sub-step of 0 visually but step 1 in stepper maps to Requirements), etc.
-  // We use an internal step counter with more granularity
-  const [internalStep, setInternalStep] = useState(0);
-
   const internalGoNext = () => setInternalStep(prev => prev + 1);
   const internalGoBack = () => setInternalStep(prev => Math.max(prev - 1, 0));
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        'qa-workspace-state',
+        JSON.stringify({
+          internalStep,
+          workspaceData: serializeWorkspaceData(workspaceData),
+          gapResults,
+          documents,
+        })
+      );
+    } catch (_) {
+      // Persistence is best effort only.
+    }
+  }, [internalStep, workspaceData, gapResults, documents]);
 
   // Map internal steps to stepper steps
   const stepperStep = internalStep <= 0 ? 0 : internalStep <= 1 ? 0 : internalStep <= 2 ? 1 : internalStep - 1;
@@ -37,11 +45,11 @@ export default function QAWorkspace() {
   const renderStep = () => {
     switch (internalStep) {
       case 0:
-        return <PackageSourceStep onNext={internalGoNext} onData={updateData} />;
+        return <PackageSourceStep workspaceData={workspaceData} onNext={internalGoNext} onData={updateData} />;
       case 1:
         return <PackageDetectionStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
       case 2:
-        return <RequirementSourceStep onNext={() => { setDocuments([]); setGapResults(null); internalGoNext(); }} onBack={internalGoBack} onData={updateData} />;
+        return <RequirementSourceStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
       case 3:
         return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} />;
       case 4:
@@ -101,4 +109,74 @@ export default function QAWorkspace() {
       </div>
     </div>
   );
+}
+
+function loadPersistedState() {
+  const fallback = {
+    internalStep: 0,
+    workspaceData: {
+      name: 'New QA Session',
+      status: 'draft',
+    },
+    gapResults: null,
+    documents: [],
+  };
+
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.sessionStorage.getItem('qa-workspace-state');
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return {
+      internalStep: Number.isInteger(parsed.internalStep) ? parsed.internalStep : fallback.internalStep,
+      workspaceData: sanitizeWorkspaceData(parsed.workspaceData),
+      gapResults: parsed.gapResults || null,
+      documents: Array.isArray(parsed.documents) ? parsed.documents : [],
+    };
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function serializeWorkspaceData(workspaceData) {
+  const selectedPackage = workspaceData?.selected_package
+    ? {
+        name: workspaceData.selected_package.name || '',
+        path: workspaceData.selected_package.path || '',
+        size: workspaceData.selected_package.size || '',
+        sha: workspaceData.selected_package.sha || '',
+        downloadUrl: workspaceData.selected_package.downloadUrl || '',
+      }
+    : null;
+
+  return {
+    ...workspaceData,
+    package_file: null,
+    brd_file: null,
+    bdd_files: [],
+    selected_package: selectedPackage,
+  };
+}
+
+function sanitizeWorkspaceData(rawWorkspaceData) {
+  const fallbackWorkspace = {
+    name: 'New QA Session',
+    status: 'draft',
+  };
+  const workspaceData = { ...fallbackWorkspace, ...(rawWorkspaceData || {}) };
+  return {
+    ...workspaceData,
+    package_file: null,
+    brd_file: null,
+    bdd_files: [],
+    selected_package: workspaceData.selected_package
+      ? {
+          name: workspaceData.selected_package.name || '',
+          path: workspaceData.selected_package.path || '',
+          size: workspaceData.selected_package.size || '',
+          sha: workspaceData.selected_package.sha || '',
+          downloadUrl: workspaceData.selected_package.downloadUrl || '',
+        }
+      : null,
+  };
 }
