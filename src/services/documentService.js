@@ -11,7 +11,7 @@ export async function generateRequirementSuite({
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ packageSignals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
   });
-  const payload = await response.json();
+  const payload = await readJsonResponse(response, 'Document generation');
   if (!response.ok) {
     throw new Error(payload?.message || 'Document generation failed.');
   }
@@ -24,7 +24,7 @@ export async function runGapAnalysis({ packageSignals, documents }) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ packageSignals, documents }),
   });
-  const payload = await response.json();
+  const payload = await readJsonResponse(response, 'Gap analysis');
   if (!response.ok) {
     throw new Error(payload?.message || 'Gap analysis failed.');
   }
@@ -87,4 +87,16 @@ export function slugify(value) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80) || 'document';
+}
+
+async function readJsonResponse(response, label) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (_) {
+    const compact = text
+      .replace(/\s+/g, ' ')
+      .slice(0, 180);
+    throw new Error(`${label} endpoint returned ${response.status} ${response.statusText || ''}: ${compact || 'No response body'}`);
+  }
 }

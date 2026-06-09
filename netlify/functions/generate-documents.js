@@ -1,6 +1,6 @@
-const { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, slugify, titleCase } = require("./_shared");
+import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, slugify, titleCase } from "./_shared.js";
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS_HEADERS, body: "" };
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 

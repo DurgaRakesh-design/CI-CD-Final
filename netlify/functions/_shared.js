@@ -1,10 +1,10 @@
-const CORS_HEADERS = {
+export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Accept",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-function json(statusCode, payload) {
+export function json(statusCode, payload) {
   return {
     statusCode,
     headers: {
@@ -16,13 +16,13 @@ function json(statusCode, payload) {
   };
 }
 
-function parseEventBody(event) {
+export function parseEventBody(event) {
   if (!event.body) return {};
   const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
   return JSON.parse(raw || "{}");
 }
 
-function compactSignals(packageSignals = {}) {
+export function compactSignals(packageSignals = {}) {
   return {
     projectName: packageSignals.projectName,
     fileName: packageSignals.fileName,
@@ -51,7 +51,7 @@ function compactSignals(packageSignals = {}) {
   };
 }
 
-async function callOpenAI({ system, user, temperature = 0.2 }) {
+export async function callOpenAI({ system, user, temperature = 0.2 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   const model = process.env.OPENAI_MODEL || "gpt-4.1";
@@ -79,7 +79,7 @@ async function callOpenAI({ system, user, temperature = 0.2 }) {
   return JSON.parse(content);
 }
 
-function slugify(value) {
+export function slugify(value) {
   return String(value || "document")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -87,18 +87,8 @@ function slugify(value) {
     .slice(0, 70) || "document";
 }
 
-function titleCase(value) {
+export function titleCase(value) {
   return String(value || "")
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
-
-module.exports = {
-  CORS_HEADERS,
-  json,
-  parseEventBody,
-  compactSignals,
-  callOpenAI,
-  slugify,
-  titleCase,
-};
