@@ -1,4 +1,4 @@
-import JSZip from 'jszip';
+﻿import JSZip from 'jszip';
 
 const JAVA_SOURCE = /src\/main\/java\/.*\.java$/i;
 const JAVA_TEST = /src\/test\/java\/.*(?:Test|Tests|IT)\.java$/i;
@@ -181,6 +181,11 @@ function inferModuleFromPath(path, className, annotations) {
   if (/auth|login|user|account/i.test(className)) candidates.push('Identity and Access');
   if (/book|library|borrow|return/i.test(className)) candidates.push('Library Management');
   if (/calc|operation|arithmetic/i.test(className)) candidates.push('Calculator Operations');
+  if (/OwnerController|OwnerRepository|Owner$/i.test(className)) candidates.push('Owner Management');
+  if (/PetController|PetValidator|PetType|Pet$/i.test(className)) candidates.push('Pet Management');
+  if (/VisitController|Visit$/i.test(className)) candidates.push('Visit Scheduling');
+  if (/VetController|VetRepository|Vets|Specialty|Vet$/i.test(className)) candidates.push('Veterinarian Directory');
+  if (/WelcomeController|CrashController|WebConfiguration|CacheConfiguration/i.test(className)) candidates.push('System Pages and Error Handling');
   return [...new Set(candidates)];
 }
 
@@ -204,3 +209,4 @@ function titleCase(value) {
     .replace(/[-_]/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
+
