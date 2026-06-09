@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileUp, Bot, ArrowRight, ArrowLeft, FileText, CheckCircle2, File, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
-export default function RequirementSourceStep({ workspaceData, onNext, onBack, onData }) {
+export default function RequirementSourceStep({ workspaceData, onNext, onBack, onData, onResetArtifacts }) {
   const [source, setSource] = useState(
     workspaceData?.requirement_source === 'uploaded'
       ? 'attach'
@@ -15,6 +15,7 @@ export default function RequirementSourceStep({ workspaceData, onNext, onBack, o
   );
   const [brdFile, setBrdFile] = useState(workspaceData?.brd_file || null);
   const [bddFiles, setBddFiles] = useState(workspaceData?.bdd_files || []);
+  const lastSignatureRef = useRef('');
 
   const handleBrdUpload = (e) => {
     const file = e.target.files?.[0];
@@ -54,6 +55,11 @@ export default function RequirementSourceStep({ workspaceData, onNext, onBack, o
 
   useEffect(() => {
     if (!source) return;
+    const signature = requirementSignature;
+    if (lastSignatureRef.current && lastSignatureRef.current !== signature) {
+      onResetArtifacts?.();
+    }
+    lastSignatureRef.current = signature;
     onData({
       requirement_source: source === 'attach' ? 'uploaded' : 'ai_generated',
       brd_file: brdFile,

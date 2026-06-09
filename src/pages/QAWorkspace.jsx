@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import WorkflowStepper from '../components/workspace/WorkflowStepper';
 import PackageSourceStep from '../components/workspace/PackageSourceStep';
 import PackageDetectionStep from '../components/workspace/PackageDetectionStep';
@@ -18,6 +20,27 @@ export default function QAWorkspace() {
 
   const updateData = (data) => {
     setWorkspaceData(prev => ({ ...prev, ...data }));
+  };
+
+  const clearDownstream = () => {
+    setDocuments([]);
+    setGapResults(null);
+  };
+
+  const resetWorkspace = () => {
+    const next = {
+      name: 'New QA Session',
+      status: 'draft',
+    };
+    setInternalStep(0);
+    setWorkspaceData(next);
+    setGapResults(null);
+    setDocuments([]);
+    try {
+      window.sessionStorage.removeItem('qa-workspace-state');
+    } catch (_) {
+      // ignore
+    }
   };
 
   const internalGoNext = () => setInternalStep(prev => prev + 1);
@@ -45,15 +68,15 @@ export default function QAWorkspace() {
   const renderStep = () => {
     switch (internalStep) {
       case 0:
-        return <PackageSourceStep workspaceData={workspaceData} onNext={internalGoNext} onData={updateData} />;
+        return <PackageSourceStep workspaceData={workspaceData} onNext={internalGoNext} onData={updateData} onResetArtifacts={clearDownstream} />;
       case 1:
         return <PackageDetectionStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
       case 2:
-        return <RequirementSourceStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
+        return <RequirementSourceStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onResetArtifacts={clearDownstream} />;
       case 3:
-        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} />;
+        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} onGapClear={() => setGapResults(null)} />;
       case 4:
-        return <GapAnalysisStep workspaceData={workspaceData} documents={documents} onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} />;
+        return <GapAnalysisStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} />;
       case 5:
         return <ApprovalStep documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
       case 6:
@@ -89,8 +112,16 @@ export default function QAWorkspace() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <h1 className="font-heading font-bold text-2xl">QA Workspace</h1>
-          <p className="text-sm text-muted-foreground mt-1">Milestone-driven quality delivery workflow</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="font-heading font-bold text-2xl">QA Workspace</h1>
+              <p className="text-sm text-muted-foreground mt-1">Milestone-driven quality delivery workflow</p>
+            </div>
+            <Button variant="outline" size="sm" className="rounded-xl h-9" onClick={resetWorkspace}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reset
+            </Button>
+          </div>
         </motion.div>
 
         {/* Stepper */}

@@ -5,26 +5,27 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 
   try {
-    const { packageSignals, uploadedRequirements = [] } = parseEventBody(event);
+    const { packageSignals, uploadedRequirements = [], gapResults = null } = parseEventBody(event);
     const signals = compactSignals(packageSignals);
-  const aiPayload = await generateWithAI(signals, uploadedRequirements).catch((error) => {
+    const aiPayload = await generateWithAI(signals, uploadedRequirements, gapResults).catch((error) => {
     console.warn("generate-documents: AI unavailable, using deterministic fallback", error.message);
     return null;
   });
-    return json(200, aiPayload || deterministicSuite(signals));
+    return json(200, aiPayload || deterministicSuite(signals, gapResults));
   } catch (error) {
     console.error("generate-documents failed", error);
     return json(500, { message: error.message || "Document generation failed." });
   }
 };
 
-async function generateWithAI(signals, uploadedRequirements) {
+async function generateWithAI(signals, uploadedRequirements, gapResults) {
   const system = [
     "You are a senior Business Analyst and QA architect.",
     "Generate production-grade BRD and BDD documents for a Java application.",
     "Use only the provided package signals and uploaded requirement notes.",
     "BDD must be valid Gherkin and split into multiple feature files by real modules/capabilities.",
     "Cover backend behavior and any discovered UI/endpoints. Do not invent unrelated products.",
+    "Write a substantial businessView for each BDD: include feature purpose, user goal, business outcome, validations, and a short scenario summary in plain English.",
     "Return JSON only with keys: brd, bddFiles, qualityNotes.",
   ].join(" ");
   const user = JSON.stringify({
@@ -35,13 +36,14 @@ async function generateWithAI(signals, uploadedRequirements) {
     },
     packageSignals: signals,
     uploadedRequirements,
+    gapResults,
   });
   const result = await callOpenAI({ system, user, temperature: 0.15 });
   if (!isMeaningfulSuite(result)) return null;
   return normalizeSuite(result, "ai_generated");
 }
 
-function deterministicSuite(signals) {
+function deterministicSuite(signals, gapResults = null) {
   const project = signals.projectName || "Java Application";
   const modules = chooseModules(signals);
   const brdContent = [
@@ -76,12 +78,12 @@ function deterministicSuite(signals) {
       module: "Application",
       content: brdContent,
     },
-    bddFiles: modules.map((module) => buildFeature(signals, module)),
+    bddFiles: modules.map((module) => buildFeature(signals, module, gapResults)),
     qualityNotes: ["Generated from package scan fallback. Review before triggering the pipeline."],
   }, "generated_fallback");
 }
 
-function buildFeature(signals, module) {
+function buildFeature(signals, module, gapResults = null) {
   const project = signals.projectName || "Java Application";
   const relatedClasses = (signals.classes || []).filter((item) => {
     const haystack = `${item.className} ${(item.annotations || []).join(" ")} ${(item.packageName || "")}`.toLowerCase();
@@ -90,7 +92,16 @@ function buildFeature(signals, module) {
   const classHint = relatedClasses[0]?.className || `${module.replace(/\s+/g, "")}Component`;
   const endpoints = relatedClasses.flatMap((item) => item.endpoints || []).slice(0, 3);
   const endpointLine = endpoints[0]?.path ? ` through endpoint "${endpoints[0].path}"` : "";
+  const moduleGaps = Array.isArray(gapResults?.findings)
+    ? gapResults.findings.filter((gap) => {
+        const related = String(gap?.relatedDocument || gap?.module || '').toLowerCase();
+        return related.includes(module.toLowerCase().split(" ")[0]);
+      })
+    : [];
   const title = `BDD - ${module}`;
+  const gapText = moduleGaps.length
+    ? moduleGaps.map((gap) => `- Gap: ${gap.title}. Fix: ${gap.recommendedFix || gap.description || 'Review and close the gap.'}`).join("\n")
+    : `- No active gap findings were passed for this module.`;
   const gherkin = [
     `Feature: ${module}`,
     `  As a QA reviewer`,
@@ -113,7 +124,14 @@ function buildFeature(signals, module) {
     id: `bdd-${slugify(module)}`,
     title,
     module,
-    businessView: `Validate normal and invalid ${module.toLowerCase()} behavior for ${project}. The scenarios are grounded in ${classHint} and related package signals.`,
+    businessView: [
+      `Module overview: ${module} validates the business flow for ${project}.`,
+      `Primary responsibility: confirm the module responds correctly to expected, invalid, and boundary inputs.`,
+      `Traceability: scenarios are grounded in ${classHint}${endpointLine ? ` and ${endpoints[0].path}` : ''}.`,
+      `Business focus: keep outcomes understandable for reviewers while remaining executable for automation.`,
+      `Gap context:`,
+      gapText,
+    ].join("\n"),
     gherkin,
   };
 }

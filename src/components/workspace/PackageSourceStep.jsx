@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, FolderOpen, Package, ArrowRight, FileArchive, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Upload, FolderOpen, Package, ArrowRight, FileArchive, CheckCircle2, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { listUploadedPackages } from '@/services/pipelineService';
 
-export default function PackageSourceStep({ workspaceData, onNext, onData }) {
+export default function PackageSourceStep({ workspaceData, onNext, onData, onResetArtifacts }) {
   const [source, setSource] = useState(workspaceData?.package_source || null);
   const [fileName, setFileName] = useState(workspaceData?.package_name || '');
   const [packageFile, setPackageFile] = useState(workspaceData?.package_file || null);
@@ -13,6 +13,7 @@ export default function PackageSourceStep({ workspaceData, onNext, onData }) {
   const [repos, setRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [repoError, setRepoError] = useState('');
+  const lastSignatureRef = useRef('');
 
   const loadRepos = useCallback(async () => {
     setLoadingRepos(true);
@@ -32,6 +33,11 @@ export default function PackageSourceStep({ workspaceData, onNext, onData }) {
 
   useEffect(() => {
     if (!source) return;
+    const signature = `${source}|${source === 'upload' ? fileName : selectedRepo?.path || ''}`;
+    if (lastSignatureRef.current && lastSignatureRef.current !== signature) {
+      onResetArtifacts?.();
+    }
+    lastSignatureRef.current = signature;
     const packageName = source === 'upload' ? fileName : selectedRepo?.name || '';
     onData({
       package_source: source,
@@ -52,9 +58,38 @@ export default function PackageSourceStep({ workspaceData, onNext, onData }) {
     }
   };
 
+  const clearUpload = () => {
+    setFileName('');
+    setPackageFile(null);
+    if (source === 'upload') setSource(null);
+    onResetArtifacts?.();
+    onData({
+      package_source: null,
+      package_name: '',
+      package_file: null,
+      selected_package: null,
+      branch: 'develop',
+      version: 'unversioned',
+    });
+  };
+
   const selectRepositoryMode = () => {
     setSource('repository');
     if (!repos.length && !loadingRepos) loadRepos();
+  };
+
+  const clearRepositorySelection = () => {
+    setSelectedRepo(null);
+    if (source === 'repository') setSource(null);
+    onResetArtifacts?.();
+    onData({
+      package_source: null,
+      package_name: '',
+      package_file: null,
+      selected_package: null,
+      branch: 'develop',
+      version: 'unversioned',
+    });
   };
 
   const handleProceed = () => {
@@ -119,6 +154,14 @@ export default function PackageSourceStep({ workspaceData, onNext, onData }) {
             {fileName && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
             <input type="file" accept=".zip,.jar,.war" className="hidden" onChange={handleFileSelect} />
           </label>
+          {fileName && (
+            <div className="flex justify-end">
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={clearUpload}>
+                <X className="w-3.5 h-3.5 mr-1.5" />
+                Remove package
+              </Button>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -155,6 +198,14 @@ export default function PackageSourceStep({ workspaceData, onNext, onData }) {
               </div>
             </Card>
           ))}
+          {selectedRepo && (
+            <div className="flex justify-end">
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={clearRepositorySelection}>
+                <X className="w-3.5 h-3.5 mr-1.5" />
+                Clear selection
+              </Button>
+            </div>
+          )}
         </motion.div>
       )}
 

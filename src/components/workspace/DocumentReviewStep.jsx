@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Code2, ArrowRight, ArrowLeft, Edit3, CheckCircle2, Download, Save, Loader2, AlertTriangle } from 'lucide-react';
+import { FileText, Code2, ArrowRight, ArrowLeft, Edit3, CheckCircle2, Download, Save, Loader2, AlertTriangle, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -9,18 +9,24 @@ import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
 
-export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack }) {
+export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapClear }) {
   const [selectedId, setSelectedId] = useState('');
   const [viewMode, setViewMode] = useState('business');
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [regenLoading, setRegenLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function prepareDocs() {
-      if (documents.length) {
+      const signature = workspaceData.requirement_signature || 'default';
+      const docsMatchSignature =
+        documents.length > 0 &&
+        documents.every((doc) => (doc.source_signature || '') === signature);
+
+      if (docsMatchSignature) {
         setSelectedId(prev => prev || documents[0].id);
         return;
       }
@@ -34,11 +40,16 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           nextDocs = await generateRequirementSuite({
             packageSignals: workspaceData.package_signals,
             uploadedRequirements: [],
+            gapResults,
           });
         }
         if (!cancelled) {
-          setDocuments(nextDocs);
-          setSelectedId(nextDocs[0]?.id || '');
+          const stampedDocs = nextDocs.map((doc) => ({
+            ...doc,
+            source_signature: signature,
+          }));
+          setDocuments(stampedDocs);
+          setSelectedId(stampedDocs[0]?.id || '');
         }
       } catch (err) {
         if (!cancelled) setError(err.message || 'Could not prepare documents.');
@@ -50,13 +61,15 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
     return () => {
       cancelled = true;
     };
-  }, [documents.length, setDocuments, workspaceData]);
+  }, [documents, gapResults, setDocuments, workspaceData]);
 
   const selectedDoc = useMemo(
     () => documents.find((doc) => doc.id === selectedId) || documents[0],
     [documents, selectedId]
   );
   const allBddApproved = documents.filter((doc) => doc.type === 'BDD').every((doc) => doc.approved);
+  const docGapMap = useMemo(() => buildGapMap(gapResults, documents), [gapResults, documents]);
+  const selectedGaps = docGapMap.get(selectedDoc?.id || '') || [];
 
   const updateDoc = (docId, patch) => {
     setDocuments(prev => prev.map(doc => doc.id === docId ? { ...doc, ...patch, lastEdited: new Date().toISOString() } : doc));
@@ -80,6 +93,38 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       : { content: editContent, approved: false, status: 'review' };
     updateDoc(selectedDoc.id, patch);
     setIsEditing(false);
+  };
+
+  const regenerateDocs = async () => {
+    setRegenLoading(true);
+    setError('');
+    try {
+      let nextDocs;
+      if (workspaceData.requirement_source === 'uploaded') {
+        nextDocs = await buildUploadedDocuments(workspaceData);
+      } else {
+        nextDocs = await generateRequirementSuite({
+          packageSignals: workspaceData.package_signals,
+          uploadedRequirements: [],
+          gapResults,
+        });
+      }
+      const stampedDocs = nextDocs.map((doc) => ({
+        ...doc,
+        approved: false,
+        status: 'review',
+        source_signature: workspaceData.requirement_signature || 'default',
+      }));
+      setDocuments(stampedDocs);
+      setSelectedId(stampedDocs[0]?.id || '');
+      setViewMode('business');
+      setIsEditing(false);
+      onGapClear?.();
+    } catch (err) {
+      setError(err.message || 'Could not regenerate documents.');
+    } finally {
+      setRegenLoading(false);
+    }
   };
 
   const downloadDoc = async (doc) => {
@@ -121,37 +166,33 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
       <div className="text-center mb-4">
         <h2 className="font-heading font-bold text-2xl">Document Review</h2>
-        <p className="text-muted-foreground mt-1 text-sm">Review, edit, and approve BRD and BDD documents before launch</p>
+        <p className="text-muted-foreground mt-1 text-sm">Review, edit, and approve your requirement documents</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[500px]">
         <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Requirement Documents</h3>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Requirement Tree</h3>
           <div className="space-y-2">
-            {documents.map((doc) => (
-              <button
-                key={doc.id}
-                onClick={() => { setSelectedId(doc.id); setIsEditing(false); }}
-                className={`w-full p-3 rounded-xl border text-left transition-all ${
-                  selectedDoc?.id === doc.id ? 'bg-accent border-primary/30' : 'bg-white hover:bg-muted/40'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-xs text-primary font-semibold">
-                      {doc.type === 'BRD' ? <FileText className="w-3.5 h-3.5" /> : <Code2 className="w-3.5 h-3.5" />}
-                      {doc.type}
-                    </div>
-                    <p className="font-medium text-sm mt-1 truncate">{doc.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{doc.module}</p>
-                  </div>
-                  {doc.approved && <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />}
-                </div>
-                <Badge variant="outline" className={`text-xs mt-3 ${doc.approved ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-amber-700 border-amber-200 bg-amber-50'}`}>
-                  {doc.approved ? 'Approved' : 'Needs Review'}
-                </Badge>
-              </button>
-            ))}
+            <TreeGroup
+              label="BRD"
+              count={documents.filter((d) => d.type === 'BRD').length}
+              icon={<FileText className="w-4 h-4 text-blue-500" />}
+            >
+              {documents.filter((doc) => doc.type === 'BRD').map((doc) => renderTreeItem(doc, [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
+            </TreeGroup>
+            <TreeGroup
+              label="BDD"
+              count={documents.filter((d) => d.type === 'BDD').length}
+              icon={<Code2 className="w-4 h-4 text-violet-500" />}
+            >
+              {documents.filter((doc) => doc.type === 'BDD').map((doc) => renderTreeItem(doc, docGapMap.get(doc.id) || [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
+            </TreeGroup>
+            <div className="pt-3 mt-3 border-t border-border">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="w-3.5 h-3.5" />
+                <span>AI Generated</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -205,33 +246,82 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
         </div>
 
-        <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4 space-y-4">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Readiness</h3>
-          <div>
-            <p className="text-3xl font-bold">{documents.filter((doc) => doc.approved).length}<span className="text-base font-normal text-muted-foreground"> / {documents.length}</span></p>
-            <p className="text-xs text-muted-foreground mt-1">Approved documents</p>
-          </div>
-          {selectedDoc && (
+        <div className="lg:col-span-3 space-y-4">
+          <div className="bg-white rounded-xl border border-border p-4 space-y-4">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Readiness</h3>
+            <div>
+              <p className="text-3xl font-bold">{documents.filter((doc) => doc.approved).length}<span className="text-base font-normal text-muted-foreground"> / {documents.length}</span></p>
+              <p className="text-xs text-muted-foreground mt-1">Approved documents</p>
+            </div>
+            {selectedDoc && (
+              <Button
+                size="sm"
+                className="w-full rounded-lg h-10 text-xs bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => handleApprove(selectedDoc.id)}
+                disabled={selectedDoc.approved}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                Approve {selectedDoc.type}
+              </Button>
+            )}
             <Button
               size="sm"
-              className="w-full rounded-lg h-10 text-xs bg-emerald-600 hover:bg-emerald-700"
-              onClick={() => handleApprove(selectedDoc.id)}
-              disabled={selectedDoc.approved}
+              variant="outline"
+              className="w-full rounded-lg h-10 text-xs"
+              onClick={() => setDocuments(prev => prev.map(doc => ({ ...doc, approved: true, status: 'approved' })))}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-              Approve {selectedDoc.type}
+              Approve All
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full rounded-lg h-10 text-xs"
-            onClick={() => setDocuments(prev => prev.map(doc => ({ ...doc, approved: true, status: 'approved' })))}
-          >
-            Approve All
-          </Button>
-          <div className={`p-3 rounded-lg text-xs border ${allBddApproved ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
-            {allBddApproved ? 'Pipeline gate is ready. Approved BDD files can be sent to CI.' : 'Pipeline stays locked until all BDD documents are approved.'}
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full rounded-lg h-10 text-xs border-violet-200 text-violet-700"
+              onClick={regenerateDocs}
+              disabled={regenLoading}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${regenLoading ? 'animate-spin' : ''}`} />
+              Re-generate
+            </Button>
+            <div className={`p-3 rounded-lg text-xs border ${allBddApproved ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
+              {allBddApproved ? 'Pipeline gate is ready. Approved BDD files can be sent to CI.' : 'Pipeline stays locked until all BDD documents are approved.'}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-border p-4 space-y-3">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Approval Status</h3>
+            <div className="space-y-2">
+              {documents.map((doc) => (
+                <div key={doc.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate text-muted-foreground">{doc.title}</span>
+                  <Badge variant="outline" className={`text-xs ${doc.approved ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-amber-700 border-amber-200 bg-amber-50'}`}>
+                    {doc.approved ? 'approved' : 'review'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-border p-4 space-y-3">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Detected Gaps</h3>
+            {selectedGaps.length > 0 ? (
+              <div className="space-y-2">
+                {selectedGaps.map((gap, i) => (
+                  <div key={i} className={`p-3 rounded-xl border ${severityBadge(gap.severity)}`}>
+                    <div className="flex items-start gap-2">
+                      <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold">{gap.title}</p>
+                        <p className="text-xs mt-1 opacity-90">{gap.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl border bg-blue-50 border-blue-100 text-blue-700 text-xs">
+                No specific gap is linked to the selected file yet.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -252,6 +342,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
 
 async function buildUploadedDocuments(workspaceData) {
   const now = new Date().toISOString();
+  const signature = workspaceData.requirement_signature || 'uploaded';
   const docs = [];
   if (workspaceData.brd_file) {
     docs.push({
@@ -265,6 +356,7 @@ async function buildUploadedDocuments(workspaceData) {
       content: await fileToText(workspaceData.brd_file),
       gherkinContent: '',
       lastEdited: now,
+      source_signature: signature,
     });
   }
   for (const [index, file] of (workspaceData.bdd_files || []).entries()) {
@@ -280,6 +372,7 @@ async function buildUploadedDocuments(workspaceData) {
       content: text,
       gherkinContent: text,
       lastEdited: now,
+      source_signature: signature,
     });
   }
   return docs;
@@ -288,4 +381,64 @@ async function buildUploadedDocuments(workspaceData) {
 function inferFeatureModule(text, fileName) {
   const feature = String(text || '').match(/^\s*Feature:\s*(.+)$/im)?.[1];
   return feature || fileName.replace(/\.[^.]+$/, '');
+}
+
+function TreeGroup({ label, count, icon, children }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        {icon}
+        <span>{label}</span>
+        <span className="normal-case text-muted-foreground">({count} file{count === 1 ? '' : 's'})</span>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function renderTreeItem(doc, gaps = [], selected = false, onSelect = () => {}) {
+  return (
+    <button
+      key={doc.id}
+      className={`w-full rounded-xl border p-3 text-left transition-all ${
+        selected ? 'bg-accent border-primary/30' : 'bg-white hover:bg-muted/40'
+      }`}
+      onClick={onSelect}
+      type="button"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium text-sm truncate">{doc.title}</p>
+          <p className="text-xs text-muted-foreground truncate">{doc.module}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {gaps.length > 0 && <TriangleAlert className="w-4 h-4 text-amber-500" />}
+          <Badge variant="outline" className={`text-xs ${doc.approved ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-amber-700 border-amber-200 bg-amber-50'}`}>
+            {doc.approved ? 'approved' : 'review'}
+          </Badge>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function buildGapMap(gapResults, documents) {
+  const map = new Map();
+  const findings = Array.isArray(gapResults?.findings) ? gapResults.findings : [];
+  for (const doc of documents) {
+    const docFindings = findings.filter((gap) => {
+      const related = String(gap?.relatedDocument || gap?.module || gap?.title || '').toLowerCase();
+      const title = String(doc?.title || '').toLowerCase();
+      const module = String(doc?.module || '').toLowerCase();
+      return related.includes(title) || related.includes(module) || title.includes(related) || module.includes(related);
+    });
+    map.set(doc.id, docFindings);
+  }
+  return map;
+}
+
+function severityBadge(severity) {
+  if (severity === 'high') return 'bg-red-50 border-red-200 text-red-700';
+  if (severity === 'low') return 'bg-blue-50 border-blue-200 text-blue-700';
+  return 'bg-amber-50 border-amber-200 text-amber-700';
 }

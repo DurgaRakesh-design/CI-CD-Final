@@ -11,7 +11,7 @@ const severityColors = {
   low: 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
-export default function GapAnalysisStep({ workspaceData, documents, onNext, onBack, onGapsFound }) {
+export default function GapAnalysisStep({ workspaceData, documents, setDocuments, onNext, onBack, onGapsFound }) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -23,6 +23,12 @@ export default function GapAnalysisStep({ workspaceData, documents, onNext, onBa
       const payload = await runGapAnalysis({ packageSignals: workspaceData.package_signals, documents });
       setResult(payload);
       onGapsFound?.(payload);
+      setDocuments?.(prev => prev.map((doc) => ({
+        ...doc,
+        approved: false,
+        status: 'review',
+        lastEdited: new Date().toISOString(),
+      })));
     } catch (err) {
       setError(err.message || 'Gap analysis failed.');
     } finally {
