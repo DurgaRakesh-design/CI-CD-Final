@@ -1,5 +1,5 @@
 {
-  "name": "base44-app",
+  "name": "qa-pipeline-portal",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,8 +12,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@base44/sdk": "^0.8.31",
-    "@base44/vite-plugin": "^1.0.21",
     "@hello-pangea/dnd": "^17.0.0",
     "@hookform/resolvers": "^4.1.2",
     "@radix-ui/react-accordion": "^1.2.3",
@@ -55,6 +53,7 @@
     "framer-motion": "^11.16.4",
     "html2canvas": "^1.4.1",
     "input-otp": "^1.4.2",
+    "jszip": "^3.10.1",
     "jspdf": "^4.2.1",
     "lodash": "^4.17.21",
     "lucide-react": "^0.475.0",

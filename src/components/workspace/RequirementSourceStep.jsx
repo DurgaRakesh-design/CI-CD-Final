@@ -12,21 +12,21 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
 
   const handleBrdUpload = (e) => {
     const file = e.target.files?.[0];
-    if (file) setBrdFile(file.name);
+    if (file) setBrdFile(file);
     e.target.value = '';
   };
 
   const handleBddUpload = (e) => {
     const newFiles = Array.from(e.target.files || []);
     setBddFiles(prev => {
-      const existing = new Set(prev);
-      const toAdd = newFiles.map(f => f.name).filter(n => !existing.has(n));
+      const existing = new Set(prev.map(file => file.name));
+      const toAdd = newFiles.filter(f => !existing.has(f.name));
       return [...prev, ...toAdd];
     });
     e.target.value = '';
   };
 
-  const removeBdd = (name) => setBddFiles(prev => prev.filter(f => f !== name));
+  const removeBdd = (name) => setBddFiles(prev => prev.filter(f => f.name !== name));
   const removeBrd = () => setBrdFile(null);
 
   const canProceed =
@@ -34,7 +34,11 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
     (source === 'attach' && brdFile !== null && bddFiles.length > 0);
 
   const handleProceed = () => {
-    onData({ requirement_source: source === 'attach' ? 'uploaded' : 'ai_generated' });
+    onData({
+      requirement_source: source === 'attach' ? 'uploaded' : 'ai_generated',
+      brd_file: brdFile,
+      bdd_files: bddFiles,
+    });
     onNext();
   };
 
@@ -107,7 +111,7 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
               ) : (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-white border border-border">
                   <FileText className="w-4 h-4 text-blue-500 shrink-0" />
-                  <span className="text-sm font-medium flex-1 truncate">{brdFile}</span>
+                  <span className="text-sm font-medium flex-1 truncate">{brdFile.name}</span>
                   <Badge variant="outline" className="text-xs text-blue-600 border-blue-200 shrink-0">BRD</Badge>
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   <button onClick={removeBrd} className="ml-1 text-muted-foreground hover:text-destructive transition-colors">
@@ -134,12 +138,12 @@ export default function RequirementSourceStep({ onNext, onBack, onData }) {
               {bddFiles.length > 0 && (
                 <div className="space-y-1.5">
                   {bddFiles.map((f) => (
-                    <div key={f} className="flex items-center gap-2 p-3 rounded-xl bg-white border border-border">
+                    <div key={f.name} className="flex items-center gap-2 p-3 rounded-xl bg-white border border-border">
                       <File className="w-4 h-4 text-violet-500 shrink-0" />
-                      <span className="text-sm font-medium flex-1 truncate">{f}</span>
+                      <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
                       <Badge variant="outline" className="text-xs text-violet-600 border-violet-200 shrink-0">BDD</Badge>
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                      <button onClick={() => removeBdd(f)} className="ml-1 text-muted-foreground hover:text-destructive transition-colors">
+                      <button onClick={() => removeBdd(f.name)} className="ml-1 text-muted-foreground hover:text-destructive transition-colors">
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>

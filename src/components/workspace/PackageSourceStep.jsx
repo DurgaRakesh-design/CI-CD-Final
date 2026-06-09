@@ -1,38 +1,54 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, FolderOpen, Package, ArrowRight, FileArchive, CheckCircle2 } from 'lucide-react';
+import { Upload, FolderOpen, Package, ArrowRight, FileArchive, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { listUploadedPackages } from '@/services/pipelineService';
 
 export default function PackageSourceStep({ onNext, onData }) {
   const [source, setSource] = useState(null);
   const [fileName, setFileName] = useState('');
-  const [selectedRepo, setSelectedRepo] = useState('');
+  const [packageFile, setPackageFile] = useState(null);
+  const [selectedRepo, setSelectedRepo] = useState(null);
+  const [repos, setRepos] = useState([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [repoError, setRepoError] = useState('');
 
-  const repos = [
-    { name: 'payment-service', version: '2.4.1', branch: 'main' },
-    { name: 'user-management-api', version: '1.8.0', branch: 'develop' },
-    { name: 'inventory-module', version: '3.1.2', branch: 'release/3.1' },
-  ];
+  const loadRepos = async () => {
+    setLoadingRepos(true);
+    setRepoError('');
+    try {
+      setRepos(await listUploadedPackages());
+    } catch (error) {
+      setRepoError(error.message || 'Could not load repository packages.');
+    } finally {
+      setLoadingRepos(false);
+    }
+  };
 
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (file) {
       setFileName(file.name);
+      setPackageFile(file);
       setSource('upload');
     }
   };
 
+  const selectRepositoryMode = () => {
+    setSource('repository');
+    if (!repos.length && !loadingRepos) loadRepos();
+  };
+
   const handleProceed = () => {
-    const pkg = source === 'upload'
-      ? { name: fileName.replace('.zip', ''), source: 'upload' }
-      : repos.find(r => r.name === selectedRepo);
+    const packageName = source === 'upload' ? fileName : selectedRepo?.name;
     onData({
       package_source: source,
-      package_name: pkg?.name || fileName,
-      branch: pkg?.branch || 'main',
-      version: pkg?.version || '1.0.0',
+      package_name: packageName,
+      package_file: packageFile,
+      selected_package: source === 'repository' ? selectedRepo : null,
+      branch: 'develop',
+      version: 'unversioned',
     });
     onNext();
   };
@@ -45,11 +61,10 @@ export default function PackageSourceStep({ onNext, onData }) {
     >
       <div className="text-center mb-8">
         <h2 className="font-heading font-bold text-2xl">Select Package Source</h2>
-        <p className="text-muted-foreground mt-2">Upload a Java package or select from existing repositories</p>
+        <p className="text-muted-foreground mt-2">Upload a Java package or select from existing repository uploads</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Fresh Upload */}
         <Card
           className={`p-6 cursor-pointer transition-all hover:shadow-md ${
             source === 'upload' ? 'border-primary ring-2 ring-primary/20 bg-accent' : 'hover:border-primary/30'
@@ -62,17 +77,16 @@ export default function PackageSourceStep({ onNext, onData }) {
             </div>
             <div>
               <h3 className="font-semibold text-sm">Fresh Upload</h3>
-              <p className="text-xs text-muted-foreground mt-1">Upload ZIP Java Package</p>
+              <p className="text-xs text-muted-foreground mt-1">Upload ZIP or JAR Java package</p>
             </div>
           </div>
         </Card>
 
-        {/* From Repository */}
         <Card
           className={`p-6 cursor-pointer transition-all hover:shadow-md ${
             source === 'repository' ? 'border-primary ring-2 ring-primary/20 bg-accent' : 'hover:border-primary/30'
           }`}
-          onClick={() => setSource('repository')}
+          onClick={selectRepositoryMode}
         >
           <div className="flex flex-col items-center text-center gap-3">
             <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
@@ -80,47 +94,56 @@ export default function PackageSourceStep({ onNext, onData }) {
             </div>
             <div>
               <h3 className="font-semibold text-sm">From Repository</h3>
-              <p className="text-xs text-muted-foreground mt-1">Select existing package</p>
+              <p className="text-xs text-muted-foreground mt-1">Select from packages/uploads</p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Upload area */}
       {source === 'upload' && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <label className="flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-dashed border-primary/30 bg-accent/50 cursor-pointer hover:bg-accent transition-colors">
             <FileArchive className="w-8 h-8 text-primary/60" />
             <div className="text-center">
-              <p className="text-sm font-medium">{fileName || 'Drop your ZIP file here'}</p>
-              <p className="text-xs text-muted-foreground mt-1">Java packages (.zip, .jar)</p>
+              <p className="text-sm font-medium">{fileName || 'Drop your package here'}</p>
+              <p className="text-xs text-muted-foreground mt-1">Supported: .zip, .jar, .war</p>
             </div>
             {fileName && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
-            <input type="file" accept=".zip,.jar" className="hidden" onChange={handleFileSelect} />
+            <input type="file" accept=".zip,.jar,.war" className="hidden" onChange={handleFileSelect} />
           </label>
         </motion.div>
       )}
 
-      {/* Repository selection */}
       {source === 'repository' && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" className="rounded-lg h-8 text-xs" onClick={loadRepos} disabled={loadingRepos}>
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loadingRepos ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+          {repoError && <p className="text-xs text-red-600">{repoError}</p>}
+          {loadingRepos && <p className="text-xs text-muted-foreground">Loading packages from GitHub...</p>}
+          {!loadingRepos && !repoError && repos.length === 0 && (
+            <p className="text-xs text-muted-foreground">No deployable package files found in packages/uploads.</p>
+          )}
           {repos.map((repo) => (
             <Card
-              key={repo.name}
+              key={repo.path}
               className={`p-4 cursor-pointer transition-all ${
-                selectedRepo === repo.name ? 'border-primary bg-accent' : 'hover:border-primary/30'
+                selectedRepo?.path === repo.path ? 'border-primary bg-accent' : 'hover:border-primary/30'
               }`}
-              onClick={() => setSelectedRepo(repo.name)}
+              onClick={() => setSelectedRepo(repo)}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Package className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium text-sm">{repo.name}</p>
-                    <p className="text-xs text-muted-foreground">v{repo.version} · {repo.branch}</p>
+                <div className="flex items-center gap-3 min-w-0">
+                  <Package className="w-5 h-5 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{repo.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{repo.path} · {Math.max(1, Math.round((repo.size || 0) / 1024))} KB</p>
                   </div>
                 </div>
-                {selectedRepo === repo.name && <CheckCircle2 className="w-5 h-5 text-primary" />}
+                {selectedRepo?.path === repo.path && <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />}
               </div>
             </Card>
           ))}
@@ -130,7 +153,7 @@ export default function PackageSourceStep({ onNext, onData }) {
       <div className="flex justify-end pt-4">
         <Button
           onClick={handleProceed}
-          disabled={!source || (source === 'upload' && !fileName) || (source === 'repository' && !selectedRepo)}
+          disabled={!source || (source === 'upload' && !packageFile) || (source === 'repository' && !selectedRepo)}
           className="rounded-xl h-11 px-6"
         >
           Continue

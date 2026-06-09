@@ -1,43 +1,67 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Cpu, Check, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Cpu, Check, ArrowRight, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-
-const detectedProps = [
-  { label: 'Platform', value: 'Java / Spring Boot', icon: '☕' },
-  { label: 'Technology Stack', value: 'Spring Boot 3.2, Maven, JUnit 5, Cucumber', icon: '🛠' },
-  { label: 'Branch', value: 'main', icon: '🌿' },
-  { label: 'Version', value: '2.4.1', icon: '📦' },
-  { label: 'Environment', value: 'Production', icon: '🌐' },
-];
+import { analyzePackageFile } from '@/services/packageAnalyzer';
 
 export default function PackageDetectionStep({ workspaceData, onNext, onBack, onData }) {
   const [detecting, setDetecting] = useState(true);
-  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState('');
+  const [signals, setSignals] = useState(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setProgress(p => {
-        if (p >= 100) {
-          clearInterval(interval);
-          setDetecting(false);
-          return 100;
+    let cancelled = false;
+    async function detect() {
+      setDetecting(true);
+      setError('');
+      try {
+        let result;
+        if (workspaceData.package_file) {
+          result = await analyzePackageFile(workspaceData.package_file);
+        } else {
+          result = {
+            fileName: workspaceData.package_name,
+            projectName: workspaceData.package_name?.replace(/\.(zip|jar|war)$/i, '') || 'Repository Package',
+            platform: 'Java',
+            buildTool: 'Repository package',
+            sourceFileCount: 0,
+            testFileCount: 0,
+            bddFileCount: 0,
+            modules: ['Repository Package'],
+            endpoints: [],
+            classes: [],
+          };
         }
-        return p + 5;
-      });
-    }, 80);
-    return () => clearInterval(interval);
-  }, []);
+        if (!cancelled) {
+          setSignals(result);
+          onData({
+            package_signals: result,
+            platform: result.platform,
+            tech_stack: `${result.platform}${result.buildTool ? ` / ${result.buildTool}` : ''}`,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Package detection failed.');
+      } finally {
+        if (!cancelled) setDetecting(false);
+      }
+    }
+    detect();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceData.package_file, workspaceData.package_name]);
 
-  const handleProceed = () => {
-    onData({
-      platform: 'Java / Spring Boot',
-      tech_stack: 'Spring Boot 3.2, Maven, JUnit 5, Cucumber',
-      environment: 'Production',
-    });
-    onNext();
-  };
+  const detectedProps = [
+    { label: 'Project', value: signals?.projectName || workspaceData.package_name || 'Unknown' },
+    { label: 'Platform', value: signals?.platform || 'Java' },
+    { label: 'Build Tool', value: signals?.buildTool || 'Unknown' },
+    { label: 'Source Files', value: String(signals?.sourceFileCount ?? 0) },
+    { label: 'Existing Tests', value: String(signals?.testFileCount ?? 0) },
+    { label: 'BDD Files in Package', value: String(signals?.bddFileCount ?? 0) },
+    { label: 'Detected Modules', value: (signals?.modules || []).slice(0, 3).join(', ') || 'Pending review' },
+  ];
 
   return (
     <motion.div
@@ -47,30 +71,29 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
     >
       <div className="text-center mb-8">
         <h2 className="font-heading font-bold text-2xl">Package Detection</h2>
-        <p className="text-muted-foreground mt-2">Analyzing your package structure and metadata</p>
+        <p className="text-muted-foreground mt-2">Analyzing package structure and QA signals</p>
       </div>
 
       {detecting ? (
         <motion.div className="flex flex-col items-center gap-6 py-10">
-          <div className="relative">
-            <div className="w-20 h-20 rounded-2xl bg-accent flex items-center justify-center">
-              <Cpu className="w-8 h-8 text-primary animate-pulse" />
-            </div>
+          <div className="w-20 h-20 rounded-2xl bg-accent flex items-center justify-center">
+            <Cpu className="w-8 h-8 text-primary animate-pulse" />
           </div>
-          <div className="w-full max-w-xs">
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-primary rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ ease: 'linear' }}
-              />
-            </div>
-            <p className="text-sm text-muted-foreground text-center mt-2">
-              Detecting... {progress}%
-            </p>
-          </div>
+          <p className="text-sm text-muted-foreground text-center">Scanning Java package metadata...</p>
         </motion.div>
+      ) : error ? (
+        <div className="space-y-4">
+          <div className="flex items-start gap-2 p-4 rounded-xl bg-red-50 text-red-700 text-sm border border-red-100">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <div className="flex items-center justify-between pt-4">
+            <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+          </div>
+        </div>
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
           {detectedProps.map((prop, i) => (
@@ -78,14 +101,11 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
               key={prop.label}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="flex items-center justify-between p-4 rounded-xl bg-white border border-border"
+              transition={{ delay: i * 0.05 }}
+              className="flex items-center justify-between gap-3 p-4 rounded-xl bg-white border border-border"
             >
-              <div className="flex items-center gap-3">
-                <span className="text-lg">{prop.icon}</span>
-                <span className="text-sm font-medium text-muted-foreground">{prop.label}</span>
-              </div>
-              <Badge variant="secondary" className="font-mono text-xs">{prop.value}</Badge>
+              <span className="text-sm font-medium text-muted-foreground">{prop.label}</span>
+              <Badge variant="secondary" className="font-mono text-xs text-right max-w-[260px] truncate">{prop.value}</Badge>
             </motion.div>
           ))}
 
@@ -99,7 +119,7 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
-            <Button onClick={handleProceed} className="rounded-xl h-11 px-6">
+            <Button onClick={onNext} className="rounded-xl h-11 px-6">
               Continue
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>

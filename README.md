@@ -1,39 +1,43 @@
-**Welcome to your Base44 project** 
+# QA Pipeline Portal
 
-**About**
+React/Vite frontend for the AI-assisted QA pipeline portal.
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+## MVP 1 Scope
 
-This project contains everything you need to run your app locally.
+- Home page and QA Workspace.
+- Fresh package upload or repository package selection.
+- Package signal detection for uploaded Java ZIP files.
+- Single BRD and multiple BDD documents.
+- AI-backed BRD/BDD generation through Netlify Functions.
+- AI-backed package-to-document gap analysis through Netlify Functions.
+- Approval-gated pipeline trigger.
+- GitHub package/document upload and GitHub Actions dispatch through a Netlify GitHub proxy.
 
-**Edit the code in your local development environment**
+Dashboard reporting remains an MVP 2 area.
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+## Local Setup
 
-**Prerequisites:** 
-
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
-
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
-
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
+```bash
+npm install
+npm run build
 ```
 
-Run the app: `npm run dev`
+For local development:
 
-**Publish your changes**
+```bash
+npm run dev
+```
 
-Open [Base44.com](http://Base44.com) and click on Publish.
+## Netlify Environment Variables
 
-**Docs & Support**
+Set these in Netlify, not in frontend code:
 
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+```text
+GITHUB_PAT=<fine-grained GitHub token>
+GITHUB_OWNER=ManishShamlani98
+GITHUB_REPO=qa-pipeline-prod
+OPENAI_API_KEY=<OpenAI key>
+OPENAI_MODEL=gpt-4.1
+```
 
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+Optional frontend build variables are documented in `.env.example`.

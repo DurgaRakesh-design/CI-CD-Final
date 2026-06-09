@@ -16,6 +16,7 @@ export default function QAWorkspace() {
     status: 'draft',
   });
   const [gapResults, setGapResults] = useState(null);
+  const [documents, setDocuments] = useState([]);
 
   const updateData = (data) => {
     setWorkspaceData(prev => ({ ...prev, ...data }));
@@ -40,15 +41,15 @@ export default function QAWorkspace() {
       case 1:
         return <PackageDetectionStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
       case 2:
-        return <RequirementSourceStep onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
+        return <RequirementSourceStep onNext={() => { setDocuments([]); setGapResults(null); internalGoNext(); }} onBack={internalGoBack} onData={updateData} />;
       case 3:
-        return <DocumentReviewStep onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} />;
+        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} />;
       case 4:
-        return <GapAnalysisStep onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} />;
+        return <GapAnalysisStep workspaceData={workspaceData} documents={documents} onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} />;
       case 5:
-        return <ApprovalStep onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
+        return <ApprovalStep documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
       case 6:
-        return <PipelineTriggerStep workspaceData={workspaceData} />;
+        return <PipelineTriggerStep workspaceData={workspaceData} documents={documents} />;
       default:
         return null;
     }
