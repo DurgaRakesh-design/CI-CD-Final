@@ -41,42 +41,66 @@ export function compactSignals(packageSignals = {}) {
       methods: (item.methods || []).slice(0, 14),
       endpoints: item.endpoints || [],
     })),
-    sourceFiles: (packageSignals.sourceFiles || []).slice(0, 80).map((item) => ({
+    sourceFiles: (packageSignals.sourceFiles || []).slice(0, 40).map((item) => ({
       path: item.path,
       type: item.type,
       truncated: Boolean(item.truncated),
       charCount: item.charCount,
-      content: String(item.content || '').slice(0, 12000),
+      content: String(item.content || '').slice(0, 5500),
     })),
   };
 }
 
-export async function callOpenAI({ system, user, temperature = 0.2 }) {
+export async function callOpenAI({ system, user, temperature = 0.2, timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 8000) }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   const model = process.env.OPENAI_MODEL || "gpt-4.1";
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-  });
-  const payload = await response.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`OpenAI request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const raw = await response.text();
+  let payload;
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new Error(`OpenAI returned a non-JSON response: ${raw.slice(0, 180)}`);
+  }
   if (!response.ok) {
     throw new Error(payload?.error?.message || `OpenAI request failed with ${response.status}`);
   }
   const content = payload?.choices?.[0]?.message?.content || "{}";
-  return JSON.parse(content);
+  try {
+    return JSON.parse(content);
+  } catch {
+    throw new Error(`OpenAI returned invalid JSON content: ${content.slice(0, 180)}`);
+  }
 }
 
 export function slugify(value) {

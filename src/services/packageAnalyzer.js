@@ -10,9 +10,9 @@ const ENDPOINT = /@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping
 const BDD_FILE = /\.(feature|story|spec|md|txt)$/i;
 const CONFIG_FILE = /src\/main\/resources\/.*\.(properties|ya?ml)$/i;
 const BUILD_FILE = /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/i;
-const MAX_SOURCE_FILES = 90;
-const MAX_SOURCE_CHARS = 12000;
-const MAX_TOTAL_SOURCE_CHARS = 220000;
+const MAX_SOURCE_FILES = 40;
+const MAX_SOURCE_CHARS = 5500;
+const MAX_TOTAL_SOURCE_CHARS = 70000;
 
 export async function analyzePackageFile(file) {
   if (!file) throw new Error('Package file is required.');
