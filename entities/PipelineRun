@@ -1,0 +1,101 @@
+{
+  "name": "PipelineRun",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "type": "string"
+    },
+    "run_number": {
+      "type": "number"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "success",
+        "failed",
+        "cancelled"
+      ],
+      "default": "queued"
+    },
+    "duration_seconds": {
+      "type": "number"
+    },
+    "total_tests": {
+      "type": "number",
+      "default": 0
+    },
+    "passed_tests": {
+      "type": "number",
+      "default": 0
+    },
+    "failed_tests": {
+      "type": "number",
+      "default": 0
+    },
+    "skipped_tests": {
+      "type": "number",
+      "default": 0
+    },
+    "success_rate": {
+      "type": "number",
+      "default": 0
+    },
+    "bdd_coverage": {
+      "type": "number",
+      "default": 0
+    },
+    "code_coverage": {
+      "type": "number",
+      "default": 0
+    },
+    "ai_generated_tests": {
+      "type": "number",
+      "default": 0
+    },
+    "frontend_status": {
+      "type": "string",
+      "enum": [
+        "not_run",
+        "running",
+        "passed",
+        "failed"
+      ],
+      "default": "not_run"
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "release_readiness_score": {
+      "type": "number",
+      "default": 0
+    },
+    "package_name": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace_id"
+  ]
+}
