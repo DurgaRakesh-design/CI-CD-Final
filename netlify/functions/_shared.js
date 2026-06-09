@@ -41,6 +41,13 @@ function compactSignals(packageSignals = {}) {
       methods: (item.methods || []).slice(0, 14),
       endpoints: item.endpoints || [],
     })),
+    sourceFiles: (packageSignals.sourceFiles || []).slice(0, 80).map((item) => ({
+      path: item.path,
+      type: item.type,
+      truncated: Boolean(item.truncated),
+      charCount: item.charCount,
+      content: String(item.content || '').slice(0, 12000),
+    })),
   };
 }
 

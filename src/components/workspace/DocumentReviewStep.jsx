@@ -5,11 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/components/ui/use-toast';
 import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
 
-export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults }) {
+export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapResultsChange }) {
+  const { toast } = useToast();
   const [selectedId, setSelectedId] = useState('');
   const [viewMode, setViewMode] = useState('business');
   const [isEditing, setIsEditing] = useState(false);
@@ -64,13 +66,10 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   }, [documents, gapResults, setDocuments, workspaceData]);
 
   const gapModel = useMemo(() => buildGapModel(gapResults, documents), [gapResults, documents]);
-  const selectedGap = useMemo(
-    () => gapModel.unlinkedGaps.find((gap) => gap.uiId === selectedId) || null,
-    [gapModel.unlinkedGaps, selectedId]
-  );
+  const selectedUnlinkedGaps = selectedId === 'unlinked-gaps';
   const selectedDoc = useMemo(
-    () => selectedGap ? null : documents.find((doc) => doc.id === selectedId) || documents[0],
-    [documents, selectedGap, selectedId]
+    () => selectedUnlinkedGaps ? null : documents.find((doc) => doc.id === selectedId) || documents[0],
+    [documents, selectedUnlinkedGaps, selectedId]
   );
   const allBddApproved = documents.filter((doc) => doc.type === 'BDD').every((doc) => doc.approved);
   const selectedGaps = selectedDoc ? gapModel.docGapMap.get(selectedDoc.id) || [] : [];
@@ -125,6 +124,11 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       } : doc));
       setViewMode('business');
       setIsEditing(false);
+      removeGapFindings(selectedGaps);
+      toast({
+        title: `${selectedDoc.type} regenerated`,
+        description: 'Linked gap findings were applied to this document. Please review and approve it again.',
+      });
     } catch (err) {
       setError(err.message || 'Could not regenerate the selected document.');
     } finally {
@@ -157,11 +161,30 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       setSelectedId(generated[0].id);
       setViewMode('business');
       setIsEditing(false);
+      removeGapFindings(gapModel.unlinkedGaps);
+      toast({
+        title: 'BDD coverage generated',
+        description: `${generated.length} BDD document${generated.length === 1 ? '' : 's'} created from unlinked gap findings.`,
+      });
     } catch (err) {
       setError(err.message || 'Could not generate BDD files from unlinked gaps.');
     } finally {
       setRegenLoading(false);
     }
+  };
+
+  const removeGapFindings = (resolvedGaps) => {
+    if (!onGapResultsChange || !Array.isArray(gapResults?.findings)) return;
+    const resolvedKeys = new Set(resolvedGaps.map(gapKey));
+    const remaining = gapResults.findings.filter((gap) => !resolvedKeys.has(gapKey(gap)));
+    onGapResultsChange({
+      ...gapResults,
+      findings: remaining,
+      summary: summarizeFindings(remaining),
+      recommendations: remaining.length
+        ? gapResults.recommendations || []
+        : ['Resolved generated gap findings. Run gap analysis again to confirm closure.'],
+    });
   };
 
   const downloadDoc = async (doc) => {
@@ -230,7 +253,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
                 count={gapModel.unlinkedGaps.length}
                 icon={<TriangleAlert className="w-4 h-4 text-amber-500" />}
               >
-                {gapModel.unlinkedGaps.map((gap) => renderGapTreeItem(gap, selectedGap?.uiId === gap.uiId, () => { setSelectedId(gap.uiId); setIsEditing(false); }))}
+                {renderGapGroupItem(gapModel.unlinkedGaps, selectedUnlinkedGaps, () => { setSelectedId('unlinked-gaps'); setIsEditing(false); })}
               </TreeGroup>
             )}
             <div className="pt-3 mt-3 border-t border-border">
@@ -244,7 +267,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
 
         <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col">
           <div className="flex items-center justify-between gap-2 p-3 border-b border-border">
-            <span className="font-semibold text-sm truncate">{selectedGap ? selectedGap.title : selectedDoc?.title}</span>
+            <span className="font-semibold text-sm truncate">{selectedUnlinkedGaps ? 'Unlinked Gap Findings' : selectedDoc?.title}</span>
             <div className="flex items-center gap-1">
               {selectedDoc?.type === 'BDD' && !isEditing && (
                 <Tabs value={viewMode} onValueChange={setViewMode} className="mr-2">
@@ -274,8 +297,12 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             </div>
           </div>
           <div className="flex-1 p-6 overflow-auto">
-            {selectedGap ? (
-              <GapDetail gap={selectedGap} />
+            {selectedUnlinkedGaps ? (
+              <UnlinkedGapDetail
+                gaps={gapModel.unlinkedGaps}
+                loading={regenLoading}
+                onGenerate={generateAllUnlinkedGaps}
+              />
             ) : isEditing ? (
               <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="min-h-[420px] font-mono text-sm" />
             ) : (
@@ -320,20 +347,8 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
                 onClick={regenerateSelectedDoc}
                 disabled={regenLoading}
               >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${regenLoading ? 'animate-spin' : ''}`} />
-                Regenerate with findings
-              </Button>
-            )}
-            {hasGapAnalysis && gapModel.unlinkedGaps.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full rounded-lg h-10 text-xs border-violet-200 text-violet-700"
-                onClick={generateAllUnlinkedGaps}
-                disabled={regenLoading}
-              >
-                <PlusCircle className="w-3.5 h-3.5 mr-1.5" />
-                Generate BDDs for unlinked gaps
+                {regenLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                {regenLoading ? 'Regenerating...' : 'Regenerate with findings'}
               </Button>
             )}
             <Button
@@ -370,11 +385,14 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
 
           <div className="bg-white rounded-xl border border-border p-4 space-y-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Detected Gaps</h3>
-            {selectedGap ? (
-              <div className={`p-3 rounded-xl border ${severityBadge(selectedGap.severity)}`}>
-                <p className="text-sm font-semibold">{selectedGap.title}</p>
-                <p className="text-xs mt-1">{selectedGap.description}</p>
-                <p className="text-xs mt-2 font-medium">Suggested action: update requirements manually, or use the combined unlinked-gap generation action to create BDD coverage for all unlinked findings.</p>
+            {selectedUnlinkedGaps ? (
+              <div className="space-y-2">
+                {gapModel.unlinkedGaps.map((gap) => (
+                  <div key={gap.uiId} className={`p-3 rounded-xl border ${severityBadge(gap.severity)}`}>
+                    <p className="text-sm font-semibold">{gap.title}</p>
+                    <p className="text-xs mt-1">{gap.description}</p>
+                  </div>
+                ))}
               </div>
             ) : selectedGaps.length > 0 ? (
               <div className="space-y-2">
@@ -495,10 +513,10 @@ function renderTreeItem(doc, gaps = [], selected = false, onSelect = () => {}) {
   );
 }
 
-function renderGapTreeItem(gap, selected = false, onSelect = () => {}) {
+function renderGapGroupItem(gaps, selected = false, onSelect = () => {}) {
+  const highCount = gaps.filter((gap) => gap.severity === 'high').length;
   return (
     <button
-      key={gap.uiId}
       className={`w-full rounded-xl border p-3 text-left transition-all ${
         selected ? 'bg-amber-50 border-amber-300' : 'bg-white hover:bg-muted/40'
       }`}
@@ -507,30 +525,49 @@ function renderGapTreeItem(gap, selected = false, onSelect = () => {}) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-medium text-sm truncate">{gap.title}</p>
-          <p className="text-xs text-muted-foreground truncate">{gap.module || 'Application'}</p>
+          <p className="font-medium text-sm truncate">Unlinked requirement gaps</p>
+          <p className="text-xs text-muted-foreground truncate">{gaps.length} finding{gaps.length === 1 ? '' : 's'} need BDD coverage</p>
         </div>
-        <Badge variant="outline" className={`text-xs shrink-0 ${severityBadge(gap.severity)}`}>
-          {gap.severity || 'medium'}
+        <Badge variant="outline" className={`text-xs shrink-0 ${highCount ? severityBadge('high') : severityBadge('medium')}`}>
+          {highCount ? `${highCount} high` : 'review'}
         </Badge>
       </div>
     </button>
   );
 }
 
-function GapDetail({ gap }) {
+function UnlinkedGapDetail({ gaps, loading, onGenerate }) {
   return (
     <div className="space-y-5 text-sm">
-      <div className={`rounded-xl border p-4 ${severityBadge(gap.severity)}`}>
-        <p className="text-xs font-semibold uppercase tracking-wide">Unlinked Requirement Gap</p>
-        <h3 className="font-semibold text-lg mt-2">{gap.title}</h3>
-        <p className="mt-2 leading-relaxed">{gap.description}</p>
+      <div className="rounded-xl border border-violet-100 bg-violet-50 p-4 text-violet-800">
+        <p className="text-xs font-semibold uppercase tracking-wide">Unlinked Gap Coverage</p>
+        <h3 className="font-semibold text-lg mt-2">Generate BDD coverage for all unlinked findings</h3>
+        <p className="mt-2 leading-relaxed">
+          These findings are not confidently owned by an existing BRD or BDD. Review them together, then generate a focused BDD set for the missing coverage.
+        </p>
+        <Button className="mt-4 rounded-xl h-10 px-5" onClick={onGenerate} disabled={loading}>
+          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PlusCircle className="w-4 h-4 mr-2" />}
+          {loading ? 'Generating BDD coverage...' : 'Generate BDDs for unlinked gaps'}
+        </Button>
       </div>
-      <div className="grid sm:grid-cols-2 gap-3">
-        <InfoTile label="Module" value={gap.module || 'Application'} />
-        <InfoTile label="Package Signal" value={gap.packageSignal || 'Package scan'} />
-        <InfoTile label="Business Impact" value={gap.impact || 'Coverage may miss a real behavior.'} />
-        <InfoTile label="Recommended Fix" value={gap.recommendedFix || 'Create or update BDD coverage for this gap.'} />
+      <div className="space-y-3">
+        {gaps.map((gap) => (
+          <div key={gap.uiId} className={`rounded-xl border p-4 ${severityBadge(gap.severity)}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold">{gap.title}</p>
+                <p className="mt-1 text-xs leading-relaxed">{gap.description}</p>
+              </div>
+              <Badge variant="outline" className={`text-xs shrink-0 ${severityBadge(gap.severity)}`}>
+                {gap.severity || 'medium'}
+              </Badge>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3 mt-3">
+              <InfoTile label="Module" value={gap.module || 'Application'} />
+              <InfoTile label="Recommended Fix" value={gap.recommendedFix || 'Create BDD coverage for this gap.'} />
+            </div>
+          </div>
+        ))}
       </div>
       <div className="rounded-xl border border-violet-100 bg-violet-50 p-4 text-violet-800">
         <p className="font-semibold">Suggested next step</p>
@@ -540,6 +577,29 @@ function GapDetail({ gap }) {
       </div>
     </div>
   );
+}
+
+function gapKey(gap) {
+  return [
+    gap?.title,
+    gap?.description,
+    gap?.module,
+    gap?.relatedDocumentId,
+    gap?.actionType,
+  ].map((value) => String(value || '').trim().toLowerCase()).join('|');
+}
+
+function summarizeFindings(findings) {
+  const high = findings.filter((item) => item.severity === 'high').length;
+  const medium = findings.filter((item) => item.severity === 'medium').length;
+  const low = findings.filter((item) => item.severity === 'low').length;
+  return {
+    totalFindings: findings.length,
+    high,
+    medium,
+    low,
+    readiness: high ? 'Blocked' : medium ? 'Needs Review' : 'Ready',
+  };
 }
 
 function InfoTile({ label, value }) {

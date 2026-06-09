@@ -74,7 +74,7 @@ export default function QAWorkspace() {
       case 2:
         return <RequirementSourceStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onResetArtifacts={clearDownstream} />;
       case 3:
-        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} onGapClear={() => setGapResults(null)} />;
+        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} onGapResultsChange={setGapResults} />;
       case 4:
         return <GapAnalysisStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} />;
       case 5:

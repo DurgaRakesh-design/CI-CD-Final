@@ -8,6 +8,11 @@ const REPOSITORY = /(@Repository|Repository\b)/;
 const ENTITY = /(@Entity|Entity\b)/;
 const ENDPOINT = /@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)\s*(\([^)]*\))?/g;
 const BDD_FILE = /\.(feature|story|spec|md|txt)$/i;
+const CONFIG_FILE = /src\/main\/resources\/.*\.(properties|ya?ml)$/i;
+const BUILD_FILE = /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/i;
+const MAX_SOURCE_FILES = 90;
+const MAX_SOURCE_CHARS = 12000;
+const MAX_TOTAL_SOURCE_CHARS = 220000;
 
 export async function analyzePackageFile(file) {
   if (!file) throw new Error('Package file is required.');
@@ -18,7 +23,7 @@ export async function analyzePackageFile(file) {
   const testFiles = entries.filter((entry) => JAVA_TEST.test(entry.name));
   const bddFiles = entries.filter((entry) => BDD_FILE.test(entry.name) && /bdd|feature|scenario|requirement|story|spec/i.test(entry.name));
   const pomFiles = files.filter((name) => /(^|\/)pom\.xml$/i.test(name));
-  const buildFiles = files.filter((name) => /(^|\/)(pom\.xml|build\.gradle|build\.gradle\.kts)$/i.test(name));
+  const buildFiles = files.filter((name) => BUILD_FILE.test(name));
   const frontendFiles = files.filter((name) => /(^|\/)(package\.json|frontend-journey|selenium|playwright|cypress)/i.test(name));
 
   const moduleSignals = [];
@@ -54,6 +59,8 @@ export async function analyzePackageFile(file) {
     });
   }
 
+  const sourceFiles = await collectSourceEvidence(entries, classSignals);
+
   return {
     fileName: file.name,
     sizeBytes: file.size,
@@ -70,7 +77,79 @@ export async function analyzePackageFile(file) {
     modules: moduleSignals.slice(0, 24),
     endpoints: endpointSignals.slice(0, 80),
     classes: classSignals.slice(0, 120),
+    sourceFiles,
   };
+}
+
+async function collectSourceEvidence(entries, classSignals) {
+  const ranked = entries
+    .filter((entry) => isRelevantSourceFile(entry.name))
+    .map((entry) => ({ entry, score: sourceRelevanceScore(entry.name, classSignals) }))
+    .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name))
+    .slice(0, MAX_SOURCE_FILES);
+
+  const evidence = [];
+  let totalChars = 0;
+  for (const { entry, score } of ranked) {
+    if (totalChars >= MAX_TOTAL_SOURCE_CHARS) break;
+    const raw = await entry.async('string');
+    const content = sanitizeSourceContent(raw).slice(0, Math.min(MAX_SOURCE_CHARS, MAX_TOTAL_SOURCE_CHARS - totalChars));
+    if (!content.trim()) continue;
+    totalChars += content.length;
+    evidence.push({
+      path: entry.name,
+      type: inferSourceType(entry.name, content),
+      score,
+      truncated: raw.length > content.length,
+      charCount: raw.length,
+      content,
+    });
+  }
+  return evidence;
+}
+
+function isRelevantSourceFile(path) {
+  if (/(^|\/)(target|build|node_modules|dist|coverage|\.git|\.idea|\.vscode)\//i.test(path)) return false;
+  if (JAVA_SOURCE.test(path) || JAVA_TEST.test(path) || CONFIG_FILE.test(path) || BUILD_FILE.test(path)) return true;
+  return BDD_FILE.test(path) && /bdd|feature|scenario|requirement|story|spec|brd/i.test(path);
+}
+
+function sourceRelevanceScore(path, classSignals) {
+  let score = 0;
+  if (BUILD_FILE.test(path)) score += 90;
+  if (CONFIG_FILE.test(path)) score += 70;
+  if (JAVA_SOURCE.test(path)) score += 50;
+  if (JAVA_TEST.test(path)) score += 25;
+  if (BDD_FILE.test(path)) score += 65;
+  if (/controller|resource|endpoint/i.test(path)) score += 45;
+  if (/service|manager|facade|usecase/i.test(path)) score += 40;
+  if (/entity|model|dto|request|response/i.test(path)) score += 30;
+  if (/security|auth|config|validation|exception/i.test(path)) score += 35;
+  const signal = classSignals.find((item) => item.path === path);
+  if (signal?.endpoints?.length) score += 35;
+  if (signal?.annotations?.includes('controller')) score += 30;
+  if (signal?.annotations?.includes('service')) score += 25;
+  if (signal?.annotations?.includes('entity')) score += 20;
+  return score;
+}
+
+function sanitizeSourceContent(content) {
+  return String(content || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{4,}/g, '\n\n\n');
+}
+
+function inferSourceType(path, content) {
+  if (BUILD_FILE.test(path)) return 'Build';
+  if (CONFIG_FILE.test(path)) return 'Config';
+  if (BDD_FILE.test(path)) return 'Requirement';
+  if (JAVA_TEST.test(path)) return 'Test';
+  if (CONTROLLER.test(content)) return 'Controller';
+  if (SERVICE.test(content)) return 'Service';
+  if (REPOSITORY.test(content)) return 'Repository';
+  if (ENTITY.test(content)) return 'Entity';
+  return 'Java';
 }
 
 function extractMethodNames(content) {
@@ -99,7 +178,6 @@ function inferModuleFromPath(path, className, annotations) {
     const meaningful = packageParts.filter((part) => !['com', 'org', 'net', 'io', 'app', 'application', 'src', 'main'].includes(part));
     if (meaningful.length) candidates.push(titleCase(meaningful[meaningful.length - 1]));
   }
-  annotations.forEach((type) => candidates.push(`${titleCase(type)} Layer`));
   if (/auth|login|user|account/i.test(className)) candidates.push('Identity and Access');
   if (/book|library|borrow|return/i.test(className)) candidates.push('Library Management');
   if (/calc|operation|arithmetic/i.test(className)) candidates.push('Calculator Operations');

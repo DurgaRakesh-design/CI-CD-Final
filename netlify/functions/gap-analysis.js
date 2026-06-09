@@ -20,10 +20,14 @@ exports.handler = async (event) => {
 
 async function analyzeWithAI(signals, documents) {
   const system = [
-    "You are a senior QA governance reviewer.",
-    "Compare Java package scan signals against BRD/BDD documents.",
-    "Find missing, weak, or unsupported requirement coverage.",
-    "Do not invent code facts. Use evidence from the supplied signals and documents.",
+    "ROLE: You are a senior QA governance reviewer, BA traceability auditor, and Java source-code reviewer.",
+    "MISSION: Compare reviewed BRD/BDD documents against the supplied Java source-code evidence. Identify missing, weak, unsupported, duplicated, or not traceable requirement coverage.",
+    "Use sourceFiles as mandatory evidence. Do not judge against imagined requirements or generic Java architecture expectations.",
+    "Findings must be based on concrete source evidence such as controllers/endpoints, service methods, entities/DTO validations, security/config, tests, or uploaded requirement files.",
+    "If a finding belongs to an existing BRD or BDD document, mark it linked and provide relatedDocumentId.",
+    "If a source-supported behavior has no clear BRD/BDD owner, mark it unlinked and actionType=create_bdd.",
+    "Use business capability names, not technical layer names.",
+    "Keep findings actionable, concise, and suitable for a BA/QA reviewer.",
     "Return JSON only with keys: summary, findings, recommendations.",
   ].join(" ");
   const user = JSON.stringify({
@@ -37,6 +41,9 @@ async function analyzeWithAI(signals, documents) {
       "If a finding represents a missing capability with no existing BRD/BDD owner, set linkStatus='unlinked' and actionType='create_bdd'.",
       "Do not use generic relatedDocument values such as 'BRD/BDD' when a specific document cannot be identified. Leave it empty and mark unlinked.",
       "Use business capability names, not technical layer names, for modules.",
+      "Do not report a gap unless you can point to source evidence or an uploaded requirement.",
+      "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
+      "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
     ],
     packageSignals: signals,
     documents: documents.map((doc) => ({
