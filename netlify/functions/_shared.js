@@ -6,7 +6,18 @@ export const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const AI_JOB_STORE = getStore({ name: "ai-jobs", consistency: "strong" });
+let aiJobStore = null;
+let aiJobStoreFallback = new Map();
+
+function getAiJobStore() {
+  if (aiJobStore !== null) return aiJobStore;
+  try {
+    aiJobStore = getStore({ name: "ai-jobs", consistency: "strong" });
+  } catch (error) {
+    aiJobStore = null;
+  }
+  return aiJobStore;
+}
 
 export function json(statusCode, payload) {
   return {
@@ -136,12 +147,21 @@ export async function upsertAiJob(type, jobId, data) {
     ...data,
   };
   if (!payload.createdAt) payload.createdAt = now;
-  await AI_JOB_STORE.setJSON(jobKey(type, jobId), payload);
+  const store = getAiJobStore();
+  if (store) {
+    await store.setJSON(jobKey(type, jobId), payload);
+  } else {
+    aiJobStoreFallback.set(jobKey(type, jobId), payload);
+  }
   return payload;
 }
 
 export async function getAiJob(type, jobId) {
-  return await AI_JOB_STORE.get(jobKey(type, jobId), { type: "json" });
+  const store = getAiJobStore();
+  if (store) {
+    return await store.get(jobKey(type, jobId), { type: "json" });
+  }
+  return aiJobStoreFallback.get(jobKey(type, jobId)) || null;
 }
 
 export function slugify(value) {
