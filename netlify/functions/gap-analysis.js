@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob, appendAiJobLog } from "./_shared.js";
 
 const JOB_TYPE = "gap-analysis";
 
@@ -14,6 +14,14 @@ export const handler = async (event) => {
     const request = parseEventBody(event);
     const jobId = normalizeJobId(request.jobId);
     const context = buildGapContext(request, jobId);
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "queued",
+      message: "Gap analysis request received.",
+      meta: {
+        documentCount: context.auditRequest.documentCount,
+        packageSummary: context.auditRequest.packageSignals,
+      },
+    });
     await upsertAiJob(JOB_TYPE, jobId, {
       status: "running",
       stage: "queued",
@@ -46,16 +54,40 @@ export const handler = async (event) => {
 
 async function analyzeWithAI(context, reportProgress) {
   await reportProgress({ stage: "planning", progress: 20, message: "Planning evidence review." });
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "planning",
+    message: "Building evidence-first review plan.",
+    meta: { model: process.env.OPENAI_MODEL || "gpt-4.1", temperature: 0.1 },
+  });
   const plan = await buildGapAssessmentPlan(context);
 
   await reportProgress({ stage: "analyzing", progress: 55, message: "Reviewing package evidence against document coverage." });
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "analyzing",
+    message: "Running final gap analysis against evidence and reviewed documents.",
+    meta: { focusAreas: plan.primaryFocusAreas?.slice(0, 5) || [] },
+  });
   const report = await buildGapAssessmentReport(context, plan);
 
   await reportProgress({ stage: "verifying", progress: 85, message: "Verifying findings, traceability, and readiness." });
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "verifying",
+    message: "Validating findings and readiness summary.",
+  });
   const validated = normalizeGapPayload(report);
   if (!validated.findings.length && !validated.summary) {
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      level: "error",
+      stage: "verifying",
+      message: "Gap analysis produced no usable findings.",
+    });
     throw new Error("Gap analysis returned no usable findings.");
   }
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "done",
+    message: "Gap analysis succeeded.",
+    meta: { totalFindings: validated.summary?.totalFindings || 0 },
+  });
   return validated;
 }
 
@@ -138,6 +170,11 @@ async function buildGapAssessmentPlan(context) {
   });
 
   if (!result) throw new Error("Gap analysis planning returned no response.");
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "planning",
+    message: "Planning response received from OpenAI.",
+    meta: { focusAreas: result.primaryFocusAreas?.length || 0, likelyRisks: result.likelyRisks?.length || 0 },
+  });
   return result;
 }
 
@@ -231,6 +268,11 @@ async function buildGapAssessmentReport(context, plan) {
   });
 
   if (!result) throw new Error("Gap analysis returned no response.");
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "analyzing",
+    message: "Final analysis response received from OpenAI.",
+    meta: { findings: result.findings?.length || 0, recommendations: result.recommendations?.length || 0 },
+  });
   return result;
 }
 

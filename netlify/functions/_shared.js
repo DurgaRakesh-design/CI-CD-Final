@@ -164,6 +164,25 @@ export async function getAiJob(type, jobId) {
   return aiJobStoreFallback.get(jobKey(type, jobId)) || null;
 }
 
+export async function appendAiJobLog(type, jobId, entry) {
+  const current = await getAiJob(type, jobId);
+  const existingLogs = Array.isArray(current?.logs) ? current.logs : [];
+  const nextLogs = [
+    ...existingLogs,
+    {
+      at: new Date().toISOString(),
+      level: entry?.level || "info",
+      stage: entry?.stage || "",
+      message: String(entry?.message || ""),
+      meta: entry?.meta || {},
+    },
+  ].slice(-50);
+  return await upsertAiJob(type, jobId, {
+    ...(current || {}),
+    logs: nextLogs,
+  });
+}
+
 export function slugify(value) {
   return String(value || "document")
     .toLowerCase()

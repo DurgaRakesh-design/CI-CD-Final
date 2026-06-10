@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob, appendAiJobLog } from "./_shared.js";
 
 const JOB_TYPE = "generate-documents";
 
@@ -14,6 +14,14 @@ export const handler = async (event) => {
     const request = parseEventBody(event);
     const jobId = normalizeJobId(request.jobId);
     const context = buildGenerationContext(request, jobId);
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "queued",
+      message: "Document generation request received.",
+      meta: {
+        generationMode: context.generationMode,
+        packageSummary: context.auditRequest.packageSignals,
+      },
+    });
     await upsertAiJob(JOB_TYPE, jobId, {
       status: "running",
       stage: "queued",
@@ -52,17 +60,41 @@ export const handler = async (event) => {
 
 async function generateWithAI(context, reportProgress) {
   await reportProgress({ stage: "planning", progress: 10, message: "Planning document structure." });
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "planning",
+    message: "Planning BRD and BDD structure with GPT-4.1.",
+    meta: { model: process.env.OPENAI_MODEL || "gpt-4.1", temperature: 0.1 },
+  });
   const plan = await buildDocumentPlan(context);
 
   await reportProgress({ stage: "drafting", progress: 45, message: "Drafting BRD and BDD content." });
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "drafting",
+    message: "Drafting final BRD and BDD suite.",
+    meta: { primaryCapabilities: plan.primaryCapabilities?.length || 0, bddClusters: plan.bddClusters?.length || 0 },
+  });
   const suite = await buildFinalSuite(context, plan);
 
   await reportProgress({ stage: "verifying", progress: 85, message: "Verifying output quality and traceability." });
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "verifying",
+    message: "Validating output quality and traceability before completion.",
+  });
   const validated = validateSuite(suite);
   if (!validated) {
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      level: "error",
+      stage: "verifying",
+      message: "Generated suite failed validation.",
+    });
     throw new Error("AI document generation returned an invalid suite.");
   }
 
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "done",
+    message: "Document generation succeeded.",
+    meta: { brdTitle: validated?.brd?.title || "", bddCount: validated?.bddFiles?.length || 0 },
+  });
   return validated;
 }
 
@@ -202,6 +234,11 @@ async function buildDocumentPlan(context) {
   });
 
   if (!result) throw new Error("Document planning returned no response.");
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "planning",
+    message: "Planning response received from OpenAI.",
+    meta: { brdSections: result.brdSections?.length || 0, capabilities: result.primaryCapabilities?.length || 0 },
+  });
   return result;
 }
 
@@ -298,6 +335,11 @@ async function buildFinalSuite(context, plan) {
   });
 
   if (!result) throw new Error("Document generation returned no response.");
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "drafting",
+    message: "Final generation response received from OpenAI.",
+    meta: { bddCount: result.bddFiles?.length || 0 },
+  });
   return normalizeSuite(result, "ai_generated");
 }
 

@@ -140,7 +140,10 @@ async function waitForAiJob({ type, jobId, timeoutMs, onStatusUpdate }) {
 
     if (payload.status === 'completed') return payload;
     if (payload.status === 'failed') {
-      throw new Error(payload.message || 'AI job failed.');
+      const trace = Array.isArray(payload.logs) && payload.logs.length
+        ? ` Logs: ${payload.logs.map((log) => `[${log.stage || 'step'}] ${log.message}`).join(' | ')}`
+        : '';
+      throw new Error(`${payload.message || 'AI job failed.'}${trace}`);
     }
 
     await sleep(delayMs);
