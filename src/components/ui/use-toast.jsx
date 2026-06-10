@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 
 const TOAST_LIMIT = 20;
-const TOAST_REMOVE_DELAY = 1000000;
+const TOAST_REMOVE_DELAY = 1000;
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -128,6 +128,7 @@ function toast({ ...props }) {
       ...props,
       id,
       open: true,
+      duration: props.duration ?? 3000,
       onOpenChange: (open) => {
         if (!open) dismiss();
       },
@@ -152,7 +153,7 @@ function useToast() {
         listeners.splice(index, 1);
       }
     };
-  }, [state]);
+  }, []);
 
   return {
     ...state,

@@ -181,11 +181,9 @@ function inferModuleFromPath(path, className, annotations) {
   if (/auth|login|user|account/i.test(className)) candidates.push('Identity and Access');
   if (/book|library|borrow|return/i.test(className)) candidates.push('Library Management');
   if (/calc|operation|arithmetic/i.test(className)) candidates.push('Calculator Operations');
-  if (/OwnerController|OwnerRepository|Owner$/i.test(className)) candidates.push('Owner Management');
-  if (/PetController|PetValidator|PetType|Pet$/i.test(className)) candidates.push('Pet Management');
-  if (/VisitController|Visit$/i.test(className)) candidates.push('Visit Scheduling');
-  if (/VetController|VetRepository|Vets|Specialty|Vet$/i.test(className)) candidates.push('Veterinarian Directory');
-  if (/WelcomeController|CrashController|WebConfiguration|CacheConfiguration/i.test(className)) candidates.push('System Pages and Error Handling');
+  if (!candidates.length && /controller|service|repository|entity|model|config|configuration|validator|formatter/i.test(className)) {
+    candidates.push(titleCase(className.replace(/(Controller|Service|Repository|Entity|Model|Config|Configuration|Validator|Formatter|Application|RuntimeHints)$/i, '')));
+  }
   return [...new Set(candidates)];
 }
 
