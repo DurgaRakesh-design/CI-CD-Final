@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob, appendAiJobLog } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
 
 const JOB_TYPE = "gap-analysis";
 
@@ -11,6 +11,7 @@ export const handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 
   try {
+    connectBlobsFromEvent(event);
     const request = parseEventBody(event);
     const jobId = normalizeJobId(request.jobId);
     const context = buildGapContext(request, jobId);

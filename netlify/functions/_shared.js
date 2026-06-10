@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { connectLambda, getStore } from "@netlify/blobs";
 
 export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +17,14 @@ function getAiJobStore() {
     aiJobStore = null;
   }
   return aiJobStore;
+}
+
+export function connectBlobsFromEvent(event) {
+  try {
+    if (event) connectLambda(event);
+  } catch (error) {
+    // If the runtime already provides blob context, continue without failing.
+  }
 }
 
 export function json(statusCode, payload) {
