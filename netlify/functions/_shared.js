@@ -51,7 +51,7 @@ export function compactSignals(packageSignals = {}) {
   };
 }
 
-export async function callOpenAI({ system, user, temperature = 0.2, timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 8000) }) {
+export async function callOpenAI({ system, user, temperature = 0.2, timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 120000) }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   const model = process.env.OPENAI_MODEL || "gpt-4.1";

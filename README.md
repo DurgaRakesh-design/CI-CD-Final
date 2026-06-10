@@ -38,6 +38,7 @@ GITHUB_OWNER=ManishShamlani98
 GITHUB_REPO=qa-pipeline-prod
 OPENAI_API_KEY=<OpenAI key>
 OPENAI_MODEL=gpt-4.1
+OPENAI_TIMEOUT_MS=120000
 ```
 
 Optional frontend build variables are documented in `.env.example`.
