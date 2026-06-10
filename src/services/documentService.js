@@ -9,7 +9,7 @@ export async function generateRequirementSuite({
   onStatusUpdate = null,
 }) {
   const jobId = createJobId();
-  const response = await fetch('/.netlify/functions/generate-documents', {
+  const response = await fetch('/.netlify/functions/generate-documents-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobId, packageSignals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
@@ -29,7 +29,7 @@ export async function generateRequirementSuite({
 
 export async function runGapAnalysis({ packageSignals, documents, jobTimeoutMs = 900000, onStatusUpdate = null }) {
   const jobId = createJobId();
-  const response = await fetch('/.netlify/functions/gap-analysis', {
+  const response = await fetch('/.netlify/functions/gap-analysis-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobId, packageSignals, documents }),
