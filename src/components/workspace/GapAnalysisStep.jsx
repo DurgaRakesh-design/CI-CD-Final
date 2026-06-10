@@ -8,15 +8,9 @@ import AiLoadingVisual from './AiLoadingVisual';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
 const severityColors = {
-  high: 'border-red-200 bg-white text-red-700',
-  medium: 'border-amber-200 bg-white text-amber-700',
-  low: 'border-blue-200 bg-white text-blue-700',
-};
-
-const severityStripes = {
-  high: 'bg-red-500',
-  medium: 'bg-amber-500',
-  low: 'bg-blue-500',
+  high: 'bg-red-50 text-red-700 border-red-200',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200',
+  low: 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
 const gapStatusMeta = {
@@ -138,7 +132,12 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
             <SummaryCard label="High" value={result.summary?.high || 0} tone="red" />
             <SummaryCard label="Medium" value={result.summary?.medium || 0} tone="amber" />
             <SummaryCard label="Low" value={result.summary?.low || 0} tone="blue" />
-            <SummaryCard label="Readiness" value={result.summary?.readiness || 'Ready'} tone="emerald" />
+            <SummaryCard label="Readiness" value={readinessLabel(result.summary?.readiness)} tone="emerald" />
+          </div>
+
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">
+            <p className="text-xs font-semibold uppercase tracking-wide">Readiness Summary</p>
+            <p className="mt-1 text-sm leading-relaxed">{result.summary?.readiness || 'Ready'}</p>
           </div>
 
           <div className="space-y-3">
@@ -149,10 +148,9 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
                 No major gaps detected. Review is ready for approval.
               </div>
             ) : findings.map((gap, i) => (
-              <div key={i} className={`relative overflow-hidden rounded-xl border p-4 pl-5 shadow-sm ${severityColors[gap.severity] || severityColors.medium}`}>
-                <span className={`absolute inset-y-0 left-0 w-1 ${severityStripes[gap.severity] || severityStripes.medium}`} />
+              <div key={i} className={`p-4 rounded-xl border ${severityColors[gap.severity] || severityColors.medium}`}>
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 opacity-80" />
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <p className="font-semibold text-sm">{gap.title}</p>
                     <p className="text-xs mt-1 opacity-80">{gap.description}</p>
@@ -301,6 +299,15 @@ function formatTimestamp(value) {
   }
 }
 
+function readinessLabel(value) {
+  const normalized = String(value || 'Ready').toLowerCase();
+  if (normalized.includes('blocked')) return 'Blocked';
+  if (normalized.includes('partial')) return 'Partial';
+  if (normalized.includes('review')) return 'Needs Review';
+  if (normalized.includes('ready')) return 'Ready';
+  return 'Review';
+}
+
 function findImpactedDocumentIds(gapResults, documents) {
   const impacted = new Set();
   const findings = Array.isArray(gapResults?.findings) ? gapResults.findings : [];
@@ -338,10 +345,9 @@ function SummaryCard({ label, value, tone }) {
     blue: 'bg-blue-50 border-blue-100 text-blue-700',
     emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
   };
-  const isReadiness = label === 'Readiness';
   return (
     <div className={`h-28 rounded-xl border p-4 text-center flex flex-col justify-center ${colors[tone]}`}>
-      <p className={`${isReadiness ? 'max-h-[4.5rem] overflow-hidden text-base leading-snug' : 'text-2xl'} font-bold`}>{value}</p>
+      <p className="text-2xl font-bold">{value}</p>
       <p className="text-xs font-medium mt-1">{label}</p>
     </div>
   );
