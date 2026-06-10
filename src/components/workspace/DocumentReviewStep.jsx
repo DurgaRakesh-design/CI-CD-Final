@@ -10,8 +10,9 @@ import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
 import AiLoadingVisual from './AiLoadingVisual';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
-export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapResultsChange }) {
+export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapResultsChange, onReset }) {
   const { toast } = useToast();
   const [selectedId, setSelectedId] = useState('');
   const [viewMode, setViewMode] = useState('business');
@@ -182,6 +183,8 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       ...gapResults,
       findings: remaining,
       summary: summarizeFindings(remaining),
+      updatedAt: new Date().toISOString(),
+      analysisSource: 'regeneration_update',
       recommendations: remaining.length
         ? gapResults.recommendations || []
         : ['Resolved generated gap findings. Run gap analysis again to confirm closure.'],
@@ -216,23 +219,28 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>{error}</span>
         </div>
-        <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
+        <WorkspaceActionBar
+          onReset={onReset}
+          left={(
+            <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+          )}
+        />
       </div>
     );
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pb-24">
       <div className="text-center mb-4">
         <h2 className="font-heading font-bold text-2xl">Document Review</h2>
         <p className="text-muted-foreground mt-1 text-sm">Review, edit, and approve your requirement documents</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[500px]">
-        <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[620px]">
+        <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4 lg:max-h-[calc(100vh-260px)] overflow-auto">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Requirement Tree</h3>
           <div className="space-y-2">
             <TreeGroup
@@ -267,7 +275,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
         </div>
 
-        <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col">
+        <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col min-h-[620px] lg:max-h-[calc(100vh-260px)]">
           <div className="flex items-center justify-between gap-2 p-3 border-b border-border">
             <span className="font-semibold text-sm truncate">{selectedUnlinkedGaps ? 'Unlinked Gap Findings' : selectedDoc?.title}</span>
             <div className="flex items-center gap-1">
@@ -298,7 +306,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
               )}
             </div>
           </div>
-          <div className="flex-1 p-6 overflow-auto">
+          <div className="flex-1 min-h-0 p-6 overflow-auto">
             {selectedUnlinkedGaps ? (
               <UnlinkedGapDetail
                 gaps={gapModel.unlinkedGaps}
@@ -306,7 +314,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
                 onGenerate={generateAllUnlinkedGaps}
               />
             ) : isEditing ? (
-              <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="min-h-[420px] font-mono text-sm" />
+              <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="min-h-[520px] font-mono text-sm" />
             ) : (
               selectedDoc?.content?.trim() || selectedDoc?.gherkinContent?.trim() ? (
                 <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-foreground/80">
@@ -323,7 +331,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
         </div>
 
-        <div className="lg:col-span-3 space-y-4">
+        <div className="lg:col-span-3 space-y-4 lg:max-h-[calc(100vh-260px)] overflow-auto pr-1">
           <div className="bg-white rounded-xl border border-border p-4 space-y-4">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Readiness</h3>
             <div>
@@ -419,16 +427,21 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-2">
-        <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        <Button onClick={onNext} disabled={!allBddApproved} className="rounded-xl h-11 px-6">
-          Continue to Gap Analysis
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
+      <WorkspaceActionBar
+        onReset={onReset}
+        left={(
+          <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+        )}
+        right={(
+          <Button onClick={onNext} disabled={!allBddApproved} className="rounded-xl h-11 px-6">
+            Continue to Gap Analysis
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        )}
+      />
     </motion.div>
   );
 }

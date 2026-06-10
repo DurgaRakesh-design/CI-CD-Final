@@ -4,8 +4,9 @@ import { FileUp, Bot, ArrowRight, ArrowLeft, FileText, CheckCircle2, File, X, Pl
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
-export default function RequirementSourceStep({ workspaceData, onNext, onBack, onData, onResetArtifacts }) {
+export default function RequirementSourceStep({ workspaceData, onNext, onBack, onData, onResetArtifacts, onReset }) {
   const [source, setSource] = useState(
     workspaceData?.requirement_source === 'uploaded'
       ? 'attach'
@@ -76,7 +77,7 @@ export default function RequirementSourceStep({ workspaceData, onNext, onBack, o
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-2xl mx-auto space-y-6"
+      className="max-w-2xl mx-auto space-y-6 pb-24"
     >
       <div className="text-center mb-8">
         <h2 className="font-heading font-bold text-2xl">Requirement Source</h2>
@@ -217,16 +218,21 @@ export default function RequirementSourceStep({ workspaceData, onNext, onBack, o
         )}
       </AnimatePresence>
 
-      <div className="flex items-center justify-between pt-4">
-        <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        <Button onClick={handleProceed} disabled={!canProceed} className="rounded-xl h-11 px-6">
-          Continue
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
+      <WorkspaceActionBar
+        onReset={onReset}
+        left={(
+          <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+        )}
+        right={(
+          <Button onClick={handleProceed} disabled={!canProceed} className="rounded-xl h-11 px-6">
+            Continue
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        )}
+      />
     </motion.div>
   );
 }

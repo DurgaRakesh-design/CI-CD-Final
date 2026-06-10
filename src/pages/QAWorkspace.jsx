@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { RotateCcw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import WorkflowStepper from '../components/workspace/WorkflowStepper';
 import PackageSourceStep from '../components/workspace/PackageSourceStep';
 import PackageDetectionStep from '../components/workspace/PackageDetectionStep';
@@ -70,17 +68,17 @@ export default function QAWorkspace() {
       case 0:
         return <PackageSourceStep workspaceData={workspaceData} onNext={internalGoNext} onData={updateData} onResetArtifacts={clearDownstream} />;
       case 1:
-        return <PackageDetectionStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
+        return <PackageDetectionStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onReset={resetWorkspace} />;
       case 2:
-        return <RequirementSourceStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onResetArtifacts={clearDownstream} />;
+        return <RequirementSourceStep workspaceData={workspaceData} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onResetArtifacts={clearDownstream} onReset={resetWorkspace} />;
       case 3:
-        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} onGapResultsChange={setGapResults} />;
+        return <DocumentReviewStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} gapResults={gapResults} onGapResultsChange={setGapResults} onReset={resetWorkspace} />;
       case 4:
-        return <GapAnalysisStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} />;
+        return <GapAnalysisStep workspaceData={workspaceData} documents={documents} setDocuments={setDocuments} gapResults={gapResults} onNext={internalGoNext} onBack={internalGoBack} onGapsFound={setGapResults} onReset={resetWorkspace} />;
       case 5:
-        return <ApprovalStep documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} />;
+        return <ApprovalStep documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onReset={resetWorkspace} />;
       case 6:
-        return <PipelineTriggerStep workspaceData={workspaceData} documents={documents} />;
+        return <PipelineTriggerStep workspaceData={workspaceData} documents={documents} onBack={internalGoBack} onReset={resetWorkspace} />;
       default:
         return null;
     }
@@ -117,10 +115,6 @@ export default function QAWorkspace() {
               <h1 className="font-heading font-bold text-2xl">QA Workspace</h1>
               <p className="text-sm text-muted-foreground mt-1">Milestone-driven quality delivery workflow</p>
             </div>
-            <Button variant="outline" size="sm" className="rounded-xl h-9" onClick={resetWorkspace}>
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Reset
-            </Button>
           </div>
         </motion.div>
 

@@ -2,8 +2,9 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, ArrowRight, ArrowLeft, CheckCircle2, FileText, Code2, Lock, Unlock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
-export default function ApprovalStep({ documents, setDocuments, onNext, onBack, onData }) {
+export default function ApprovalStep({ documents, setDocuments, onNext, onBack, onData, onReset }) {
   const allBDDApproved = documents.filter(d => d.type === 'BDD').every(d => d.approved);
   const allApproved = documents.every(d => d.approved);
 
@@ -26,7 +27,7 @@ export default function ApprovalStep({ documents, setDocuments, onNext, onBack, 
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-xl mx-auto space-y-6">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-xl mx-auto space-y-6 pb-24">
       <div className="text-center mb-6">
         <h2 className="font-heading font-bold text-2xl">Document Approval</h2>
         <p className="text-muted-foreground mt-2">Approve reviewed documents to unlock pipeline execution</p>
@@ -92,16 +93,21 @@ export default function ApprovalStep({ documents, setDocuments, onNext, onBack, 
         Editing an approved document resets its approval state.
       </div>
 
-      <div className="flex items-center justify-between pt-2">
-        <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        <Button onClick={handleProceed} disabled={!allBDDApproved} className="rounded-xl h-11 px-6">
-          Continue to Pipeline
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
+      <WorkspaceActionBar
+        onReset={onReset}
+        left={(
+          <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+        )}
+        right={(
+          <Button onClick={handleProceed} disabled={!allBDDApproved} className="rounded-xl h-11 px-6">
+            Continue to Pipeline
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        )}
+      />
     </motion.div>
   );
 }

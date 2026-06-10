@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Check, Loader2, Package, FileText, Fingerprint, ArrowRight, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Play, Check, Loader2, Package, FileText, Fingerprint, ArrowRight, ArrowLeft, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import { portalConfig } from '@/config/portalConfig';
 import { uploadWorkspaceInputs } from '@/services/pipelineService';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
 const stages = [
   { name: 'Upload package', key: 'package' },
@@ -14,7 +15,7 @@ const stages = [
   { name: 'Dispatch GitHub Actions', key: 'dispatch' },
 ];
 
-export default function PipelineTriggerStep({ workspaceData, documents }) {
+export default function PipelineTriggerStep({ workspaceData, documents, onBack, onReset }) {
   const navigate = useNavigate();
   const [triggering, setTriggering] = useState(false);
   const [result, setResult] = useState(null);
@@ -48,7 +49,7 @@ export default function PipelineTriggerStep({ workspaceData, documents }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-xl mx-auto space-y-6">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-xl mx-auto space-y-6 pb-24">
       <div className="text-center mb-6">
         <h2 className="font-heading font-bold text-2xl">Pipeline Execution</h2>
         <p className="text-muted-foreground mt-2">Send approved inputs to GitHub Actions</p>
@@ -61,15 +62,6 @@ export default function PipelineTriggerStep({ workspaceData, documents }) {
         <InputRow icon={FileText} label="BDD Features" value={`${bddCount} feature file${bddCount === 1 ? '' : 's'}`} />
         <InputRow icon={Fingerprint} label="Target Repository" value={`${portalConfig.owner}/${portalConfig.repo} · ${portalConfig.branch}`} />
       </div>
-
-      {!result && (
-        <div className="text-center py-6">
-          <Button onClick={triggerPipeline} disabled={triggering} size="lg" className="rounded-xl h-12 px-8 shadow-lg shadow-primary/20">
-            {triggering ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Play className="w-5 h-5 mr-2" />}
-            {triggering ? 'Triggering Pipeline...' : 'Trigger Pipeline'}
-          </Button>
-        </div>
-      )}
 
       {triggering && (
         <div className="space-y-3">
@@ -102,20 +94,36 @@ export default function PipelineTriggerStep({ workspaceData, documents }) {
             {result.brdPath && <p><strong>BRD:</strong> {result.brdPath}</p>}
             <p><strong>BDD:</strong> {result.bddPaths.join('; ')}</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button onClick={() => navigate('/dashboard')} className="rounded-xl h-11 px-6 flex-1">
-              View Dashboard
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-            <Button asChild variant="outline" className="rounded-xl h-11 px-6 flex-1">
+        </motion.div>
+      )}
+      <WorkspaceActionBar
+        onReset={onReset}
+        left={(
+          <Button variant="outline" onClick={onBack} disabled={triggering} className="rounded-xl h-11 px-5">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+        )}
+        right={result ? (
+          <>
+            <Button asChild variant="outline" className="rounded-xl h-11 px-6">
               <a href={`https://github.com/${portalConfig.owner}/${portalConfig.repo}/actions`} target="_blank" rel="noreferrer">
                 Open GitHub Actions
                 <ExternalLink className="w-4 h-4 ml-2" />
               </a>
             </Button>
-          </div>
-        </motion.div>
-      )}
+            <Button onClick={() => navigate('/dashboard')} className="rounded-xl h-11 px-6">
+              View Dashboard
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </>
+        ) : (
+          <Button onClick={triggerPipeline} disabled={triggering} className="rounded-xl h-11 px-6">
+            {triggering ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
+            {triggering ? 'Triggering Pipeline...' : 'Trigger Pipeline'}
+          </Button>
+        )}
+      />
     </motion.div>
   );
 }

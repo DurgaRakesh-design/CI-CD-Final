@@ -4,6 +4,7 @@ import { Upload, FolderOpen, Package, ArrowRight, FileArchive, CheckCircle2, Ref
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { listUploadedPackages } from '@/services/pipelineService';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
 export default function PackageSourceStep({ workspaceData, onNext, onData, onResetArtifacts }) {
   const [source, setSource] = useState(workspaceData?.package_source || null);
@@ -100,7 +101,7 @@ export default function PackageSourceStep({ workspaceData, onNext, onData, onRes
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-2xl mx-auto space-y-6"
+      className="max-w-2xl mx-auto space-y-6 pb-24"
     >
       <div className="text-center mb-8">
         <h2 className="font-heading font-bold text-2xl">Select Package Source</h2>
@@ -209,16 +210,18 @@ export default function PackageSourceStep({ workspaceData, onNext, onData, onRes
         </motion.div>
       )}
 
-      <div className="flex justify-end pt-4">
-        <Button
-          onClick={handleProceed}
-          disabled={!source || (source === 'upload' && !packageFile) || (source === 'repository' && !selectedRepo)}
-          className="rounded-xl h-11 px-6"
-        >
-          Continue
-          <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
+      <WorkspaceActionBar
+        right={(
+          <Button
+            onClick={handleProceed}
+            disabled={!source || (source === 'upload' && !packageFile) || (source === 'repository' && !selectedRepo)}
+            className="rounded-xl h-11 px-6"
+          >
+            Continue
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        )}
+      />
     </motion.div>
   );
 }

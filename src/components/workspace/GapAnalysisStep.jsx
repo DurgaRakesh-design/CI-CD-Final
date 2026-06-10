@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, ArrowRight, ArrowLeft, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
+import { BarChart3, ArrowRight, ArrowLeft, AlertTriangle, CheckCircle2, Lightbulb, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { runGapAnalysis } from '@/services/documentService';
 import AiLoadingVisual from './AiLoadingVisual';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
 const severityColors = {
   high: 'bg-red-50 text-red-700 border-red-200',
@@ -12,20 +13,39 @@ const severityColors = {
   low: 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
-export default function GapAnalysisStep({ workspaceData, documents, setDocuments, onNext, onBack, onGapsFound }) {
+const gapStatusMeta = {
+  retained: {
+    label: 'Current Analysis',
+    tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    text: 'This report is saved for this workspace. It will stay here when you go back or continue.',
+  },
+  updated: {
+    label: 'Updated After Regeneration',
+    tone: 'bg-blue-50 text-blue-700 border-blue-200',
+    text: 'This report was updated after document regeneration. Re-run analysis when you want AI to verify closure.',
+  },
+  rerun: {
+    label: 'Re-run Available',
+    tone: 'bg-amber-50 text-amber-700 border-amber-200',
+    text: 'Documents changed after this analysis. Re-run only when you want a fresh source-to-document check.',
+  },
+};
+
+export default function GapAnalysisStep({ workspaceData, documents, setDocuments, gapResults, onNext, onBack, onGapsFound, onReset }) {
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const result = gapResults || null;
+  const statusMeta = getGapStatusMeta(result);
 
   const runAnalysis = async () => {
     setRunning(true);
     setError('');
     try {
       const payload = await runGapAnalysis({ packageSignals: workspaceData.package_signals, documents });
-      setResult(payload);
-      onGapsFound?.(payload);
+      const stampedPayload = stampGapResult(payload, documents, 'fresh');
+      onGapsFound?.(stampedPayload);
       setDocuments?.(prev => {
-        const impactedIds = findImpactedDocumentIds(payload, prev);
+        const impactedIds = findImpactedDocumentIds(stampedPayload, prev);
         if (!impactedIds.size) return prev;
         return prev.map((doc) => impactedIds.has(doc.id) ? ({
           ...doc,
@@ -42,12 +62,27 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
   };
 
   const findings = result?.findings || [];
+  const canDownload = Boolean(result);
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto space-y-6">
-      <div className="text-center mb-6">
-        <h2 className="font-heading font-bold text-2xl">Gap Analysis</h2>
-        <p className="text-muted-foreground mt-2">Compare package signals with reviewed BRD and BDD documents</p>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl mx-auto space-y-6 pb-24">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+        <div>
+          <h2 className="font-heading font-bold text-2xl">Gap Analysis</h2>
+          <p className="text-muted-foreground mt-2">Compare source-code evidence with reviewed BRD and BDD documents</p>
+        </div>
+        {result && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => downloadGapAnalysis(result, workspaceData)} className="rounded-xl h-10 px-4" disabled={!canDownload}>
+              <Download className="w-4 h-4 mr-2" />
+              Download Report
+            </Button>
+            <Button variant="outline" onClick={runAnalysis} disabled={running} className="rounded-xl h-10 px-4">
+              <RefreshCw className={`w-4 h-4 mr-2 ${running ? 'animate-spin' : ''}`} />
+              Re-run Analysis
+            </Button>
+          </div>
+        )}
       </div>
 
       {!result && (
@@ -83,6 +118,16 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
 
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className={`rounded-xl border p-4 ${statusMeta.tone}`}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">{statusMeta.label}</p>
+                <p className="text-xs mt-1 opacity-90">{statusMeta.text}</p>
+              </div>
+              <p className="text-xs font-medium shrink-0">{formatTimestamp(result.generatedAt || result.updatedAt)}</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-4 gap-3">
             <SummaryCard label="High" value={result.summary?.high || 0} tone="red" />
             <SummaryCard label="Medium" value={result.summary?.medium || 0} tone="amber" />
@@ -146,20 +191,107 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
         </motion.div>
       )}
 
-      <div className="flex items-center justify-between pt-2">
-        <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        {result && (
-          <Button onClick={onNext} className="rounded-xl h-11 px-6">
-            Continue to Approval
-            <ArrowRight className="w-4 h-4 ml-2" />
+      <WorkspaceActionBar
+        onReset={onReset}
+        left={(
+          <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
           </Button>
         )}
-      </div>
+        right={(
+          <>
+          {!result && (
+            <Button onClick={runAnalysis} disabled={running} className="rounded-xl h-11 px-6">
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Run Analysis
+            </Button>
+          )}
+          {result && (
+            <Button onClick={onNext} className="rounded-xl h-11 px-6">
+              Continue to Approval
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          )}
+          </>
+        )}
+      />
     </motion.div>
   );
+}
+
+function stampGapResult(payload, documents, source) {
+  return {
+    ...payload,
+    generatedAt: new Date().toISOString(),
+    analysisSource: source,
+    documentSignature: buildDocumentSignature(documents),
+  };
+}
+
+function getGapStatusMeta(result) {
+  if (!result) return gapStatusMeta.retained;
+  if (result.analysisSource === 'regeneration_update') return gapStatusMeta.updated;
+  return gapStatusMeta.retained;
+}
+
+function buildDocumentSignature(documents) {
+  return documents
+    .map((doc) => `${doc.id}:${doc.lastEdited || ''}:${doc.approved ? '1' : '0'}`)
+    .join('|');
+}
+
+function downloadGapAnalysis(result, workspaceData) {
+  const lines = [
+    '# Gap Analysis Report',
+    '',
+    `Project: ${workspaceData?.package_signals?.projectName || workspaceData?.name || 'QA Workspace'}`,
+    `Generated: ${formatTimestamp(result.generatedAt || result.updatedAt)}`,
+    '',
+    '## Summary',
+    `- High: ${result.summary?.high || 0}`,
+    `- Medium: ${result.summary?.medium || 0}`,
+    `- Low: ${result.summary?.low || 0}`,
+    `- Readiness: ${result.summary?.readiness || 'Ready'}`,
+    '',
+    '## Findings',
+    ...(Array.isArray(result.findings) && result.findings.length
+      ? result.findings.flatMap((gap, index) => [
+          `${index + 1}. ${gap.title || 'Coverage finding'}`,
+          `   Severity: ${gap.severity || 'medium'}`,
+          `   Module: ${gap.module || 'Application'}`,
+          `   Related Document: ${gap.relatedDocument || gap.relatedDocumentId || 'Unlinked'}`,
+          `   Evidence: ${gap.packageSignal || 'Not specified'}`,
+          `   Description: ${gap.description || ''}`,
+          `   Recommended Fix: ${gap.recommendedFix || ''}`,
+          '',
+        ])
+      : ['No findings.', '']),
+    '## Recommendations',
+    ...(result.recommendations || []).map((item) => `- ${item}`),
+    '',
+    '## Quality Notes',
+    ...(result.qualityNotes || []).map((item) => `- ${item}`),
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `gap-analysis-${new Date().toISOString().slice(0, 10)}.md`;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function formatTimestamp(value) {
+  if (!value) return 'Saved report';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch (_) {
+    return value;
+  }
 }
 
 function findImpactedDocumentIds(gapResults, documents) {

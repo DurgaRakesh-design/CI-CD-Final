@@ -4,8 +4,9 @@ import { Cpu, Check, ArrowRight, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { analyzePackageFile } from '@/services/packageAnalyzer';
+import WorkspaceActionBar from './WorkspaceActionBar';
 
-export default function PackageDetectionStep({ workspaceData, onNext, onBack, onData }) {
+export default function PackageDetectionStep({ workspaceData, onNext, onBack, onData, onReset }) {
   const [detecting, setDetecting] = useState(true);
   const [error, setError] = useState('');
   const [signals, setSignals] = useState(null);
@@ -67,7 +68,7 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="max-w-xl mx-auto space-y-6"
+      className="max-w-xl mx-auto space-y-6 pb-24"
     >
       <div className="text-center mb-8">
         <h2 className="font-heading font-bold text-2xl">Package Detection</h2>
@@ -87,12 +88,15 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
-          <div className="flex items-center justify-between pt-4">
-            <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Button>
-          </div>
+          <WorkspaceActionBar
+            onReset={onReset}
+            left={(
+              <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+            )}
+          />
         </div>
       ) : (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
@@ -114,16 +118,21 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
             <span className="font-medium">Package analysis complete</span>
           </div>
 
-          <div className="flex items-center justify-between pt-4">
-            <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Button>
-            <Button onClick={onNext} className="rounded-xl h-11 px-6">
-              Continue
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </div>
+          <WorkspaceActionBar
+            onReset={onReset}
+            left={(
+              <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+            )}
+            right={(
+              <Button onClick={onNext} className="rounded-xl h-11 px-6">
+                Continue
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            )}
+          />
         </motion.div>
       )}
     </motion.div>
