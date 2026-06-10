@@ -14,9 +14,16 @@ function getAiJobStore() {
   try {
     aiJobStore = getStore({ name: "ai-jobs" });
   } catch (error) {
+    if (isNetlifyRuntime()) {
+      throw error;
+    }
     aiJobStore = null;
   }
   return aiJobStore;
+}
+
+function isNetlifyRuntime() {
+  return process.env.NETLIFY === "true" || Boolean(process.env.SITE_ID);
 }
 
 export function connectBlobsFromEvent(event) {
