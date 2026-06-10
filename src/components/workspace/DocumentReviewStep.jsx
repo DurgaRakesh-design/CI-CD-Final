@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
+import AiLoadingVisual from './AiLoadingVisual';
 
 export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapResultsChange }) {
   const { toast } = useToast();
@@ -200,9 +201,10 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   if (loading) {
     return (
       <div className="max-w-xl mx-auto py-16 text-center space-y-4">
-        <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto" />
-        <h2 className="font-heading font-bold text-2xl">Preparing Review Documents</h2>
-        <p className="text-sm text-muted-foreground">Generating production-grade BRD and BDD drafts in the background. This can take a bit longer for large projects.</p>
+        <AiLoadingVisual
+          title="Preparing Review Documents"
+          description="Generating production-grade BRD and BDD drafts in the background. This can take a bit longer for large projects."
+        />
       </div>
     );
   }
@@ -546,7 +548,7 @@ function UnlinkedGapDetail({ gaps, loading, onGenerate }) {
           These findings are not confidently owned by an existing BRD or BDD. Review them together, then generate a focused BDD set for the missing coverage.
         </p>
         <Button className="mt-4 rounded-xl h-10 px-5" onClick={onGenerate} disabled={loading}>
-          {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PlusCircle className="w-4 h-4 mr-2" />}
+          {loading ? <img src="/ai-loading.gif" alt="" aria-hidden="true" className="w-4 h-4 mr-2 object-contain" /> : <PlusCircle className="w-4 h-4 mr-2" />}
           {loading ? 'Generating BDD coverage...' : 'Generate BDDs for unlinked gaps'}
         </Button>
       </div>

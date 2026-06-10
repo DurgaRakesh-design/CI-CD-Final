@@ -40,28 +40,31 @@ export const handler = async (event) => {
     return json(202, { jobId, status: "accepted" });
   } catch (error) {
     console.error("gap-analysis failed", error);
-    await upsertAiJob(JOB_TYPE, jobId, {
-      status: "failed",
-      stage: "failed",
-      progress: 100,
-      message: error.message || "Gap analysis failed.",
-    });
     return json(500, { message: error.message || "Gap analysis failed." });
   }
 };
 
 async function analyzeWithAI(context, reportProgress) {
-  await reportProgress({ stage: "analyzing", progress: 20, message: "Reviewing source evidence against documents." });
+  await reportProgress({ stage: "planning", progress: 20, message: "Planning evidence review." });
+  const plan = await buildGapAssessmentPlan(context);
+
+  await reportProgress({ stage: "analyzing", progress: 55, message: "Reviewing package evidence against document coverage." });
+  const report = await buildGapAssessmentReport(context, plan);
+
+  await reportProgress({ stage: "verifying", progress: 85, message: "Verifying findings, traceability, and readiness." });
+  const validated = normalizeGapPayload(report);
+  if (!validated.findings.length && !validated.summary) {
+    throw new Error("Gap analysis returned no usable findings.");
+  }
+  return validated;
+}
+
+async function buildGapAssessmentPlan(context) {
   const system = [
     "ROLE: You are a senior QA governance reviewer, BA traceability auditor, and Java source-code reviewer.",
-    "MISSION: Compare reviewed BRD/BDD documents against the supplied Java source-code evidence. Identify missing, weak, unsupported, duplicated, or not traceable requirement coverage.",
-    "Use sourceFiles as mandatory evidence. Do not judge against imagined requirements or generic Java architecture expectations.",
-    "Findings must be based on concrete source evidence such as controllers/endpoints, service methods, entities/DTO validations, security/config, tests, or uploaded requirement files.",
-    "If a finding belongs to an existing BRD or BDD document, mark it linked and provide relatedDocumentId.",
-    "If a source-supported behavior has no clear BRD/BDD owner, mark it unlinked and actionType=create_bdd.",
-    "Use business capability names, not technical layer names.",
-    "Keep findings actionable, concise, and suitable for a BA/QA reviewer.",
-    "Return JSON only with keys: summary, findings, recommendations.",
+    "MISSION: Build an evidence-first review plan for comparing BRD/BDD documents against the Java package evidence.",
+    "RULES: Use only the supplied source evidence and uploaded requirement files. Do not invent gaps or business behavior.",
+    "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
 
   const user = JSON.stringify({
@@ -73,11 +76,91 @@ async function analyzeWithAI(context, reportProgress) {
       module: doc.module,
       content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
     })),
-    expectedOutput: {
-      summary: "Object with totalFindings, high, medium, low, readiness.",
-      findings: "Array of {severity,title,description,relatedDocumentId,relatedDocument,linkStatus,module,packageSignal,impact,recommendedFix,actionType}.",
-      recommendations: "Array of concise business-readable next steps.",
+    planRequirements: {
+      primaryFocusAreas: "Array of the most important business capabilities to verify.",
+      evidencePriority: "Array of source areas in descending priority.",
+      documentCoverageMap: "Array describing which docs appear to own which business capabilities.",
+      likelyRisks: "Array of likely coverage or traceability risks that deserve deeper review.",
+      qualityNotes: "Array of assumptions, weak signals, or areas that need careful judgment.",
     },
+    guidance: [
+      "Prefer 3-8 focused focus areas over broad generic layer-based areas.",
+      "Use business capability names instead of technical layer names.",
+      "Call out evidence strength explicitly when it is weak.",
+    ],
+  });
+
+  const result = await callOpenAI({
+    system,
+    user,
+    temperature: 0.1,
+    responseSchema: {
+      name: "gap_analysis_plan",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["primaryFocusAreas", "evidencePriority", "documentCoverageMap", "likelyRisks", "qualityNotes"],
+        properties: {
+          primaryFocusAreas: { type: "array", items: { type: "string" } },
+          evidencePriority: { type: "array", items: { type: "string" } },
+          documentCoverageMap: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["capability", "ownerDocument", "confidence", "notes"],
+              properties: {
+                capability: { type: "string" },
+                ownerDocument: { type: "string" },
+                confidence: { type: "string" },
+                notes: { type: "string" },
+              },
+            },
+          },
+          likelyRisks: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["title", "severity", "evidenceHint", "recommendation"],
+              properties: {
+                title: { type: "string" },
+                severity: { type: "string" },
+                evidenceHint: { type: "string" },
+                recommendation: { type: "string" },
+              },
+            },
+          },
+          qualityNotes: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  });
+
+  if (!result) throw new Error("Gap analysis planning returned no response.");
+  return result;
+}
+
+async function buildGapAssessmentReport(context, plan) {
+  const system = [
+    "ROLE: You are a senior QA governance reviewer, BA traceability auditor, and Java source-code reviewer.",
+    "MISSION: Compare reviewed BRD/BDD documents against the supplied Java source-code evidence and identify missing, weak, unsupported, duplicated, or not traceable requirement coverage.",
+    "USE THE PLAN: Treat the plan as the blueprint. Prioritize its focus areas, risks, and coverage map.",
+    "RULES: Findings must be based on concrete evidence such as controllers/endpoints, service methods, entities/DTO validations, security/config, tests, or uploaded requirement files.",
+    "QUALITY: Prefer fewer, high-confidence findings over noisy generic findings.",
+    "OUTPUT: Return only JSON that matches the requested schema.",
+  ].join(" ");
+
+  const user = JSON.stringify({
+    packageSignals: context.signals,
+    documents: context.documents.map((doc) => ({
+      title: doc.title,
+      id: doc.id,
+      type: doc.type,
+      module: doc.module,
+      content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
+    })),
+    plan,
     rules: [
       "If a finding clearly belongs to an existing BRD or BDD, set linkStatus='linked', relatedDocumentId to that document id when available, and actionType='regenerate_document'.",
       "If a finding represents a missing capability with no existing BRD/BDD owner, set linkStatus='unlinked' and actionType='create_bdd'.",
@@ -86,7 +169,14 @@ async function analyzeWithAI(context, reportProgress) {
       "Do not report a gap unless you can point to source evidence or an uploaded requirement.",
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
+      "Include qualityNotes in the response when the evidence is thin or ambiguous.",
     ],
+    outputShape: {
+      summary: "Object with totalFindings, high, medium, low, readiness.",
+      findings: "Array of findings with severity, title, description, relatedDocumentId, relatedDocument, linkStatus, module, packageSignal, impact, recommendedFix, actionType.",
+      recommendations: "Array of concise business-readable next steps.",
+      qualityNotes: "Array of evidence caveats or confidence notes.",
+    },
   });
 
   const result = await callOpenAI({
@@ -98,7 +188,7 @@ async function analyzeWithAI(context, reportProgress) {
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["summary", "findings", "recommendations"],
+        required: ["summary", "findings", "recommendations", "qualityNotes"],
         properties: {
           summary: {
             type: "object",
@@ -134,14 +224,14 @@ async function analyzeWithAI(context, reportProgress) {
             },
           },
           recommendations: { type: "array", items: { type: "string" } },
+          qualityNotes: { type: "array", items: { type: "string" } },
         },
       },
     },
   });
 
   if (!result) throw new Error("Gap analysis returned no response.");
-  await reportProgress({ stage: "verifying", progress: 80, message: "Verifying findings and readiness." });
-  return normalizeGapPayload(result);
+  return result;
 }
 
 function normalizeGapPayload(payload) {
@@ -174,6 +264,7 @@ function normalizeGapPayload(payload) {
     },
     findings,
     recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
+    qualityNotes: Array.isArray(payload.qualityNotes) ? payload.qualityNotes : [],
   };
 }
 

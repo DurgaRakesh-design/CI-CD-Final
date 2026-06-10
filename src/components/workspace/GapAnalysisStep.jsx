@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, ArrowRight, ArrowLeft, AlertTriangle, CheckCircle2, Lightbulb, Loader2 } from 'lucide-react';
+import { BarChart3, ArrowRight, ArrowLeft, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { runGapAnalysis } from '@/services/documentService';
+import AiLoadingVisual from './AiLoadingVisual';
 
 const severityColors = {
   high: 'bg-red-50 text-red-700 border-red-200',
@@ -65,10 +66,10 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto" />
-              <p className="text-sm text-muted-foreground">Analyzing package-to-document coverage in the background...</p>
-            </div>
+            <AiLoadingVisual
+              title="Analyzing Package-to-Document Coverage"
+              description="Reviewing the evidence in the background. This can take a bit longer for large projects."
+            />
           )}
         </div>
       )}
@@ -128,6 +129,20 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
               ))}
             </ul>
           </div>
+
+          {Array.isArray(result.qualityNotes) && result.qualityNotes.length > 0 && (
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="text-sm font-semibold text-slate-800">Quality Notes</div>
+              <ul className="space-y-1.5">
+                {result.qualityNotes.map((note, index) => (
+                  <li key={index} className="text-xs text-slate-700 flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </motion.div>
       )}
 
