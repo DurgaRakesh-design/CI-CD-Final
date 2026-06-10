@@ -216,10 +216,25 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
 
   if (loading) {
     return (
-      <div className="max-w-xl mx-auto py-16 text-center space-y-4">
+      <div className="max-w-xl mx-auto py-16 text-center space-y-4 pb-24">
         <AiLoadingVisual
           title="Preparing Review Documents"
           description="Generating production-grade BRD and BDD drafts in the background. This can take a bit longer for large projects."
+        />
+        <WorkspaceActionBar
+          onReset={onReset}
+          left={(
+            <Button variant="outline" onClick={onBack} className="rounded-xl h-11 px-5">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+          )}
+          right={(
+            <Button disabled className="rounded-xl h-11 px-6">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Generating Documents
+            </Button>
+          )}
         />
       </div>
     );
