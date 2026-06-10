@@ -1,26 +1,57 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob } from "./_shared.js";
+
+const JOB_TYPE = "gap-analysis";
+
+export const config = {
+  background: true,
+};
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS_HEADERS, body: "" };
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 
   try {
-    const { packageSignals, documents = [] } = parseEventBody(event);
-    const signals = compactSignals(packageSignals);
-    const aiPayload = await analyzeWithAI(signals, documents);
-    if (!aiPayload) {
-      return json(502, {
-        message: "AI gap analysis did not return a valid response. Please retry after confirming the OpenAI key and package input.",
+    const request = parseEventBody(event);
+    const jobId = normalizeJobId(request.jobId);
+    const context = buildGapContext(request, jobId);
+    await upsertAiJob(JOB_TYPE, jobId, {
+      status: "running",
+      stage: "queued",
+      progress: 1,
+      message: "Queued AI gap analysis.",
+      request: context.auditRequest,
+    });
+
+    const result = await analyzeWithAI(context, async (update) => {
+      await upsertAiJob(JOB_TYPE, jobId, {
+        status: "running",
+        ...update,
       });
-    }
-    return json(200, aiPayload);
+    });
+
+    await upsertAiJob(JOB_TYPE, jobId, {
+      status: "completed",
+      stage: "done",
+      progress: 100,
+      message: "Gap analysis completed.",
+      result,
+    });
+
+    return json(202, { jobId, status: "accepted" });
   } catch (error) {
     console.error("gap-analysis failed", error);
+    await upsertAiJob(JOB_TYPE, jobId, {
+      status: "failed",
+      stage: "failed",
+      progress: 100,
+      message: error.message || "Gap analysis failed.",
+    });
     return json(500, { message: error.message || "Gap analysis failed." });
   }
 };
 
-async function analyzeWithAI(signals, documents) {
+async function analyzeWithAI(context, reportProgress) {
+  await reportProgress({ stage: "analyzing", progress: 20, message: "Reviewing source evidence against documents." });
   const system = [
     "ROLE: You are a senior QA governance reviewer, BA traceability auditor, and Java source-code reviewer.",
     "MISSION: Compare reviewed BRD/BDD documents against the supplied Java source-code evidence. Identify missing, weak, unsupported, duplicated, or not traceable requirement coverage.",
@@ -32,7 +63,16 @@ async function analyzeWithAI(signals, documents) {
     "Keep findings actionable, concise, and suitable for a BA/QA reviewer.",
     "Return JSON only with keys: summary, findings, recommendations.",
   ].join(" ");
+
   const user = JSON.stringify({
+    packageSignals: context.signals,
+    documents: context.documents.map((doc) => ({
+      title: doc.title,
+      id: doc.id,
+      type: doc.type,
+      module: doc.module,
+      content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
+    })),
     expectedOutput: {
       summary: "Object with totalFindings, high, medium, low, readiness.",
       findings: "Array of {severity,title,description,relatedDocumentId,relatedDocument,linkStatus,module,packageSignal,impact,recommendedFix,actionType}.",
@@ -47,22 +87,65 @@ async function analyzeWithAI(signals, documents) {
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
     ],
-    packageSignals: signals,
-    documents: documents.map((doc) => ({
-      title: doc.title,
-      id: doc.id,
-      type: doc.type,
-      module: doc.module,
-      content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
-    })),
   });
-  const result = await callOpenAI({ system, user, temperature: 0.1 });
-  if (!result || !Array.isArray(result.findings)) return null;
+
+  const result = await callOpenAI({
+    system,
+    user,
+    temperature: 0.1,
+    responseSchema: {
+      name: "gap_analysis_report",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["summary", "findings", "recommendations"],
+        properties: {
+          summary: {
+            type: "object",
+            additionalProperties: false,
+            required: ["totalFindings", "high", "medium", "low", "readiness"],
+            properties: {
+              totalFindings: { type: "number" },
+              high: { type: "number" },
+              medium: { type: "number" },
+              low: { type: "number" },
+              readiness: { type: "string" },
+            },
+          },
+          findings: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["severity", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "impact", "recommendedFix", "actionType"],
+              properties: {
+                severity: { type: "string" },
+                title: { type: "string" },
+                description: { type: "string" },
+                relatedDocumentId: { type: "string" },
+                relatedDocument: { type: "string" },
+                linkStatus: { type: "string" },
+                module: { type: "string" },
+                packageSignal: { type: "string" },
+                impact: { type: "string" },
+                recommendedFix: { type: "string" },
+                actionType: { type: "string" },
+              },
+            },
+          },
+          recommendations: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  });
+
+  if (!result) throw new Error("Gap analysis returned no response.");
+  await reportProgress({ stage: "verifying", progress: 80, message: "Verifying findings and readiness." });
   return normalizeGapPayload(result);
 }
 
 function normalizeGapPayload(payload) {
-  const findings = payload.findings.map((item) => ({
+  const findings = (Array.isArray(payload.findings) ? payload.findings : []).map((item) => ({
     severity: ["high", "medium", "low"].includes(String(item.severity).toLowerCase())
       ? String(item.severity).toLowerCase()
       : "medium",
@@ -90,6 +173,46 @@ function normalizeGapPayload(payload) {
       ...(payload.summary || {}),
     },
     findings,
-    recommendations: payload.recommendations || [],
+    recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
   };
+}
+
+function buildGapContext(request, jobId) {
+  const signals = compactSignals(request.packageSignals);
+  return {
+    jobId,
+    documents: Array.isArray(request.documents) ? request.documents : [],
+    signals,
+    auditRequest: {
+      documentCount: Array.isArray(request.documents) ? request.documents.length : 0,
+      packageSignals: summarizeSignals(signals),
+    },
+  };
+}
+
+function summarizeSignals(signals) {
+  return {
+    projectName: signals.projectName,
+    fileName: signals.fileName,
+    platform: signals.platform,
+    buildTool: signals.buildTool,
+    hasSpringBoot: signals.hasSpringBoot,
+    sourceFileCount: signals.sourceFileCount,
+    testFileCount: signals.testFileCount,
+    bddFileCount: signals.bddFileCount,
+    modules: (signals.modules || []).slice(0, 20),
+    endpoints: (signals.endpoints || []).slice(0, 20),
+    classes: (signals.classes || []).slice(0, 20).map((item) => ({
+      className: item.className,
+      packageName: item.packageName,
+      annotations: item.annotations,
+      methodCount: item.methodCount,
+      endpoints: item.endpoints || [],
+    })),
+  };
+}
+
+function normalizeJobId(value) {
+  const cleaned = String(value || '').trim();
+  return cleaned || crypto.randomUUID();
 }

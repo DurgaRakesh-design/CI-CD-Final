@@ -67,7 +67,7 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
           ) : (
             <div className="space-y-4">
               <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto" />
-              <p className="text-sm text-muted-foreground">Analyzing package-to-document coverage...</p>
+              <p className="text-sm text-muted-foreground">Analyzing package-to-document coverage in the background...</p>
             </div>
           )}
         </div>

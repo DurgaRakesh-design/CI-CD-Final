@@ -202,7 +202,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       <div className="max-w-xl mx-auto py-16 text-center space-y-4">
         <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto" />
         <h2 className="font-heading font-bold text-2xl">Preparing Review Documents</h2>
-        <p className="text-sm text-muted-foreground">Generating production-grade BRD and BDD drafts from package signals.</p>
+        <p className="text-sm text-muted-foreground">Generating production-grade BRD and BDD drafts in the background. This can take a bit longer for large projects.</p>
       </div>
     );
   }

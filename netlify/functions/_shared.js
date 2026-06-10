@@ -1,8 +1,12 @@
+import { getStore } from "@netlify/blobs";
+
 export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Accept",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
+
+const AI_JOB_STORE = getStore({ name: "ai-jobs", consistency: "strong" });
 
 export function json(statusCode, payload) {
   return {
@@ -51,14 +55,30 @@ export function compactSignals(packageSignals = {}) {
   };
 }
 
-export async function callOpenAI({ system, user, temperature = 0.2, timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 120000) }) {
+export async function callOpenAI({
+  system,
+  user,
+  temperature = 0.2,
+  timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 120000),
+  responseSchema = null,
+  model = process.env.OPENAI_MODEL || "gpt-4.1",
+}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
-  const model = process.env.OPENAI_MODEL || "gpt-4.1";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
+    const responseFormat = responseSchema
+      ? {
+          type: "json_schema",
+          json_schema: {
+            name: responseSchema.name || "ai_response",
+            strict: true,
+            schema: responseSchema.schema,
+          },
+        }
+      : { type: "json_object" };
     response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       signal: controller.signal,
@@ -69,7 +89,7 @@ export async function callOpenAI({ system, user, temperature = 0.2, timeoutMs = 
       body: JSON.stringify({
         model,
         temperature,
-        response_format: { type: "json_object" },
+        response_format: responseFormat,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -101,6 +121,27 @@ export async function callOpenAI({ system, user, temperature = 0.2, timeoutMs = 
   } catch {
     throw new Error(`OpenAI returned invalid JSON content: ${content.slice(0, 180)}`);
   }
+}
+
+export function jobKey(type, jobId) {
+  return `${type}:${jobId}`;
+}
+
+export async function upsertAiJob(type, jobId, data) {
+  const now = new Date().toISOString();
+  const payload = {
+    type,
+    jobId,
+    updatedAt: now,
+    ...data,
+  };
+  if (!payload.createdAt) payload.createdAt = now;
+  await AI_JOB_STORE.setJSON(jobKey(type, jobId), payload);
+  return payload;
+}
+
+export async function getAiJob(type, jobId) {
+  return await AI_JOB_STORE.get(jobKey(type, jobId), { type: "json" });
 }
 
 export function slugify(value) {

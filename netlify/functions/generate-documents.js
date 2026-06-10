@@ -1,75 +1,314 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob } from "./_shared.js";
+
+const JOB_TYPE = "generate-documents";
+
+export const config = {
+  background: true,
+};
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS_HEADERS, body: "" };
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 
   try {
-    const {
-      packageSignals,
-      uploadedRequirements = [],
-      gapResults = null,
-      generationMode = "initial",
-      targetDocument = null,
-      targetGap = null,
-    } = parseEventBody(event);
-    const signals = compactSignals(packageSignals);
-    const aiPayload = await generateWithAI(signals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap);
-    if (!aiPayload) {
-      return json(502, {
-        message: "AI document generation did not return a valid BRD/BDD suite. Please retry after confirming the OpenAI key and package input.",
+    const request = parseEventBody(event);
+    const jobId = normalizeJobId(request.jobId);
+    const context = buildGenerationContext(request, jobId);
+    await upsertAiJob(JOB_TYPE, jobId, {
+      status: "running",
+      stage: "queued",
+      progress: 1,
+      message: "Queued AI document generation.",
+      request: context.auditRequest,
+    });
+
+    const result = await generateWithAI(context, async (update) => {
+      await upsertAiJob(JOB_TYPE, jobId, {
+        status: "running",
+        ...update,
       });
-    }
-    return json(200, aiPayload);
+    });
+
+    await upsertAiJob(JOB_TYPE, jobId, {
+      status: "completed",
+      stage: "done",
+      progress: 100,
+      message: "Document generation completed.",
+      result,
+    });
+
+    return json(202, { jobId, status: "accepted" });
   } catch (error) {
     console.error("generate-documents failed", error);
+    await upsertAiJob(JOB_TYPE, jobId, {
+      status: "failed",
+      stage: "failed",
+      progress: 100,
+      message: error.message || "Document generation failed.",
+    });
     return json(500, { message: error.message || "Document generation failed." });
   }
 };
 
-async function generateWithAI(signals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap) {
+async function generateWithAI(context, reportProgress) {
+  await reportProgress({ stage: "planning", progress: 10, message: "Planning document structure." });
+  const plan = await buildDocumentPlan(context);
+
+  await reportProgress({ stage: "drafting", progress: 45, message: "Drafting BRD and BDD content." });
+  const suite = await buildFinalSuite(context, plan);
+
+  await reportProgress({ stage: "verifying", progress: 85, message: "Verifying output quality and traceability." });
+  const validated = validateSuite(suite);
+  if (!validated) {
+    throw new Error("AI document generation returned an invalid suite.");
+  }
+
+  return validated;
+}
+
+function buildGenerationContext(request, jobId) {
+  const signals = compactSignals(request.packageSignals);
+  return {
+    jobId,
+    generationMode: request.generationMode || "initial",
+    targetDocument: request.targetDocument || null,
+    targetGap: request.targetGap || null,
+    uploadedRequirements: Array.isArray(request.uploadedRequirements) ? request.uploadedRequirements : [],
+    gapResults: request.gapResults || null,
+    signals,
+    auditRequest: {
+      generationMode: request.generationMode || "initial",
+      targetDocument: request.targetDocument || null,
+      targetGap: request.targetGap || null,
+      uploadedRequirementCount: Array.isArray(request.uploadedRequirements) ? request.uploadedRequirements.length : 0,
+      hasGapResults: Boolean(request.gapResults),
+      packageSignals: summarizeSignals(signals),
+    },
+  };
+}
+
+async function buildDocumentPlan(context) {
   const system = [
-    "ROLE: You are a principal Java solution architect, senior business analyst, and QA automation strategist with 15+ years of experience.",
-    "MISSION: Generate production-grade BRD and BDD documents only from the supplied Java project source evidence. Do not invent features, roles, integrations, pages, APIs, validations, or business rules that are not supported by code, configuration, existing tests, or uploaded requirement files.",
-    "SOURCE PRIORITY: First use uploaded BRD/BDD/requirement files when present, then controller/page/API entry points, service/business logic classes, entity/model/DTO validation rules, security/configuration files, existing tests, and build/config files.",
-    "STRICT RULES: Do not create generic technical BDDs such as Entity Layer, Repository Layer, Controller Layer, Service Layer, Config, DTO, Model, Utility, or Application unless that name is explicitly a real user/business workflow in the source.",
-    "Create BDDs only for real business capabilities or user/system workflows that are evidenced by source files.",
-    "Every BRD requirement must cite source evidence using file path and class/method when available.",
-    "Every BDD scenario must map to a business requirement or code-supported behavior.",
-    "If source evidence is weak, mark it as an assumption or gap in qualityNotes instead of inventing behavior.",
-    "Prefer fewer accurate documents over many generic documents.",
-    "Write clear business language for reviewers and valid Gherkin for pipeline execution.",
-    "For each BDD businessView include feature purpose, user goal, business outcome, validations, source evidence, and scenario summary in plain English.",
-    "When regenerating a document, preserve the original document identity and improve only the relevant missing/weak coverage.",
-    "When generating from unlinked gaps, create new BDD feature files only for those gaps and avoid duplicating existing BDD modules.",
-    "Return JSON only with keys: brd, bddFiles, qualityNotes.",
+    "ROLE: You are a principal Java solution architect, senior business analyst, and QA documentation strategist.",
+    "MISSION: Turn the provided Java source evidence and uploaded requirements into a concise generation blueprint for a high-quality BRD plus focused BDD coverage.",
+    "RULES: Do not invent capabilities. Prefer fewer, deeper, evidence-backed clusters over broad generic coverage.",
+    "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
+
   const user = JSON.stringify({
-    generationMode,
-    instructions: {
-      initial: "Create one BRD and 1-8 BDD files based only on real business capabilities discovered in sourceFiles and uploaded requirements. Use sourceFiles as mandatory evidence, not optional context.",
-      regenerate_document: "Return only the improved target document type when possible. Keep the same module/title intent. Incorporate only the linked findings and relevant source evidence. Do not regenerate unrelated documents.",
-      generate_from_unlinked_gaps: "Group unlinked findings by business capability and create focused BDD files for those uncovered capabilities only. Do not duplicate existing BDD modules.",
-      brd: "Create one BRD with document control, project overview, actors/roles, in-scope capabilities, functional requirements, business rules, validations, non-functional expectations, assumptions, gaps, and acceptance criteria. Cite source path/class/method evidence wherever possible.",
-      bddFiles: "Each BDD must have title, module, businessView, and gherkin. Scenarios must be specific, testable, and grounded in source evidence. Include happy path, negative/validation, boundary, not-found/conflict/security/integration scenarios only when supported by code evidence.",
-      traceability: "For every BDD scenario, include source-backed language in the scenario title or comments when possible. Avoid scenarios that cannot be traced to supplied source files.",
+    generationMode: context.generationMode,
+    targetDocument: context.targetDocument,
+    targetGap: context.targetGap,
+    uploadedRequirements: context.uploadedRequirements,
+    gapResults: context.gapResults,
+    packageSignals: context.signals,
+    requiredPlanShape: {
+      executiveSummary: "string",
+      brdSections: [
+        "Executive Summary",
+        "Architecture Overview",
+        "Stakeholders",
+        "Functional Requirements",
+        "Business Rules",
+        "Data Model",
+        "Validation Rules",
+        "Workflows",
+        "Integration Analysis",
+        "Security Assessment",
+        "Performance Assessment",
+        "Gap Analysis",
+        "Risk Register",
+        "Traceability Matrix",
+        "Recommendations",
+      ],
+      primaryCapabilities: [
+        {
+          name: "string",
+          businessGoal: "string",
+          sourceEvidence: ["file path or code artifact"],
+          notes: "string",
+        },
+      ],
+      bddClusters: [
+        {
+          clusterId: "string",
+          title: "string",
+          module: "string",
+          businessGoal: "string",
+          sourceEvidence: ["file path or code artifact"],
+          scenarioTypes: ["happy path", "validation", "boundary", "security", "integration"],
+        },
+      ],
+      qualityNotes: ["string"],
     },
-    requiredJsonShape: {
-      brd: { id: "string", title: "string", module: "Application", content: "markdown string" },
-      bddFiles: [{ id: "string", title: "string", module: "string", businessView: "string", gherkin: "valid Gherkin string" }],
-      qualityNotes: ["source-grounding notes, assumptions, or gaps"],
-    },
-    packageSignals: signals,
-    uploadedRequirements,
-    gapResults,
-    targetDocument,
-    targetGap,
+    guidance: [
+      "Keep cluster count tight and focused on the most important business capabilities.",
+      "Use source evidence from controllers, services, entities, validations, security, tests, and uploaded requirements.",
+      "If an area is weakly supported, call it out in qualityNotes instead of forcing a cluster.",
+    ],
   });
-  const result = await callOpenAI({ system, user, temperature: 0.15 });
-  if (!isMeaningfulSuite(result)) return null;
+
+  const result = await callOpenAI({
+    system,
+    user,
+    temperature: 0.1,
+    responseSchema: {
+      name: "document_generation_plan",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["executiveSummary", "brdSections", "primaryCapabilities", "bddClusters", "qualityNotes"],
+        properties: {
+          executiveSummary: { type: "string" },
+          brdSections: {
+            type: "array",
+            minItems: 10,
+            items: { type: "string" },
+          },
+          primaryCapabilities: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "businessGoal", "sourceEvidence", "notes"],
+              properties: {
+                name: { type: "string" },
+                businessGoal: { type: "string" },
+                sourceEvidence: { type: "array", items: { type: "string" } },
+                notes: { type: "string" },
+              },
+            },
+          },
+          bddClusters: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["clusterId", "title", "module", "businessGoal", "sourceEvidence", "scenarioTypes"],
+              properties: {
+                clusterId: { type: "string" },
+                title: { type: "string" },
+                module: { type: "string" },
+                businessGoal: { type: "string" },
+                sourceEvidence: { type: "array", items: { type: "string" } },
+                scenarioTypes: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
+          qualityNotes: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  });
+
+  if (!result) throw new Error("Document planning returned no response.");
+  return result;
+}
+
+async function buildFinalSuite(context, plan) {
+  const system = [
+    "ROLE: You are a principal Java solution architect, senior business analyst, and QA automation strategist.",
+    "MISSION: Generate a production-grade BRD and focused BDD suite from the supplied source evidence and the provided blueprint.",
+    "QUALITY TARGET: The BRD must read like a detailed enterprise analysis document. The BDDs must be business-readable but also executable and evidence-backed.",
+    "STRICT RULES: Do not invent features, roles, integrations, pages, APIs, validations, or business rules. Prefer traceability and depth over breadth.",
+    "STRUCTURE: The BRD content should use the sections from the blueprint in a clear markdown hierarchy.",
+    "OUTPUT: Return only JSON that matches the requested schema.",
+  ].join(" ");
+
+  const user = JSON.stringify({
+    generationMode: context.generationMode,
+    targetDocument: context.targetDocument,
+    targetGap: context.targetGap,
+    uploadedRequirements: context.uploadedRequirements,
+    gapResults: context.gapResults,
+    packageSignals: context.signals,
+    blueprint: plan,
+    requiredOutputShape: {
+      source: "ai_generated",
+      brd: {
+        id: "string",
+        title: "string",
+        module: "Application",
+        content: "markdown string with detailed section headings and evidence-backed analysis",
+      },
+      bddFiles: [
+        {
+          id: "string",
+          title: "string",
+          module: "string",
+          businessView: "string",
+          gherkin: "valid Gherkin string",
+        },
+      ],
+      qualityNotes: ["string"],
+    },
+    contentGuidance: [
+      "Use the blueprint's brdSections and primaryCapabilities as the source of truth.",
+      "Keep BRD sections detailed enough for business review, traceability, and QA alignment.",
+      "For each BDD, include a concise businessView plus specific scenarios grounded in the evidence.",
+      "Do not create more BDDs than needed; aim for depth and accuracy.",
+      "When regenerating, keep the identity and module focus of the target document whenever possible.",
+      "When generating from unlinked gaps, create BDDs only for the missing capability clusters in the blueprint.",
+    ],
+  });
+
+  const result = await callOpenAI({
+    system,
+    user,
+    temperature: 0.15,
+    responseSchema: {
+      name: "document_generation_suite",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source", "brd", "bddFiles", "qualityNotes"],
+        properties: {
+          source: { type: "string" },
+          brd: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "title", "module", "content"],
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              module: { type: "string" },
+              content: { type: "string" },
+            },
+          },
+          bddFiles: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "title", "module", "businessView", "gherkin"],
+              properties: {
+                id: { type: "string" },
+                title: { type: "string" },
+                module: { type: "string" },
+                businessView: { type: "string" },
+                gherkin: { type: "string" },
+              },
+            },
+          },
+          qualityNotes: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+  });
+
+  if (!result) throw new Error("Document generation returned no response.");
   return normalizeSuite(result, "ai_generated");
 }
 
+function validateSuite(payload) {
+  const brdText = String(payload?.brd?.content || "").trim();
+  const bdds = Array.isArray(payload?.bddFiles) ? payload.bddFiles : [];
+  if (!brdText || brdText.length < 300) return null;
+  if (!bdds.length) return null;
+  if (!bdds.some((doc) => String(doc?.gherkin || "").trim().length > 80)) return null;
+  return payload;
+}
 
 function normalizeSuite(payload, source) {
   const brd = payload.brd || {};
@@ -93,17 +332,29 @@ function normalizeSuite(payload, source) {
   };
 }
 
-function isMeaningfulSuite(payload) {
-  const brdText = String(
-    payload?.brd?.content ||
-      payload?.brd?.businessView ||
-      payload?.brd?.markdown ||
-      payload?.brd?.body ||
-      payload?.brd?.description ||
-      ''
-  ).trim();
-  const bdds = Array.isArray(payload?.bddFiles) ? payload.bddFiles : [];
-  if (!brdText || brdText.length < 120) return false;
-  if (!bdds.length) return false;
-  return bdds.some((doc) => String(doc?.gherkin || doc?.content || doc?.businessView || doc?.description || '').trim().length > 80);
+function summarizeSignals(signals) {
+  return {
+    projectName: signals.projectName,
+    fileName: signals.fileName,
+    platform: signals.platform,
+    buildTool: signals.buildTool,
+    hasSpringBoot: signals.hasSpringBoot,
+    sourceFileCount: signals.sourceFileCount,
+    testFileCount: signals.testFileCount,
+    bddFileCount: signals.bddFileCount,
+    modules: (signals.modules || []).slice(0, 20),
+    endpoints: (signals.endpoints || []).slice(0, 20),
+    classes: (signals.classes || []).slice(0, 20).map((item) => ({
+      className: item.className,
+      packageName: item.packageName,
+      annotations: item.annotations,
+      methodCount: item.methodCount,
+      endpoints: item.endpoints || [],
+    })),
+  };
+}
+
+function normalizeJobId(value) {
+  const cleaned = String(value || '').trim();
+  return cleaned || crypto.randomUUID();
 }

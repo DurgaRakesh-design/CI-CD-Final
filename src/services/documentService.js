@@ -5,30 +5,46 @@ export async function generateRequirementSuite({
   generationMode = 'initial',
   targetDocument = null,
   targetGap = null,
+  jobTimeoutMs = 900000,
+  onStatusUpdate = null,
 }) {
+  const jobId = createJobId();
   const response = await fetch('/.netlify/functions/generate-documents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ packageSignals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
+    body: JSON.stringify({ jobId, packageSignals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
   });
-  const payload = await readJsonResponse(response, 'Document generation');
   if (!response.ok) {
+    const payload = await readJsonResponse(response, 'Document generation');
     throw new Error(payload?.message || 'Document generation failed.');
   }
-  return normalizeGeneratedSuite(payload);
+  const job = await waitForAiJob({
+    type: 'generate-documents',
+    jobId,
+    timeoutMs: jobTimeoutMs,
+    onStatusUpdate,
+  });
+  return normalizeGeneratedSuite(job.result || job.payload || job);
 }
 
-export async function runGapAnalysis({ packageSignals, documents }) {
+export async function runGapAnalysis({ packageSignals, documents, jobTimeoutMs = 900000, onStatusUpdate = null }) {
+  const jobId = createJobId();
   const response = await fetch('/.netlify/functions/gap-analysis', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ packageSignals, documents }),
+    body: JSON.stringify({ jobId, packageSignals, documents }),
   });
-  const payload = await readJsonResponse(response, 'Gap analysis');
   if (!response.ok) {
+    const payload = await readJsonResponse(response, 'Gap analysis');
     throw new Error(payload?.message || 'Gap analysis failed.');
   }
-  return payload;
+  const job = await waitForAiJob({
+    type: 'gap-analysis',
+    jobId,
+    timeoutMs: jobTimeoutMs,
+    onStatusUpdate,
+  });
+  return job.result || job.payload || job;
 }
 
 export function normalizeGeneratedSuite(payload) {
@@ -99,4 +115,40 @@ async function readJsonResponse(response, label) {
       .slice(0, 180);
     throw new Error(`${label} endpoint returned ${response.status} ${response.statusText || ''}: ${compact || 'No response body'}`);
   }
+}
+
+function createJobId() {
+  return globalThis.crypto?.randomUUID?.() || `job-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function waitForAiJob({ type, jobId, timeoutMs, onStatusUpdate }) {
+  const startedAt = Date.now();
+  let delayMs = 1200;
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await fetch(`/.netlify/functions/ai-job-status?type=${encodeURIComponent(type)}&jobId=${encodeURIComponent(jobId)}`);
+    const payload = await readJsonResponse(response, 'AI job status');
+    if (response.status === 404) {
+      await sleep(delayMs);
+      delayMs = Math.min(Math.round(delayMs * 1.3), 5000);
+      continue;
+    }
+    if (!response.ok) {
+      throw new Error(payload?.message || 'AI job status lookup failed.');
+    }
+
+    onStatusUpdate?.(payload);
+
+    if (payload.status === 'completed') return payload;
+    if (payload.status === 'failed') {
+      throw new Error(payload.message || 'AI job failed.');
+    }
+
+    await sleep(delayMs);
+    delayMs = Math.min(Math.round(delayMs * 1.3), 5000);
+  }
+  throw new Error('AI job timed out while waiting for completion.');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
