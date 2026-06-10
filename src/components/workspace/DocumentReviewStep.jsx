@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Code2, ArrowRight, ArrowLeft, Edit3, CheckCircle2, Download, Save, Loader2, AlertTriangle, RefreshCw, TriangleAlert, PlusCircle } from 'lucide-react';
+import { FileText, Code2, ArrowRight, ArrowLeft, Edit3, CheckCircle2, Download, Save, Loader2, AlertTriangle, RefreshCw, TriangleAlert, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -12,6 +12,8 @@ import { createDocumentDocxBlob } from '@/services/docx';
 import AiLoadingVisual from './AiLoadingVisual';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
+const DOCUMENT_PAGE_SIZE = 5;
+
 export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapResultsChange, onReset }) {
   const { toast } = useToast();
   const [selectedId, setSelectedId] = useState('');
@@ -21,6 +23,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [regenLoading, setRegenLoading] = useState(false);
+  const [docPage, setDocPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +79,16 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   const allBddApproved = documents.filter((doc) => doc.type === 'BDD').every((doc) => doc.approved);
   const selectedGaps = selectedDoc ? gapModel.docGapMap.get(selectedDoc.id) || [] : [];
   const hasGapAnalysis = Array.isArray(gapResults?.findings);
+  const orderedDocuments = useMemo(
+    () => [...documents.filter((doc) => doc.type === 'BRD'), ...documents.filter((doc) => doc.type === 'BDD')],
+    [documents]
+  );
+  const totalDocPages = Math.max(1, Math.ceil(orderedDocuments.length / DOCUMENT_PAGE_SIZE));
+  const pagedDocuments = orderedDocuments.slice((docPage - 1) * DOCUMENT_PAGE_SIZE, docPage * DOCUMENT_PAGE_SIZE);
+
+  useEffect(() => {
+    setDocPage((page) => Math.min(page, totalDocPages));
+  }, [totalDocPages]);
 
   const updateDoc = (docId, patch) => {
     setDocuments(prev => prev.map(doc => doc.id === docId ? { ...doc, ...patch, lastEdited: new Date().toISOString() } : doc));
@@ -239,23 +252,23 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         <p className="text-muted-foreground mt-1 text-sm">Review, edit, and approve your requirement documents</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[620px]">
-        <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4 lg:max-h-[calc(100vh-260px)] overflow-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+        <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4 h-[620px] overflow-hidden flex flex-col">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Requirement Tree</h3>
-          <div className="space-y-2">
+          <div className="flex-1 min-h-0 space-y-2">
             <TreeGroup
               label="BRD"
               count={documents.filter((d) => d.type === 'BRD').length}
               icon={<FileText className="w-4 h-4 text-blue-500" />}
             >
-              {documents.filter((doc) => doc.type === 'BRD').map((doc) => renderTreeItem(doc, gapModel.docGapMap.get(doc.id) || [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
+              {pagedDocuments.filter((doc) => doc.type === 'BRD').map((doc) => renderTreeItem(doc, gapModel.docGapMap.get(doc.id) || [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
             </TreeGroup>
             <TreeGroup
               label="BDD"
               count={documents.filter((d) => d.type === 'BDD').length}
               icon={<Code2 className="w-4 h-4 text-violet-500" />}
             >
-              {documents.filter((doc) => doc.type === 'BDD').map((doc) => renderTreeItem(doc, gapModel.docGapMap.get(doc.id) || [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
+              {pagedDocuments.filter((doc) => doc.type === 'BDD').map((doc) => renderTreeItem(doc, gapModel.docGapMap.get(doc.id) || [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
             </TreeGroup>
             {gapModel.unlinkedGaps.length > 0 && (
               <TreeGroup
@@ -273,9 +286,12 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
               </div>
             </div>
           </div>
+          {orderedDocuments.length > DOCUMENT_PAGE_SIZE && (
+            <DocumentPager page={docPage} totalPages={totalDocPages} totalCount={orderedDocuments.length} onPageChange={setDocPage} />
+          )}
         </div>
 
-        <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col min-h-[620px] lg:max-h-[calc(100vh-260px)]">
+        <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col h-[620px]">
           <div className="flex items-center justify-between gap-2 p-3 border-b border-border">
             <span className="font-semibold text-sm truncate">{selectedUnlinkedGaps ? 'Unlinked Gap Findings' : selectedDoc?.title}</span>
             <div className="flex items-center gap-1">
@@ -331,7 +347,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
         </div>
 
-        <div className="lg:col-span-3 space-y-4 lg:max-h-[calc(100vh-260px)] overflow-auto pr-1">
+        <div className="lg:col-span-3 space-y-4 h-[620px] overflow-hidden">
           <div className="bg-white rounded-xl border border-border p-4 space-y-4">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Readiness</h3>
             <div>
@@ -380,43 +396,31 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
 
           <div className="bg-white rounded-xl border border-border p-4 space-y-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Approval Status</h3>
-            <div className="space-y-2">
-              {documents.map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate text-muted-foreground">{doc.title}</span>
-                  <Badge variant="outline" className={`text-xs ${doc.approved ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-amber-700 border-amber-200 bg-amber-50'}`}>
-                    {doc.approved ? 'approved' : 'review'}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-border p-4 space-y-3">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Detected Gaps</h3>
             {selectedUnlinkedGaps ? (
               <div className="space-y-2">
-                {gapModel.unlinkedGaps.map((gap) => (
+                {gapModel.unlinkedGaps.slice(0, 3).map((gap) => (
                   <div key={gap.uiId} className={`p-3 rounded-xl border ${severityBadge(gap.severity)}`}>
                     <p className="text-sm font-semibold">{gap.title}</p>
-                    <p className="text-xs mt-1">{gap.description}</p>
+                    <p className="text-xs mt-1 max-h-12 overflow-hidden">{gap.description}</p>
                   </div>
                 ))}
+                {gapModel.unlinkedGaps.length > 3 && <p className="text-xs text-muted-foreground">+{gapModel.unlinkedGaps.length - 3} more unlinked findings</p>}
               </div>
             ) : selectedGaps.length > 0 ? (
               <div className="space-y-2">
-                {selectedGaps.map((gap, i) => (
+                {selectedGaps.slice(0, 3).map((gap, i) => (
                   <div key={i} className={`p-3 rounded-xl border ${severityBadge(gap.severity)}`}>
                     <div className="flex items-start gap-2">
                       <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
                       <div>
                         <p className="text-sm font-semibold">{gap.title}</p>
-                        <p className="text-xs mt-1 opacity-90">{gap.description}</p>
+                        <p className="text-xs mt-1 max-h-12 overflow-hidden opacity-90">{gap.description}</p>
                       </div>
                     </div>
                   </div>
                 ))}
+                {selectedGaps.length > 3 && <p className="text-xs text-muted-foreground">+{selectedGaps.length - 3} more findings on this document</p>}
               </div>
             ) : (
               <div className="p-3 rounded-xl border bg-blue-50 border-blue-100 text-blue-700 text-xs">
@@ -490,6 +494,7 @@ function inferFeatureModule(text, fileName) {
 }
 
 function TreeGroup({ label, count, icon, children }) {
+  if (!React.Children.count(children)) return null;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -498,6 +503,27 @@ function TreeGroup({ label, count, icon, children }) {
         <span className="normal-case text-muted-foreground">({count} file{count === 1 ? '' : 's'})</span>
       </div>
       <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function DocumentPager({ page, totalPages, totalCount, onPageChange }) {
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{totalCount} docs</span>
+        <span>Page {page} of {totalPages}</span>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}>
+          <ChevronLeft className="w-3.5 h-3.5 mr-1" />
+          Prev
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => onPageChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}>
+          Next
+          <ChevronRight className="w-3.5 h-3.5 ml-1" />
+        </Button>
+      </div>
     </div>
   );
 }
