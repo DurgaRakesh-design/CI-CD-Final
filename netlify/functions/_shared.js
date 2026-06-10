@@ -12,7 +12,7 @@ let aiJobStoreFallback = new Map();
 function getAiJobStore() {
   if (aiJobStore !== null) return aiJobStore;
   try {
-    aiJobStore = getStore({ name: "ai-jobs", consistency: "strong" });
+    aiJobStore = getStore({ name: "ai-jobs" });
   } catch (error) {
     aiJobStore = null;
   }

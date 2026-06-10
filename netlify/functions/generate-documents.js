@@ -10,10 +10,11 @@ export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS_HEADERS, body: "" };
   if (event.httpMethod !== "POST") return json(405, { message: "Method not allowed." });
 
+  let jobId = "";
   try {
     connectBlobsFromEvent(event);
     const request = parseEventBody(event);
-    const jobId = normalizeJobId(request.jobId);
+    jobId = normalizeJobId(request.jobId);
     const context = buildGenerationContext(request, jobId);
     await appendAiJobLog(JOB_TYPE, jobId, {
       stage: "queued",
@@ -49,12 +50,14 @@ export const handler = async (event) => {
     return json(202, { jobId, status: "accepted" });
   } catch (error) {
     console.error("generate-documents failed", error);
-    await upsertAiJob(JOB_TYPE, jobId, {
-      status: "failed",
-      stage: "failed",
-      progress: 100,
-      message: error.message || "Document generation failed.",
-    });
+    if (jobId) {
+      await upsertAiJob(JOB_TYPE, jobId, {
+        status: "failed",
+        stage: "failed",
+        progress: 100,
+        message: error.message || "Document generation failed.",
+      });
+    }
     return json(500, { message: error.message || "Document generation failed." });
   }
 };
