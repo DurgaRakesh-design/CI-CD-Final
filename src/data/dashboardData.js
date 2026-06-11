@@ -10,7 +10,7 @@ export const overview = {
   readinessLabel: 'Healthy',
   successRate: 94.2,
   activeIssues: 3,
-  avgDuration: '—',
+  avgDuration: '12m',
   statusHeadline: 'Release readiness is healthy',
   statusBody:
     'Traceability holds across requirements, BDD scenarios, generated automation, and execution evidence.',
@@ -46,18 +46,18 @@ export const deliveryStages = [
 export const workspace = {
   uploadSource: 'GitHub repository',
   packageName: 'user-management-api',
-  platform: 'Java 17 · Maven',
+  platform: 'Java 17 Â· Maven',
   brdCount: 48,
   bddCount: 28,
   traceabilityStatus: 'Complete',
   gapCount: 4,
   approvalStatus: 'Pending review',
-  generatedAt: 'Jun 11, 2026 · 12:41 PM',
+  generatedAt: 'Jun 11, 2026 Â· 12:41 PM',
   stages: [
     {
       label: 'Discovery',
       status: 'done',
-      note: 'Source scanned · 142 files · 38k LOC',
+      note: 'Source scanned Â· 142 files Â· 38k LOC',
     },
     {
       label: 'Requirements',
@@ -77,7 +77,7 @@ export const workspace = {
     {
       label: 'Execution',
       status: 'warn',
-      note: 'Failed steps detected — inspect pipeline details',
+      note: 'Failed steps detected â€” inspect pipeline details',
     },
     {
       label: 'Insights',
@@ -102,7 +102,7 @@ export const runs = [
     age: '2 hours ago',
     branch: 'main',
     mode: 'standard',
-    duration: '—',
+    duration: '11m 23s',
     testsTotal: 312,
     testsPassed: 305,
     testsFailed: 4,
@@ -121,7 +121,7 @@ export const runs = [
     age: '5 hours ago',
     branch: 'develop',
     mode: 'ai-bdd-batched',
-    duration: '—',
+    duration: '8m 45s',
     testsTotal: 245,
     testsPassed: 218,
     testsFailed: 22,
@@ -140,7 +140,7 @@ export const runs = [
     age: '1 day ago',
     branch: 'release/3.1',
     mode: 'standard',
-    duration: '—',
+    duration: '14m 12s',
     testsTotal: 428,
     testsPassed: 420,
     testsFailed: 3,
@@ -159,7 +159,7 @@ export const runs = [
     age: '2 days ago',
     branch: 'main',
     mode: 'standard',
-    duration: '—',
+    duration: '10m 05s',
     testsTotal: 296,
     testsPassed: 290,
     testsFailed: 5,
@@ -178,7 +178,7 @@ export const runs = [
     age: '3 days ago',
     branch: 'feature/email-v2',
     mode: 'ai-bdd-batched',
-    duration: '—',
+    duration: 'â€”',
     testsTotal: 142,
     testsPassed: 96,
     testsFailed: 0,
@@ -193,23 +193,23 @@ export const runs = [
 ];
 
 export const pipelineJobs = [
-  { name: 'Detect', status: 'success', duration: '—' },
-  { name: 'Build', status: 'success', duration: '—' },
-  { name: 'Test', status: 'failure', duration: '—' },
-  { name: 'Analyse', status: 'success', duration: '—' },
-  { name: 'Reports', status: 'success', duration: '—' },
-  { name: 'Publish', status: 'success', duration: '—' },
+  { name: 'Detect', status: 'success', duration: '0.8s' },
+  { name: 'Build', status: 'success', duration: '2m 15s' },
+  { name: 'Test', status: 'failure', duration: '5m 30s' },
+  { name: 'Analyse', status: 'success', duration: '1m 45s' },
+  { name: 'Reports', status: 'success', duration: '0.5s' },
+  { name: 'Publish', status: 'success', duration: '0.3s' },
 ];
 
 export const testRows = [
-  { suite: 'PaymentController', name: 'should_process_card_payment', status: 'passed', duration: '—' },
-  { suite: 'PaymentController', name: 'should_decline_expired_card', status: 'passed', duration: '—' },
-  { suite: 'PaymentController', name: 'should_retry_on_gateway_timeout', status: 'failed', duration: '—' },
-  { suite: 'RefundController', name: 'should_issue_full_refund', status: 'passed', duration: '—' },
-  { suite: 'RefundController', name: 'should_block_partial_when_disputed', status: 'failed', duration: '—' },
-  { suite: 'WebhookService', name: 'should_verify_signature', status: 'passed', duration: '—' },
-  { suite: 'AuthMiddleware', name: 'should_reject_expired_jwt', status: 'skipped', duration: '—' },
-  { suite: 'InventorySync', name: 'should_reserve_stock_atomically', status: 'failed', duration: '—' },
+  { suite: 'PaymentController', name: 'should_process_card_payment', status: 'passed', duration: '0.42s' },
+  { suite: 'PaymentController', name: 'should_decline_expired_card', status: 'passed', duration: '0.18s' },
+  { suite: 'PaymentController', name: 'should_retry_on_gateway_timeout', status: 'failed', duration: '1.24s' },
+  { suite: 'RefundController', name: 'should_issue_full_refund', status: 'passed', duration: '0.36s' },
+  { suite: 'RefundController', name: 'should_block_partial_when_disputed', status: 'failed', duration: '0.81s' },
+  { suite: 'WebhookService', name: 'should_verify_signature', status: 'passed', duration: '0.09s' },
+  { suite: 'AuthMiddleware', name: 'should_reject_expired_jwt', status: 'skipped', duration: 'â€”' },
+  { suite: 'InventorySync', name: 'should_reserve_stock_atomically', status: 'failed', duration: '1.62s' },
 ];
 
 export const bddScenarios = [
@@ -264,5 +264,6 @@ export const frontend = {
     'a11y-report.json',
   ],
 };
+
 
 
