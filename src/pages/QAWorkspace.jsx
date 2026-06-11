@@ -27,7 +27,7 @@ export default function QAWorkspace() {
 
   const resetWorkspace = () => {
     const next = {
-      name: 'New QA Session',
+      name: 'New VerSpace Session',
       status: 'draft',
     };
     setInternalStep(0);
@@ -112,8 +112,8 @@ export default function QAWorkspace() {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="font-heading font-bold text-2xl">QA Workspace</h1>
-              <p className="text-sm text-muted-foreground mt-1">Milestone-driven quality delivery workflow</p>
+              <h1 className="font-heading font-bold text-2xl">VerSpace</h1>
+              <p className="text-sm text-muted-foreground mt-1">From code discovery to quality delivery</p>
             </div>
           </div>
         </motion.div>
@@ -140,7 +140,7 @@ function loadPersistedState() {
   const fallback = {
     internalStep: 0,
     workspaceData: {
-      name: 'New QA Session',
+      name: 'New VerSpace Session',
       status: 'draft',
     },
     gapResults: null,
@@ -185,7 +185,7 @@ function serializeWorkspaceData(workspaceData) {
 
 function sanitizeWorkspaceData(rawWorkspaceData) {
   const fallbackWorkspace = {
-    name: 'New QA Session',
+    name: 'New VerSpace Session',
     status: 'draft',
   };
   const workspaceData = { ...fallbackWorkspace, ...(rawWorkspaceData || {}) };

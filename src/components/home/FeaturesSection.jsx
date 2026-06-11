@@ -79,7 +79,7 @@ export default function FeaturesSection() {
             <span className="gradient-text">quality delivery</span>
           </h2>
           <p className="mt-4 text-muted-foreground text-lg max-w-xl mx-auto">
-            A comprehensive platform that covers the entire QA lifecycle from requirement analysis to release readiness.
+            A comprehensive platform that turns application understanding into requirements, scenarios, automation, traceability, pipelines, and release insight.
           </p>
         </motion.div>
 

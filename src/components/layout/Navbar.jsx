@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 
 const navItems = [
   { label: 'Home', path: '/', icon: Sparkles },
-  { label: 'QA Workspace', path: '/workspace', icon: FlaskConical },
+  { label: 'VerSpace', path: '/workspace', icon: FlaskConical },
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
 ];
 
@@ -39,7 +39,7 @@ export default function Navbar() {
               <Sparkles className="w-4 h-4 text-primary-foreground" />
             </div>
             <span className="font-heading font-bold text-lg tracking-tight text-foreground">
-              QA<span className="text-primary">Pilot</span>
+              VeriSphere<span className="text-primary"> AI</span>
             </span>
           </Link>
 

@@ -1,10 +1,10 @@
-# QA Pipeline Portal
+# VeriSphere AI
 
-React/Vite frontend for the AI-assisted QA pipeline portal.
+React/Vite frontend for VeriSphere AI, an AI-driven code discovery to quality delivery portal.
 
 ## MVP 1 Scope
 
-- Home page and QA Workspace.
+- Home page and VerSpace.
 - Fresh package upload or repository package selection.
 - Package signal detection for uploaded Java ZIP files.
 - Single BRD and multiple BDD documents.

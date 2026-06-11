@@ -35,7 +35,7 @@ export default function HeroSection() {
         >
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent border border-primary/10 text-sm font-medium text-primary">
             <Zap className="w-3.5 h-3.5" />
-            AI-Powered Quality Engineering
+            AI-driven code discovery to quality delivery
           </div>
         </motion.div>
 
@@ -46,9 +46,9 @@ export default function HeroSection() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="text-center font-heading font-extrabold text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-tight max-w-4xl mx-auto"
         >
-          AI Assisted{' '}
-          <span className="gradient-text">QA Delivery</span>{' '}
-          Platform
+          VeriSphere AI:{' '}
+          <span className="gradient-text">From Code Discovery</span>{' '}
+          to Quality Delivery
         </motion.h1>
 
         {/* Subheadline */}
@@ -58,7 +58,7 @@ export default function HeroSection() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-center text-muted-foreground text-lg sm:text-xl max-w-2xl mx-auto mt-6 leading-relaxed"
         >
-          Transform Java applications into validated requirements, AI-generated automation assets, BDD traceability, execution-ready pipelines, and actionable quality insights.
+          Understand any application. Generate validated requirements, BDD scenarios, automation assets, traceability matrices, execution pipelines, and actionable quality insights.
         </motion.p>
 
         {/* CTAs */}
@@ -70,7 +70,7 @@ export default function HeroSection() {
         >
           <Link to="/workspace">
             <Button size="lg" className="h-12 px-8 text-base font-semibold rounded-xl shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
-              Start QA Workspace
+              Start VerSpace
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </Link>
@@ -95,7 +95,7 @@ export default function HeroSection() {
                 <div className="w-3 h-3 rounded-full bg-red-400" />
                 <div className="w-3 h-3 rounded-full bg-amber-400" />
                 <div className="w-3 h-3 rounded-full bg-green-400" />
-                <span className="ml-3 text-xs font-medium text-muted-foreground tracking-wide uppercase">QA Delivery Pipeline</span>
+                <span className="ml-3 text-xs font-medium text-muted-foreground tracking-wide uppercase">Code Discovery to Quality Delivery</span>
               </div>
               
               <div className="relative">

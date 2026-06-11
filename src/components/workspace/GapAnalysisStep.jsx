@@ -250,7 +250,7 @@ function downloadGapAnalysis(result, workspaceData) {
   const lines = [
     '# Gap Analysis Report',
     '',
-    `Project: ${workspaceData?.package_signals?.projectName || workspaceData?.name || 'QA Workspace'}`,
+    `Project: ${workspaceData?.package_signals?.projectName || workspaceData?.name || 'VerSpace'}`,
     `Generated: ${formatTimestamp(result.generatedAt || result.updatedAt)}`,
     '',
     '## Summary',

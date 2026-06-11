@@ -21,13 +21,13 @@ export default function CTASection() {
           <div className="relative">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-white/90 text-sm font-medium mb-6">
               <Sparkles className="w-3.5 h-3.5" />
-              Start delivering quality today
+              Start quality delivery from source code
             </div>
             <h2 className="font-heading font-bold text-3xl sm:text-4xl text-white tracking-tight max-w-xl mx-auto">
-              Ready to transform your QA workflow?
+              Ready to understand any application?
             </h2>
             <p className="mt-4 text-white/70 text-lg max-w-md mx-auto">
-              Upload your Java package and let AI handle requirements, testing, and pipeline automation.
+              Upload your application and let VeriSphere AI generate the assets needed for validated quality delivery.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link to="/workspace">

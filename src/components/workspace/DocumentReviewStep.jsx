@@ -12,7 +12,7 @@ import { createDocumentDocxBlob } from '@/services/docx';
 import AiLoadingVisual from './AiLoadingVisual';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
-const DOCUMENT_PAGE_SIZE = 5;
+const DOCUMENT_PAGE_SIZE = 6;
 
 export default function DocumentReviewStep({ workspaceData, documents, setDocuments, onNext, onBack, gapResults, onGapResultsChange, onReset }) {
   const { toast } = useToast();
@@ -294,16 +294,19 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
                 {renderGapGroupItem(gapModel.unlinkedGaps, selectedUnlinkedGaps, () => { setSelectedId('unlinked-gaps'); setIsEditing(false); })}
               </TreeGroup>
             )}
-            <div className="pt-3 mt-3 border-t border-border">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="w-3.5 h-3.5" />
-                <span>AI Generated</span>
-              </div>
-            </div>
           </div>
-          {orderedDocuments.length > DOCUMENT_PAGE_SIZE && (
-            <DocumentPager page={docPage} totalPages={totalDocPages} totalCount={orderedDocuments.length} onPageChange={setDocPage} />
-          )}
+          <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5" />
+                <span>AI generated</span>
+              </div>
+              <span>{orderedDocuments.length} docs</span>
+            </div>
+            {orderedDocuments.length > DOCUMENT_PAGE_SIZE && (
+              <DocumentPager page={docPage} totalPages={totalDocPages} onPageChange={setDocPage} />
+            )}
+          </div>
         </div>
 
         <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col h-[620px]">
@@ -522,11 +525,10 @@ function TreeGroup({ label, count, icon, children }) {
   );
 }
 
-function DocumentPager({ page, totalPages, totalCount, onPageChange }) {
+function DocumentPager({ page, totalPages, onPageChange }) {
   return (
-    <div className="mt-3 border-t border-border pt-3">
+    <div className="space-y-2">
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{totalCount} docs</span>
         <span>Page {page} of {totalPages}</span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">

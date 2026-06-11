@@ -72,7 +72,7 @@ export default function PackageDetectionStep({ workspaceData, onNext, onBack, on
     >
       <div className="text-center mb-8">
         <h2 className="font-heading font-bold text-2xl">Package Detection</h2>
-        <p className="text-muted-foreground mt-2">Analyzing package structure and QA signals</p>
+        <p className="text-muted-foreground mt-2">Analyzing package structure and source-code signals</p>
       </div>
 
       {detecting ? (

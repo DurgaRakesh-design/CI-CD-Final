@@ -138,8 +138,8 @@ function buildCorePropsXml(title) {
   xmlns:dcmitype="http://purl.org/dc/dcmitype/"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:title>${safeTitle}</dc:title>
-  <dc:creator>QA Portal</dc:creator>
-  <cp:lastModifiedBy>QA Portal</cp:lastModifiedBy>
+  <dc:creator>VeriSphere AI</dc:creator>
+  <cp:lastModifiedBy>VeriSphere AI</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">${created}</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">${created}</dcterms:modified>
 </cp:coreProperties>`;
@@ -150,7 +150,7 @@ function buildAppPropsXml(title) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
   xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>QA Portal</Application>
+  <Application>VeriSphere AI</Application>
   <DocSecurity>0</DocSecurity>
   <ScaleCrop>false</ScaleCrop>
   <HeadingPairs>
@@ -164,7 +164,7 @@ function buildAppPropsXml(title) {
       <vt:lpstr>${safeTitle}</vt:lpstr>
     </vt:vector>
   </TitlesOfParts>
-  <Company>QA Portal</Company>
+  <Company>VeriSphere AI</Company>
   <LinksUpToDate>false</LinksUpToDate>
   <SharedDoc>false</SharedDoc>
   <HyperlinksChanged>false</HyperlinksChanged>
