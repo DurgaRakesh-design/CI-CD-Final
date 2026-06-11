@@ -8,6 +8,7 @@ import AppLayout from './components/layout/AppLayout';
 import Home from './pages/Home';
 import QAWorkspace from './pages/QAWorkspace';
 import Dashboard from './pages/Dashboard';
+import PipelineSummary from './pages/PipelineSummary';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/workspace" element={<QAWorkspace />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/summary/:runNumber" element={<PipelineSummary />} />
           </Route>
           <Route path="*" element={<PageNotFound />} />
         </Routes>
