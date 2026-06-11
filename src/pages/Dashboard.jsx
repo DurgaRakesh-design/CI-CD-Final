@@ -133,7 +133,7 @@ export default function Dashboard() {
   const bddCoverage = Math.round((selectedRun.bddCovered / Math.max(selectedRun.bddTotal, 1)) * 100);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-24">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-16 md:pt-20">
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <section className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-[0_24px_90px_-50px_rgba(79,70,229,.55)] backdrop-blur-2xl md:p-8">
           <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
@@ -150,10 +150,10 @@ export default function Dashboard() {
                 </Badge>
               </div>
               <p className="text-[11px] font-black uppercase tracking-[0.28em] text-primary">Live Pipeline View</p>
-              <h1 className="mt-2 font-heading text-3xl font-black tracking-tight text-foreground md:text-5xl">
+              <h1 className="mt-2 font-heading text-2xl font-black tracking-tight text-foreground md:text-4xl">
                 Pipeline operations in one place
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground md:text-[15px]">
+              <p className="mt-3 max-w-2xl text-xs leading-6 text-muted-foreground md:text-sm">
                 Open any workflow run, inspect structured QA test cases, move through BDD coverage, review packaged reports,
                 and download artifacts directly from the portal.
               </p>
@@ -182,7 +182,7 @@ export default function Dashboard() {
                 <Zap className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="font-heading text-sm font-black uppercase tracking-tight md:text-base">Needs Review</h2>
+              <h2 className="font-heading text-xs font-black uppercase tracking-tight md:text-sm">Needs Review</h2>
                 <p className="text-xs text-muted-foreground md:text-sm">
                   Latest failing run has {selectedRun.testsFailed} failed tests and {selectedRun.bddUncovered} uncovered BDD scenarios.
                 </p>
@@ -209,7 +209,7 @@ export default function Dashboard() {
               className={`rounded-3xl border bg-gradient-to-br p-4 shadow-sm md:p-5 ${metricTones[metric.tone]}`}
             >
               <p className="text-[11px] font-black uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</p>
-              <p className="mt-2 font-heading text-2xl font-black text-foreground md:text-[28px]">{metric.value}</p>
+              <p className="mt-2 font-heading text-xl font-black text-foreground md:text-2xl">{metric.value}</p>
               <p className="mt-1 text-xs text-muted-foreground md:text-sm">{metric.sub}</p>
             </motion.div>
           ))}
@@ -247,7 +247,7 @@ export default function Dashboard() {
             <div className="flex flex-col gap-4 border-b border-border pb-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.22em] text-primary">Selected Pipeline</p>
-                <h2 className="mt-2 font-heading text-2xl font-black tracking-tight md:text-3xl">
+                <h2 className="mt-2 font-heading text-xl font-black tracking-tight md:text-2xl">
                   Run #{selectedRun.runNumber} · {selectedRun.projectName}
                 </h2>
                 <p className="mt-2 text-xs text-muted-foreground md:text-sm">
@@ -286,7 +286,7 @@ export default function Dashboard() {
                   }`}
                 >
                   <p className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-                  <p className="mt-2 font-heading text-2xl font-black text-foreground md:text-[28px]">{value}</p>
+                  <p className="mt-2 font-heading text-xl font-black text-foreground md:text-2xl">{value}</p>
                   <p className="mt-1 text-xs text-muted-foreground md:text-sm">{sub}</p>
                 </div>
               ))}
@@ -294,7 +294,7 @@ export default function Dashboard() {
 
             <div className="mt-6 rounded-3xl bg-secondary/60 p-4">
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="font-heading text-base font-black md:text-lg">Pipeline stages</h3>
+                <h3 className="font-heading text-sm font-black md:text-base">Pipeline stages</h3>
                 <span className="text-xs text-muted-foreground md:text-sm">
                   BDD coverage {bddCoverage}% · {failedCount} failures across recent runs
                 </span>

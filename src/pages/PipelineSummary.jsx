@@ -93,7 +93,7 @@ function MetricCard({ label, value, sub, tone = 'bg-white' }) {
   return (
     <div className={`rounded-3xl border border-border p-4 shadow-sm md:p-5 ${tone}`}>
       <p className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-      <p className="mt-2 font-heading text-2xl font-black text-foreground md:text-[28px]">{value}</p>
+      <p className="mt-2 font-heading text-lg font-black text-foreground md:text-xl">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground md:text-sm">{sub}</p>
     </div>
   );
@@ -106,7 +106,7 @@ function WorkspaceTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-violet-600">Workspace Details</p>
-            <h2 className="mt-2 font-heading text-2xl font-black tracking-tight md:text-3xl">From upload to quality delivery</h2>
+            <h2 className="mt-2 font-heading text-xl font-black tracking-tight md:text-2xl">From upload to quality delivery</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
               AI-generated requirements, BDD, gap analysis, approval, traceability, and artifacts stay together as one delivery context.
             </p>
@@ -134,7 +134,7 @@ function WorkspaceTab() {
         </div>
 
         <div className="mt-6">
-          <h3 className="font-heading text-base font-black md:text-lg">Delivery timeline</h3>
+          <h3 className="font-heading text-sm font-black md:text-base">Delivery timeline</h3>
           <div className="mt-4 space-y-3">
             {workspace.stages.map((stage) => (
               <div key={stage.label} className="flex gap-3 rounded-2xl border border-border bg-white p-3">
@@ -158,7 +158,7 @@ function WorkspaceTab() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.22em] text-muted-foreground">Generated</p>
-              <h3 className="mt-1 font-heading text-lg font-black md:text-xl">Workspace artifacts</h3>
+              <h3 className="mt-1 font-heading text-base font-black md:text-lg">Workspace artifacts</h3>
             </div>
             <Button variant="ghost" className="rounded-full px-2 text-primary">Download all</Button>
           </div>
@@ -179,7 +179,7 @@ function WorkspaceTab() {
 
         <section className="rounded-[2rem] border border-amber-200 bg-amber-50/60 p-5 shadow-sm md:p-6">
           <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-700">Next Actions</p>
-          <h3 className="mt-1 font-heading text-lg font-black md:text-xl">Recommendations & notes</h3>
+          <h3 className="mt-1 font-heading text-base font-black md:text-lg">Recommendations & notes</h3>
           <div className="mt-4 space-y-3">
             {aiDetails.recommendations.map((item) => (
               <div key={item.title} className="rounded-2xl border border-amber-100 bg-white/85 p-4">
@@ -201,7 +201,7 @@ function PipelineOverviewTab({ run }) {
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-primary">Run #{run.runNumber}</p>
-            <h2 className="mt-2 font-heading text-2xl font-black tracking-tight md:text-3xl">Pipeline execution evidence</h2>
+            <h2 className="mt-2 font-heading text-xl font-black tracking-tight md:text-2xl">Pipeline execution evidence</h2>
             <p className="mt-2 text-sm text-muted-foreground">
               Deep execution summary across tests, BDD, AI, code quality, frontend evidence, reports, and pipeline jobs.
             </p>
@@ -257,7 +257,7 @@ function PipelineOverviewTab({ run }) {
 function PipelineTestsTab() {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">Test Results</h3>
+      <h3 className="font-heading text-base font-black">Test Results</h3>
       <div className="mt-4 overflow-hidden rounded-3xl border border-border">
         <div className="grid grid-cols-[1fr_1.3fr_100px_80px] bg-muted/70 px-4 py-3 text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">
           <span>Suite</span>
@@ -291,7 +291,7 @@ function PipelineTestsTab() {
 function PipelineBddTab() {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">BDD Traceability</h3>
+      <h3 className="font-heading text-base font-black">BDD Traceability</h3>
       <div className="mt-4 grid gap-3">
         {bddScenarios.map((scenario) => (
           <div key={`${scenario.feature}-${scenario.name}`} className="flex items-center justify-between rounded-2xl border border-border bg-white px-4 py-3">
@@ -316,7 +316,7 @@ function PipelineBddTab() {
 function PipelineAiTab() {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">AI Details</h3>
+      <h3 className="font-heading text-base font-black">AI Details</h3>
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <MetricCard label="Generated" value={aiDetails.generated} sub="AI assets" tone="bg-violet-50/70" />
         <MetricCard label="Executed" value={aiDetails.executed} sub="Used in pipeline" tone="bg-emerald-50/70" />
@@ -338,7 +338,7 @@ function PipelineAiTab() {
 function PipelineQualityTab() {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">Code Quality</h3>
+      <h3 className="font-heading text-base font-black">Code Quality</h3>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Coverage" value={`${codeQuality.coverage}%`} sub={codeQuality.verdict} tone="bg-violet-50/70" />
         <MetricCard label="Duplication" value={`${codeQuality.duplication}%`} sub="Detected" tone="bg-emerald-50/70" />
@@ -352,7 +352,7 @@ function PipelineQualityTab() {
 function PipelineFrontendTab() {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">Frontend</h3>
+      <h3 className="font-heading text-base font-black">Frontend</h3>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <MetricCard label="Visual" value={frontend.visual} sub="Regression checks" tone="bg-violet-50/70" />
         <MetricCard label="Accessibility" value={`${frontend.accessibility}%`} sub="Audit score" tone="bg-emerald-50/70" />
@@ -365,7 +365,7 @@ function PipelineFrontendTab() {
 function PipelineReportsTab() {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">Reports</h3>
+      <h3 className="font-heading text-base font-black">Reports</h3>
       <div className="mt-4 space-y-3">
         {reports.map((report) => (
           <div key={report.name} className="rounded-2xl border border-border bg-white p-4">
@@ -390,7 +390,7 @@ function PipelineReportsTab() {
 function PipelineJobsTab({ run }) {
   return (
     <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-lg font-black">Pipeline</h3>
+      <h3 className="font-heading text-base font-black">Pipeline</h3>
       <div className="mt-4 space-y-3">
         {pipelineJobs.map((job) => {
           const failed = run.status === 'failure' && job.name === 'Test';
@@ -424,7 +424,7 @@ export default function PipelineSummary() {
   const readiness = run.status === 'failure' ? 64 : run.status === 'running' ? 78 : 92;
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-24">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-16 md:pt-20">
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <Button asChild variant="outline" className="mb-5 rounded-full bg-white/80 text-sm">
           <Link to="/dashboard">
@@ -446,8 +446,8 @@ export default function PipelineSummary() {
                   Run #{run.runNumber} · {run.mode}
                 </Badge>
               </div>
-              <h1 className="mt-4 font-heading text-3xl font-black tracking-tight md:text-5xl">{run.projectName}</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground md:text-[15px]">
+              <h1 className="mt-4 font-heading text-2xl font-black tracking-tight md:text-4xl">{run.projectName}</h1>
+              <p className="mt-3 max-w-2xl text-xs leading-6 text-muted-foreground md:text-sm">
                 Run #{run.runNumber} packaged source, requirements, BDD coverage, execution evidence, and reports.
                 Readiness is <span className="font-semibold text-amber-600">{run.status === 'failure' ? 'Needs Review' : 'Healthy'}</span> before promotion.
               </p>
@@ -537,7 +537,7 @@ export default function PipelineSummary() {
               {pipelineTab === 'overview' && (
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="rounded-[2rem] border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-                    <h3 className="font-heading text-lg font-black">Pipeline Overview</h3>
+                    <h3 className="font-heading text-base font-black">Pipeline Overview</h3>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                       <MetricCard label="Total" value={run.testsTotal} sub="Automated tests" tone="bg-violet-50/70" />
                       <MetricCard label="Passed" value={run.testsPassed} sub="Successful execution" tone="bg-emerald-50/70" />
@@ -560,7 +560,7 @@ export default function PipelineSummary() {
                           </div>
                           <div>
                             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-                            <p className="font-heading text-lg font-black">{value}</p>
+                            <p className="font-heading text-base font-black">{value}</p>
                             <p className="text-[11px] text-muted-foreground">{sub}</p>
                           </div>
                         </div>
@@ -588,7 +588,7 @@ export default function PipelineSummary() {
                 <ShieldCheck className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-heading text-base font-black">Ready to promote?</p>
+                <p className="font-heading text-sm font-black md:text-base">Ready to promote?</p>
                 <p className="text-sm text-muted-foreground">
                   Resolve failing tests and uncovered scenarios, then re-run to refresh readiness.
                 </p>
