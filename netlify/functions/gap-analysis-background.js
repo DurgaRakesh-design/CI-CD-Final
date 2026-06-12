@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, buildEvidenceDigest, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
 
 const JOB_TYPE = "gap-analysis";
 
@@ -105,12 +105,15 @@ async function buildGapAssessmentPlan(context) {
   const system = [
     "ROLE: You are a senior QA governance reviewer, BA traceability auditor, and Java source-code reviewer.",
     "MISSION: Build an evidence-first review plan for comparing BRD/BDD documents against the Java package evidence.",
-    "RULES: Use only the supplied source evidence and uploaded requirement files. Do not invent gaps or business behavior.",
+    "QUALITY BAR: Use only the supplied source evidence and uploaded requirement files. If evidence is thin, say so and lower confidence rather than inventing a gap.",
+    "RULES: Prefer concrete business-capability analysis over technical layer summaries. Do not invent gaps or business behavior.",
+    "TRACEABILITY: Every focus area, risk, and coverage mapping should be explainable from file paths, classes, methods, endpoints, tests, or uploaded requirement names.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
 
   const user = JSON.stringify({
     packageSignals: context.signals,
+    evidenceDigest: buildEvidenceDigest(context.signals),
     documents: context.documents.map((doc) => ({
       title: doc.title,
       id: doc.id,
@@ -129,6 +132,7 @@ async function buildGapAssessmentPlan(context) {
       "Prefer 3-8 focused focus areas over broad generic layer-based areas.",
       "Use business capability names instead of technical layer names.",
       "Call out evidence strength explicitly when it is weak.",
+      "Do not label something as a gap unless the document coverage and code evidence clearly support that conclusion.",
     ],
   });
 
@@ -200,6 +204,7 @@ async function buildGapAssessmentReport(context, plan) {
 
   const user = JSON.stringify({
     packageSignals: context.signals,
+    evidenceDigest: buildEvidenceDigest(context.signals),
     documents: context.documents.map((doc) => ({
       title: doc.title,
       id: doc.id,
@@ -217,10 +222,11 @@ async function buildGapAssessmentReport(context, plan) {
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
       "Include qualityNotes in the response when the evidence is thin or ambiguous.",
+      "For each finding, include the concrete evidence hint that would let a reviewer verify it quickly.",
     ],
     outputShape: {
       summary: "Object with totalFindings, high, medium, low, readiness.",
-      findings: "Array of findings with severity, title, description, relatedDocumentId, relatedDocument, linkStatus, module, packageSignal, impact, recommendedFix, actionType.",
+      findings: "Array of findings with severity, title, description, relatedDocumentId, relatedDocument, linkStatus, module, packageSignal, impact, recommendedFix, actionType, evidenceAnchors.",
       recommendations: "Array of concise business-readable next steps.",
       qualityNotes: "Array of evidence caveats or confidence notes.",
     },
@@ -249,11 +255,11 @@ async function buildGapAssessmentReport(context, plan) {
               readiness: { type: "string" },
             },
           },
-          findings: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
               required: ["severity", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "impact", "recommendedFix", "actionType"],
               properties: {
                 severity: { type: "string" },
@@ -267,6 +273,7 @@ async function buildGapAssessmentReport(context, plan) {
                 impact: { type: "string" },
                 recommendedFix: { type: "string" },
                 actionType: { type: "string" },
+                evidenceAnchors: { type: "array", items: { type: "string" } },
               },
             },
           },
@@ -301,6 +308,7 @@ function normalizeGapPayload(payload) {
     impact: item.impact || "",
     recommendedFix: item.recommendedFix || "",
     actionType: item.actionType === "regenerate_document" || item.actionType === "create_bdd" ? item.actionType : "",
+    evidenceAnchors: Array.isArray(item.evidenceAnchors) ? item.evidenceAnchors : [],
   }));
   const high = findings.filter((item) => item.severity === "high").length;
   const medium = findings.filter((item) => item.severity === "medium").length;

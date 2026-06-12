@@ -81,6 +81,32 @@ export function compactSignals(packageSignals = {}) {
   };
 }
 
+export function buildEvidenceDigest(signals = {}) {
+  const topClasses = (signals.classes || []).slice(0, 12).map((item) => {
+    const annotations = Array.isArray(item.annotations) && item.annotations.length ? ` [${item.annotations.slice(0, 4).join(", ")}]` : "";
+    const packageName = item.packageName ? ` (${item.packageName})` : "";
+    return `${item.className || "UnknownClass"}${packageName}${annotations}`;
+  });
+  const topFiles = (signals.sourceFiles || []).slice(0, 12).map((item) => {
+    const type = item.type ? ` [${item.type}]` : "";
+    const truncated = item.truncated ? " (truncated)" : "";
+    return `${item.path || "unknown-path"}${type}${truncated}`;
+  });
+  return {
+    projectName: signals.projectName || "",
+    platform: signals.platform || "",
+    buildTool: signals.buildTool || "",
+    hasSpringBoot: Boolean(signals.hasSpringBoot),
+    sourceFileCount: signals.sourceFileCount || 0,
+    testFileCount: signals.testFileCount || 0,
+    bddFileCount: signals.bddFileCount || 0,
+    modules: (signals.modules || []).slice(0, 12),
+    endpoints: (signals.endpoints || []).slice(0, 18),
+    topClasses,
+    topFiles,
+  };
+}
+
 export async function callOpenAI({
   system,
   user,

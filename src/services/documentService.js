@@ -62,6 +62,7 @@ export function normalizeGeneratedSuite(payload) {
       source: payload.source || 'ai_generated',
       content: brd.content || brd.businessView || brd.markdown || brd.body || brd.description || '',
       gherkinContent: '',
+      evidenceAnchors: Array.isArray(brd.evidenceAnchors) ? brd.evidenceAnchors : [],
       lastEdited: now,
     },
     ...bdds.map((doc, index) => ({
@@ -74,6 +75,7 @@ export function normalizeGeneratedSuite(payload) {
       source: payload.source || 'ai_generated',
       content: doc.businessView || doc.content || doc.description || '',
       gherkinContent: doc.gherkin || doc.content || doc.businessView || '',
+      evidenceAnchors: Array.isArray(doc.evidenceAnchors) ? doc.evidenceAnchors : [],
       lastEdited: now,
     })),
   ];

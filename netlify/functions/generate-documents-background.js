@@ -126,8 +126,10 @@ function buildGenerationContext(request, jobId) {
 async function buildDocumentPlan(context) {
   const system = [
     "ROLE: You are a principal Java solution architect, senior business analyst, and QA documentation strategist.",
-    "MISSION: Turn the provided Java source evidence and uploaded requirements into a concise generation blueprint for a high-quality BRD plus focused BDD coverage.",
-    "RULES: Do not invent capabilities. Prefer fewer, deeper, evidence-backed clusters over broad generic coverage.",
+    "MISSION: Turn the provided Java source evidence and uploaded requirements into a precise blueprint for production-grade BRD and BDD generation.",
+    "QUALITY BAR: Use only confirmed evidence from the codebase and uploaded requirements. If evidence is missing, mark it as unconfirmed instead of filling the gap with assumptions.",
+    "RULES: Prefer fewer, deeper, evidence-backed clusters over broad generic coverage. Name capabilities using business language that still maps cleanly back to source artifacts.",
+    "TRACEABILITY: Every meaningful section, capability, cluster, or risk should be traceable to file paths, classes, methods, endpoints, tests, or uploaded requirement names.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
 
@@ -138,6 +140,7 @@ async function buildDocumentPlan(context) {
     uploadedRequirements: context.uploadedRequirements,
     gapResults: context.gapResults,
     packageSignals: context.signals,
+    evidenceDigest: buildEvidenceDigest(context.signals),
     requiredPlanShape: {
       executiveSummary: "string",
       brdSections: [
@@ -162,6 +165,7 @@ async function buildDocumentPlan(context) {
           name: "string",
           businessGoal: "string",
           sourceEvidence: ["file path or code artifact"],
+          evidenceAnchors: ["file path, class, method, endpoint, test, or requirement reference"],
           notes: "string",
         },
       ],
@@ -172,6 +176,7 @@ async function buildDocumentPlan(context) {
           module: "string",
           businessGoal: "string",
           sourceEvidence: ["file path or code artifact"],
+          evidenceAnchors: ["file path, class, method, endpoint, test, or requirement reference"],
           scenarioTypes: ["happy path", "validation", "boundary", "security", "integration"],
         },
       ],
@@ -179,8 +184,9 @@ async function buildDocumentPlan(context) {
     },
     guidance: [
       "Keep cluster count tight and focused on the most important business capabilities.",
-      "Use source evidence from controllers, services, entities, validations, security, tests, and uploaded requirements.",
-      "If an area is weakly supported, call it out in qualityNotes instead of forcing a cluster.",
+      "Use controllers, services, entities, validations, security config, tests, uploaded requirement files, and file names as the evidence base.",
+      "When the code only partially supports a capability, state the limitation in qualityNotes and lower the confidence of the related section.",
+      "Do not invent process steps, user roles, external systems, or validations that are not present in the supplied evidence.",
     ],
   });
 
@@ -211,6 +217,7 @@ async function buildDocumentPlan(context) {
                 name: { type: "string" },
                 businessGoal: { type: "string" },
                 sourceEvidence: { type: "array", items: { type: "string" } },
+                evidenceAnchors: { type: "array", items: { type: "string" } },
                 notes: { type: "string" },
               },
             },
@@ -227,6 +234,7 @@ async function buildDocumentPlan(context) {
                 module: { type: "string" },
                 businessGoal: { type: "string" },
                 sourceEvidence: { type: "array", items: { type: "string" } },
+                evidenceAnchors: { type: "array", items: { type: "string" } },
                 scenarioTypes: { type: "array", items: { type: "string" } },
               },
             },
@@ -250,8 +258,9 @@ async function buildFinalSuite(context, plan) {
   const system = [
     "ROLE: You are a principal Java solution architect, senior business analyst, and QA automation strategist.",
     "MISSION: Generate a production-grade BRD and focused BDD suite from the supplied source evidence and the provided blueprint.",
-    "QUALITY TARGET: The BRD must read like a detailed enterprise analysis document. The BDDs must be business-readable but also executable and evidence-backed.",
-    "STRICT RULES: Do not invent features, roles, integrations, pages, APIs, validations, or business rules. Prefer traceability and depth over breadth.",
+    "QUALITY TARGET: The BRD must read like a detailed enterprise analysis document. The BDDs must be business-readable, executable, and explicitly anchored to evidence.",
+    "STRICT RULES: Do not invent features, roles, integrations, pages, APIs, validations, business rules, or test coverage. Prefer traceability and depth over breadth.",
+    "TRACEABILITY: For every major section and scenario cluster, include evidence anchors that point to the concrete files, classes, methods, endpoints, tests, or uploaded requirements that justify it.",
     "STRUCTURE: The BRD content should use the sections from the blueprint in a clear markdown hierarchy.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
@@ -263,6 +272,7 @@ async function buildFinalSuite(context, plan) {
     uploadedRequirements: context.uploadedRequirements,
     gapResults: context.gapResults,
     packageSignals: context.signals,
+    evidenceDigest: buildEvidenceDigest(context.signals),
     blueprint: plan,
     requiredOutputShape: {
       source: "ai_generated",
@@ -271,6 +281,7 @@ async function buildFinalSuite(context, plan) {
         title: "string",
         module: "Application",
         content: "markdown string with detailed section headings and evidence-backed analysis",
+        evidenceAnchors: ["string"],
       },
       bddFiles: [
         {
@@ -279,17 +290,19 @@ async function buildFinalSuite(context, plan) {
           module: "string",
           businessView: "string",
           gherkin: "valid Gherkin string",
+          evidenceAnchors: ["string"],
         },
       ],
       qualityNotes: ["string"],
     },
     contentGuidance: [
       "Use the blueprint's brdSections and primaryCapabilities as the source of truth.",
-      "Keep BRD sections detailed enough for business review, traceability, and QA alignment.",
+      "Keep BRD sections detailed enough for business review, traceability, and QA alignment, but do not repeat the same idea in multiple sections.",
       "For each BDD, include a concise businessView plus specific scenarios grounded in the evidence.",
       "Do not create more BDDs than needed; aim for depth and accuracy.",
       "When regenerating, keep the identity and module focus of the target document whenever possible.",
       "When generating from unlinked gaps, create BDDs only for the missing capability clusters in the blueprint.",
+      "If the evidence supports a capability only partially, make that explicit in the BRD language and quality notes instead of padding with guesses.",
     ],
   });
 
@@ -305,19 +318,20 @@ async function buildFinalSuite(context, plan) {
         required: ["source", "brd", "bddFiles", "qualityNotes"],
         properties: {
           source: { type: "string" },
-          brd: {
-            type: "object",
-            additionalProperties: false,
-            required: ["id", "title", "module", "content"],
-            properties: {
-              id: { type: "string" },
-              title: { type: "string" },
-              module: { type: "string" },
-              content: { type: "string" },
-            },
+        brd: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "title", "module", "content"],
+          properties: {
+            id: { type: "string" },
+            title: { type: "string" },
+            module: { type: "string" },
+            content: { type: "string" },
+            evidenceAnchors: { type: "array", items: { type: "string" } },
           },
-          bddFiles: {
-            type: "array",
+        },
+        bddFiles: {
+          type: "array",
             minItems: 1,
             items: {
               type: "object",
@@ -329,6 +343,7 @@ async function buildFinalSuite(context, plan) {
                 module: { type: "string" },
                 businessView: { type: "string" },
                 gherkin: { type: "string" },
+                evidenceAnchors: { type: "array", items: { type: "string" } },
               },
             },
           },
@@ -366,6 +381,7 @@ function normalizeSuite(payload, source) {
       title: brd.title || "BRD - Application Overview",
       module: brd.module || "Application",
       content: brd.content || brd.businessView || brd.markdown || brd.body || brd.description || "",
+      evidenceAnchors: Array.isArray(brd.evidenceAnchors) ? brd.evidenceAnchors : [],
     },
     bddFiles: bddFiles.map((doc, index) => ({
       id: doc.id || `bdd-${index + 1}`,
@@ -373,6 +389,7 @@ function normalizeSuite(payload, source) {
       module: doc.module || "Application",
       businessView: doc.businessView || doc.content || doc.description || "",
       gherkin: doc.gherkin || doc.content || doc.businessView || "",
+      evidenceAnchors: Array.isArray(doc.evidenceAnchors) ? doc.evidenceAnchors : [],
     })),
     qualityNotes: payload.qualityNotes || [],
   };

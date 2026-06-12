@@ -267,6 +267,9 @@ function downloadGapAnalysis(result, workspaceData) {
           `   Module: ${gap.module || 'Application'}`,
           `   Related Document: ${gap.relatedDocument || gap.relatedDocumentId || 'Unlinked'}`,
           `   Evidence: ${gap.packageSignal || 'Not specified'}`,
+          ...(Array.isArray(gap.evidenceAnchors) && gap.evidenceAnchors.length
+            ? [`   Evidence Anchors: ${gap.evidenceAnchors.join(' | ')}`]
+            : []),
           `   Description: ${gap.description || ''}`,
           `   Recommended Fix: ${gap.recommendedFix || ''}`,
           '',
