@@ -134,9 +134,9 @@ export default function RequirementSourceStep({ workspaceData, onNext, onBack, o
                   <FileUp className="w-5 h-5 text-blue-500 shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-blue-700">Upload BRD file</p>
-                    <p className="text-xs text-muted-foreground">.docx, .pdf, .md, .txt</p>
+                    <p className="text-xs text-muted-foreground">.docx, .md, .txt</p>
                   </div>
-                  <input type="file" accept=".docx,.pdf,.md,.txt" className="hidden" onChange={handleBrdUpload} />
+                  <input type="file" accept=".docx,.md,.txt" className="hidden" onChange={handleBrdUpload} />
                 </label>
               ) : (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-white border border-border">
@@ -161,9 +161,9 @@ export default function RequirementSourceStep({ workspaceData, onNext, onBack, o
                 <Plus className="w-5 h-5 text-violet-500 shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-violet-700">Upload BDD / Feature files</p>
-                  <p className="text-xs text-muted-foreground">.feature, .docx, .pdf, .md</p>
+                  <p className="text-xs text-muted-foreground">.feature, .features, .docx, .md, .txt</p>
                 </div>
-                <input type="file" multiple accept=".feature,.docx,.pdf,.md,.txt" className="hidden" onChange={handleBddUpload} />
+                <input type="file" multiple accept=".feature,.features,.docx,.md,.txt" className="hidden" onChange={handleBddUpload} />
               </label>
               {bddFiles.length > 0 && (
                 <div className="space-y-1.5">
