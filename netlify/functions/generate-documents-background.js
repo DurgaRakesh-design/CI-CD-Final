@@ -130,6 +130,7 @@ async function buildDocumentPlan(context) {
     "QUALITY BAR: Use only confirmed evidence from the codebase and uploaded requirements. If evidence is missing, mark it as unconfirmed instead of filling the gap with assumptions.",
     "RULES: Prefer fewer, deeper, evidence-backed clusters over broad generic coverage. Name capabilities using business language that still maps cleanly back to source artifacts.",
     "TRACEABILITY: Every meaningful section, capability, cluster, or risk should be traceable to file paths, classes, methods, endpoints, tests, or uploaded requirement names.",
+    "FIRST UPLOAD MODE: Treat the input as a full initial repository scan. Favor coverage, precision, and clear traceability over brevity.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
 
@@ -185,6 +186,7 @@ async function buildDocumentPlan(context) {
     guidance: [
       "Keep cluster count tight and focused on the most important business capabilities.",
       "Use controllers, services, entities, validations, security config, tests, uploaded requirement files, and file names as the evidence base.",
+      "Prefer the capabilityHints, validationSignals, securitySignals, featureSignals, and evidenceHighlights as your highest-signal inputs when deciding what the BRD and BDDs should cover.",
       "When the code only partially supports a capability, state the limitation in qualityNotes and lower the confidence of the related section.",
       "Do not invent process steps, user roles, external systems, or validations that are not present in the supplied evidence.",
     ],
@@ -261,6 +263,7 @@ async function buildFinalSuite(context, plan) {
     "QUALITY TARGET: The BRD must read like a detailed enterprise analysis document. The BDDs must be business-readable, executable, and explicitly anchored to evidence.",
     "STRICT RULES: Do not invent features, roles, integrations, pages, APIs, validations, business rules, or test coverage. Prefer traceability and depth over breadth.",
     "TRACEABILITY: For every major section and scenario cluster, include evidence anchors that point to the concrete files, classes, methods, endpoints, tests, or uploaded requirements that justify it.",
+    "FIRST UPLOAD MODE: Optimize the response for a single full-repo analysis, not a change-only regeneration pass.",
     "STRUCTURE: The BRD content should use the sections from the blueprint in a clear markdown hierarchy.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
@@ -303,6 +306,7 @@ async function buildFinalSuite(context, plan) {
       "When regenerating, keep the identity and module focus of the target document whenever possible.",
       "When generating from unlinked gaps, create BDDs only for the missing capability clusters in the blueprint.",
       "If the evidence supports a capability only partially, make that explicit in the BRD language and quality notes instead of padding with guesses.",
+      "Lean on the evidenceDigest capabilityHints, validationSignals, securitySignals, featureSignals, and evidenceHighlights to avoid broad generic writing.",
     ],
   });
 

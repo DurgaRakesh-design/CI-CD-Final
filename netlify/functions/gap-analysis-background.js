@@ -108,6 +108,7 @@ async function buildGapAssessmentPlan(context) {
     "QUALITY BAR: Use only the supplied source evidence and uploaded requirement files. If evidence is thin, say so and lower confidence rather than inventing a gap.",
     "RULES: Prefer concrete business-capability analysis over technical layer summaries. Do not invent gaps or business behavior.",
     "TRACEABILITY: Every focus area, risk, and coverage mapping should be explainable from file paths, classes, methods, endpoints, tests, or uploaded requirement names.",
+    "FIRST UPLOAD MODE: Assume this is the only analysis pass on the full package and make the coverage assessment as complete as possible.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
 
@@ -133,6 +134,7 @@ async function buildGapAssessmentPlan(context) {
       "Use business capability names instead of technical layer names.",
       "Call out evidence strength explicitly when it is weak.",
       "Do not label something as a gap unless the document coverage and code evidence clearly support that conclusion.",
+      "Use capabilityHints, evidenceHighlights, validationSignals, securitySignals, and featureSignals to anchor the review plan.",
     ],
   });
 
@@ -199,6 +201,7 @@ async function buildGapAssessmentReport(context, plan) {
     "USE THE PLAN: Treat the plan as the blueprint. Prioritize its focus areas, risks, and coverage map.",
     "RULES: Findings must be based on concrete evidence such as controllers/endpoints, service methods, entities/DTO validations, security/config, tests, or uploaded requirement files.",
     "QUALITY: Prefer fewer, high-confidence findings over noisy generic findings.",
+    "FIRST UPLOAD MODE: Perform the fullest evidence-based pass now; do not hold findings back for a later regeneration cycle.",
     "OUTPUT: Return only JSON that matches the requested schema.",
   ].join(" ");
 
@@ -223,6 +226,7 @@ async function buildGapAssessmentReport(context, plan) {
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
       "Include qualityNotes in the response when the evidence is thin or ambiguous.",
       "For each finding, include the concrete evidence hint that would let a reviewer verify it quickly.",
+      "Prefer evidenceHints that mention specific files, classes, methods, endpoints, tests, or feature titles rather than generic summary language.",
     ],
     outputShape: {
       summary: "Object with totalFindings, high, medium, low, readiness.",

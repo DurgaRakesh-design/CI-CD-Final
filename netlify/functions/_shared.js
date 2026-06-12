@@ -64,6 +64,12 @@ export function compactSignals(packageSignals = {}) {
     bddFileCount: packageSignals.bddFileCount,
     modules: (packageSignals.modules || []).slice(0, 20),
     endpoints: (packageSignals.endpoints || []).slice(0, 60),
+    validationSignals: (packageSignals.validationSignals || []).slice(0, 60),
+    securitySignals: (packageSignals.securitySignals || []).slice(0, 40),
+    featureSignals: (packageSignals.featureSignals || []).slice(0, 20),
+    capabilityHints: (packageSignals.capabilityHints || []).slice(0, 20),
+    evidenceHighlights: (packageSignals.evidenceHighlights || []).slice(0, 20),
+    summary: packageSignals.summary || {},
     classes: (packageSignals.classes || []).slice(0, 80).map((item) => ({
       className: item.className,
       packageName: item.packageName,
@@ -102,8 +108,13 @@ export function buildEvidenceDigest(signals = {}) {
     bddFileCount: signals.bddFileCount || 0,
     modules: (signals.modules || []).slice(0, 12),
     endpoints: (signals.endpoints || []).slice(0, 18),
+    validationSignals: (signals.validationSignals || []).slice(0, 18),
+    securitySignals: (signals.securitySignals || []).slice(0, 12),
+    capabilityHints: (signals.capabilityHints || []).slice(0, 18),
+    evidenceHighlights: (signals.evidenceHighlights || []).slice(0, 12),
     topClasses,
     topFiles,
+    summary: signals.summary || {},
   };
 }
 

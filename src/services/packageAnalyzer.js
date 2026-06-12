@@ -29,6 +29,8 @@ export async function analyzePackageFile(file) {
   const moduleSignals = [];
   const endpointSignals = [];
   const classSignals = [];
+  const validationSignals = [];
+  const securitySignals = [];
 
   for (const entry of javaFiles.slice(0, 220)) {
     const content = await entry.async('string');
@@ -42,6 +44,8 @@ export async function analyzePackageFile(file) {
     ].filter(Boolean);
     const methods = extractMethodNames(content);
     const endpoints = extractEndpoints(content);
+    const validationHints = extractValidationHints(content);
+    const securityHints = extractSecurityHints(content);
 
     classSignals.push({
       path: entry.name,
@@ -51,15 +55,38 @@ export async function analyzePackageFile(file) {
       methodCount: methods.length,
       methods: methods.slice(0, 18),
       endpoints,
+      validationHints,
+      securityHints,
     });
 
     endpoints.forEach((endpoint) => endpointSignals.push({ ...endpoint, className, path: entry.name }));
+    validationHints.forEach((hint) => validationSignals.push(`${className}: ${hint}`));
+    securityHints.forEach((hint) => securitySignals.push(`${className}: ${hint}`));
     inferModuleFromPath(entry.name, className, annotations).forEach((module) => {
       if (!moduleSignals.includes(module)) moduleSignals.push(module);
     });
   }
 
   const sourceFiles = await collectSourceEvidence(entries, classSignals);
+  const featureSignals = await collectFeatureSignals(entries);
+  const capabilityHints = buildCapabilityHints({
+    modules: moduleSignals,
+    classSignals,
+    endpointSignals,
+    featureSignals,
+  });
+  const evidenceHighlights = buildEvidenceHighlights(sourceFiles, classSignals, featureSignals);
+  const summary = buildSummary({
+    files,
+    javaFiles,
+    testFiles,
+    bddFiles,
+    pomFiles,
+    buildFiles,
+    frontendFiles,
+    validationSignals,
+    securitySignals,
+  });
 
   return {
     fileName: file.name,
@@ -77,6 +104,12 @@ export async function analyzePackageFile(file) {
     modules: moduleSignals.slice(0, 24),
     endpoints: endpointSignals.slice(0, 80),
     classes: classSignals.slice(0, 120),
+    validationSignals: validationSignals.slice(0, 80),
+    securitySignals: securitySignals.slice(0, 80),
+    featureSignals: featureSignals.slice(0, 40),
+    capabilityHints: capabilityHints.slice(0, 24),
+    evidenceHighlights: evidenceHighlights.slice(0, 24),
+    summary,
     sourceFiles,
   };
 }
@@ -140,6 +173,88 @@ function sanitizeSourceContent(content) {
     .replace(/\n{4,}/g, '\n\n\n');
 }
 
+async function collectFeatureSignals(entries) {
+  const features = [];
+  for (const entry of entries) {
+    if (!BDD_FILE.test(entry.name) || !/bdd|feature|scenario|requirement|story|spec/i.test(entry.name)) continue;
+    const content = await entry.async('string');
+    const title = content.match(/^\s*Feature:\s*(.+)$/im)?.[1]?.trim() || '';
+    const scenarios = [...content.matchAll(/^\s*(?:Scenario|Scenario Outline):\s*(.+)$/gmi)].map((match) => match[1].trim()).filter(Boolean);
+    features.push({
+      path: entry.name,
+      title: title || entry.name.split('/').pop()?.replace(/\.[^.]+$/, '') || entry.name,
+      scenarios: scenarios.slice(0, 12),
+      scenarioCount: scenarios.length,
+    });
+  }
+  return features;
+}
+
+function buildCapabilityHints({ modules, classSignals, endpointSignals, featureSignals }) {
+  const hints = new Set();
+  modules.forEach((module) => hints.add(module));
+  featureSignals.forEach((feature) => hints.add(feature.title));
+  classSignals.forEach((item) => {
+    if (item.annotations.includes('controller') || item.endpoints?.length) hints.add(`${item.className} request handling`);
+    if (item.annotations.includes('service')) hints.add(`${item.className} business rules`);
+    if (item.annotations.includes('entity')) hints.add(`${item.className} data model`);
+    if (item.validationHints?.length) hints.add(`${item.className} validation rules`);
+    if (item.securityHints?.length) hints.add(`${item.className} security behavior`);
+  });
+  endpointSignals.forEach((endpoint) => {
+    if (endpoint.path) hints.add(`${endpoint.method || 'REQUEST'} ${endpoint.path}`);
+  });
+  return [...hints];
+}
+
+function buildEvidenceHighlights(sourceFiles, classSignals, featureSignals) {
+  const highlights = [];
+  const topSource = [...sourceFiles].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 12);
+  topSource.forEach((file) => {
+    const matchingClass = classSignals.find((item) => item.path === file.path);
+    const reason = matchingClass
+      ? [
+          matchingClass.annotations.includes('controller') ? 'controller' : '',
+          matchingClass.annotations.includes('service') ? 'service' : '',
+          matchingClass.annotations.includes('entity') ? 'entity' : '',
+          matchingClass.validationHints?.length ? 'validation' : '',
+          matchingClass.securityHints?.length ? 'security' : '',
+        ].filter(Boolean).join(', ')
+      : file.type;
+    highlights.push({
+      path: file.path,
+      type: file.type,
+      reason: reason || 'source evidence',
+      methods: matchingClass?.methods?.slice(0, 5) || [],
+      endpoints: matchingClass?.endpoints || [],
+    });
+  });
+  featureSignals.slice(0, 6).forEach((feature) => {
+    highlights.push({
+      path: feature.path,
+      type: 'BDD',
+      reason: `${feature.scenarioCount || 0} scenario${feature.scenarioCount === 1 ? '' : 's'}`,
+      methods: feature.scenarios.slice(0, 5),
+      endpoints: [],
+    });
+  });
+  return highlights;
+}
+
+function buildSummary({ files, javaFiles, testFiles, bddFiles, pomFiles, buildFiles, frontendFiles, validationSignals, securitySignals }) {
+  return {
+    totalFiles: files.length,
+    javaFiles: javaFiles.length,
+    testFiles: testFiles.length,
+    bddFiles: bddFiles.length,
+    buildFiles: buildFiles.length,
+    pomFiles: pomFiles.length,
+    frontendFiles: frontendFiles.length,
+    validationSignals: validationSignals.length,
+    securitySignals: securitySignals.length,
+  };
+}
+
 function inferSourceType(path, content) {
   if (BUILD_FILE.test(path)) return 'Build';
   if (CONFIG_FILE.test(path)) return 'Config';
@@ -166,6 +281,45 @@ function extractEndpoints(content) {
     endpoints.push({ method: mapping.replace('Mapping', '').toUpperCase() || 'REQUEST', path });
   }
   return endpoints;
+}
+
+function extractValidationHints(content) {
+  const hints = [];
+  const checks = [
+    ['@Valid', /@Valid\b/],
+    ['@NotNull', /@NotNull\b/],
+    ['@NotBlank', /@NotBlank\b/],
+    ['@Size', /@Size\b/],
+    ['@Pattern', /@Pattern\b/],
+    ['@Email', /@Email\b/],
+    ['@Min', /@Min\b/],
+    ['@Max', /@Max\b/],
+    ['@Future', /@Future\b/],
+    ['@Past', /@Past\b/],
+  ];
+  checks.forEach(([label, pattern]) => {
+    if (pattern.test(content)) hints.push(label);
+  });
+  if (/validate\w*\(/i.test(content)) hints.push('custom validation method');
+  if (/BindingResult|ConstraintViolation/i.test(content)) hints.push('validation handling');
+  return hints;
+}
+
+function extractSecurityHints(content) {
+  const hints = [];
+  const checks = [
+    ['@PreAuthorize', /@PreAuthorize\b/],
+    ['@PostAuthorize', /@PostAuthorize\b/],
+    ['@Secured', /@Secured\b/],
+    ['@RolesAllowed', /@RolesAllowed\b/],
+    ['Spring Security config', /SecurityFilterChain|WebSecurityConfigurerAdapter|@EnableWebSecurity/],
+    ['authentication', /\b(authentication|authorization|principal|securityContext)\b/i],
+    ['JWT', /\bJWT\b/i],
+  ];
+  checks.forEach(([label, pattern]) => {
+    if (pattern.test(content)) hints.push(label);
+  });
+  return hints;
 }
 
 function inferModuleFromPath(path, className, annotations) {
