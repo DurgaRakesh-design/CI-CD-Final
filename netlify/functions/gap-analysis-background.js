@@ -259,12 +259,12 @@ async function buildGapAssessmentReport(context, plan) {
               readiness: { type: "string" },
             },
           },
-        findings: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-              required: ["severity", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "impact", "recommendedFix", "actionType"],
+          findings: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["severity", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "impact", "recommendedFix", "actionType", "evidenceAnchors"],
               properties: {
                 severity: { type: "string" },
                 title: { type: "string" },

@@ -214,7 +214,7 @@ async function buildDocumentPlan(context) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["name", "businessGoal", "sourceEvidence", "notes"],
+              required: ["name", "businessGoal", "sourceEvidence", "evidenceAnchors", "notes"],
               properties: {
                 name: { type: "string" },
                 businessGoal: { type: "string" },
@@ -229,7 +229,7 @@ async function buildDocumentPlan(context) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["clusterId", "title", "module", "businessGoal", "sourceEvidence", "scenarioTypes"],
+              required: ["clusterId", "title", "module", "businessGoal", "sourceEvidence", "evidenceAnchors", "scenarioTypes"],
               properties: {
                 clusterId: { type: "string" },
                 title: { type: "string" },
@@ -322,25 +322,25 @@ async function buildFinalSuite(context, plan) {
         required: ["source", "brd", "bddFiles", "qualityNotes"],
         properties: {
           source: { type: "string" },
-        brd: {
-          type: "object",
-          additionalProperties: false,
-          required: ["id", "title", "module", "content"],
-          properties: {
-            id: { type: "string" },
-            title: { type: "string" },
-            module: { type: "string" },
-            content: { type: "string" },
-            evidenceAnchors: { type: "array", items: { type: "string" } },
+          brd: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "title", "module", "content", "evidenceAnchors"],
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              module: { type: "string" },
+              content: { type: "string" },
+              evidenceAnchors: { type: "array", items: { type: "string" } },
+            },
           },
-        },
-        bddFiles: {
-          type: "array",
+          bddFiles: {
+            type: "array",
             minItems: 1,
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["id", "title", "module", "businessView", "gherkin"],
+              required: ["id", "title", "module", "businessView", "gherkin", "evidenceAnchors"],
               properties: {
                 id: { type: "string" },
                 title: { type: "string" },
