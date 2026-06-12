@@ -23,6 +23,8 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
 
   const bddCount = documents.filter(doc => doc.type === 'BDD').length;
   const brdCount = documents.filter(doc => doc.type === 'BRD').length;
+  const bddNames = documents.filter((doc) => doc.type === 'BDD').map((doc) => doc.title);
+  const brdNames = documents.filter((doc) => doc.type === 'BRD').map((doc) => doc.title);
 
   const triggerPipeline = async () => {
     setTriggering(true);
@@ -61,6 +63,10 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
         <InputRow icon={FileText} label="BRD" value={`${brdCount} document${brdCount === 1 ? '' : 's'}`} />
         <InputRow icon={FileText} label="BDD Features" value={`${bddCount} feature file${bddCount === 1 ? '' : 's'}`} />
         <InputRow icon={Fingerprint} label="Target Repository" value={`${portalConfig.owner}/${portalConfig.repo} · ${portalConfig.branch}`} />
+        <div className="grid gap-2 pt-2">
+          {brdNames.length > 0 && <DetailList label="BRD artifacts" items={brdNames} />}
+          {bddNames.length > 0 && <DetailList label="BDD feature artifacts" items={bddNames} />}
+        </div>
       </div>
 
       {triggering && (
@@ -93,6 +99,7 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
             <p><strong>Package:</strong> {result.packagePath}</p>
             {result.brdPath && <p><strong>BRD:</strong> {result.brdPath}</p>}
             <p><strong>BDD:</strong> {result.bddPaths.join('; ')}</p>
+            {result.manifestPath && <p><strong>Manifest:</strong> {result.manifestPath}</p>}
           </div>
         </motion.div>
       )}
@@ -134,6 +141,22 @@ function InputRow({ icon: Icon, label, value }) {
       <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
       <span className="text-muted-foreground">{label}:</span>
       <Badge variant="secondary" className="font-mono text-xs truncate">{value}</Badge>
+    </div>
+  );
+}
+
+function DetailList({ label, items }) {
+  if (!items?.length) return null;
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <ul className="mt-2 space-y-1">
+        {items.map((item) => (
+          <li key={item} className="truncate text-xs text-foreground/80">
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
