@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, buildEvidenceDigest, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
 
 const JOB_TYPE = "generate-documents";
 
