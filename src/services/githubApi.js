@@ -49,26 +49,35 @@ export async function putRepoFile({ path, contentBase64, message, branch = porta
 }
 
 export async function upsertRepoFile({ path, contentBase64, message, branch = portalConfig.branch }) {
-  try {
-    return await putRepoFile({ path, contentBase64, message, branch });
-  } catch (error) {
-    const messageText = String(error?.message || '');
-    if (!/GitHub (409|422)/.test(messageText)) {
-      throw error;
+  const retryablePattern = /GitHub (409|422)/;
+  let lastError;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let sha;
+    if (attempt > 0) {
+      try {
+        const current = await getRepoFile(path, branch);
+        sha = current?.sha;
+      } catch (error) {
+        if (!String(error.message || '').includes('404')) {
+          throw error;
+        }
+      }
+    }
+
+    try {
+      return await putRepoFile({ path, contentBase64, message, branch, sha });
+    } catch (error) {
+      lastError = error;
+      const messageText = String(error?.message || '');
+      if (!retryablePattern.test(messageText) || attempt === 3) {
+        throw error;
+      }
+      await sleep(250 * (attempt + 1));
     }
   }
 
-  let sha;
-  try {
-    const current = await getRepoFile(path, branch);
-    sha = current?.sha;
-  } catch (error) {
-    if (!String(error.message || '').includes('404')) {
-      throw error;
-    }
-  }
-
-  return await putRepoFile({ path, contentBase64, message, branch, sha });
+  throw lastError;
 }
 
 export async function listRepoContents(path, branch = portalConfig.branch) {
@@ -107,4 +116,8 @@ function encodeURIComponentPath(path) {
 
 function repoContentsApi(path, branch) {
   return repoApi(`/contents/${encodeURIComponentPath(path)}?ref=${encodeURIComponent(branch)}`);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
