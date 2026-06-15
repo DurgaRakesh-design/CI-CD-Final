@@ -46,6 +46,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         } else {
           nextDocs = await generateRequirementSuite({
             packageSignals: workspaceData.package_signals,
+            packageFile: workspaceData.package_file,
             uploadedRequirements: [],
             gapResults,
           });

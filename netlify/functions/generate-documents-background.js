@@ -63,6 +63,29 @@ export const handler = async (event) => {
 };
 
 async function generateWithAI(context, reportProgress) {
+  if (context.packageUpload?.contentBase64 && context.generationMode === "initial") {
+    await reportProgress({ stage: "file-analysis", progress: 10, message: "Uploading package to OpenAI for full source analysis." });
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "file-analysis",
+      message: "Using OpenAI file/tool workflow for full package inspection.",
+      meta: {
+        fileName: context.packageUpload.name,
+        size: context.packageUpload.size,
+        model: process.env.OPENAI_MODEL || "gpt-4.1",
+      },
+    });
+    const suite = await buildSuiteFromPackageFile(context, reportProgress);
+    await reportProgress({ stage: "verifying", progress: 85, message: "Verifying output quality and traceability." });
+    const validated = validateSuite(suite);
+    if (!validated) throw new Error("AI document generation returned an invalid suite.");
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "done",
+      message: "File-based document generation succeeded.",
+      meta: { brdTitle: validated?.brd?.title || "", bddCount: validated?.bddFiles?.length || 0 },
+    });
+    return validated;
+  }
+
   await reportProgress({ stage: "planning", progress: 10, message: "Planning document structure." });
   await appendAiJobLog(JOB_TYPE, context.jobId, {
     stage: "planning",
@@ -109,6 +132,7 @@ function buildGenerationContext(request, jobId) {
     generationMode: request.generationMode || "initial",
     targetDocument: request.targetDocument || null,
     targetGap: request.targetGap || null,
+    packageUpload: normalizePackageUpload(request.packageUpload),
     uploadedRequirements: Array.isArray(request.uploadedRequirements) ? request.uploadedRequirements : [],
     gapResults: request.gapResults || null,
     signals,
@@ -117,10 +141,176 @@ function buildGenerationContext(request, jobId) {
       targetDocument: request.targetDocument || null,
       targetGap: request.targetGap || null,
       uploadedRequirementCount: Array.isArray(request.uploadedRequirements) ? request.uploadedRequirements.length : 0,
+      hasPackageUpload: Boolean(request.packageUpload?.contentBase64),
       hasGapResults: Boolean(request.gapResults),
       packageSignals: summarizeSignals(signals),
     },
   };
+}
+
+async function buildSuiteFromPackageFile(context, reportProgress) {
+  const fileId = await uploadPackageToOpenAI(context.packageUpload);
+  try {
+    await reportProgress({ stage: "file-analysis", progress: 25, message: "Analyzing package structure with OpenAI Code Interpreter." });
+    const system = [
+      "ROLE: You are a principal Java solution architect, senior business analyst, and QA automation strategist.",
+      "MISSION: Inspect the attached Java project ZIP using Code Interpreter, then generate a production-grade BRD and focused BDD suite.",
+      "SOURCE OF TRUTH: Use the attached project files as the primary evidence source. You may use the supplied packageSignals as navigation hints only.",
+      "RULES: Do not invent features, roles, integrations, pages, APIs, validations, business rules, or tests that are not supported by the package evidence.",
+      "ANALYSIS METHOD: Unzip the package, inspect build files, Java source, resources, controllers, services, entities, configuration, tests, and existing feature/spec files before writing.",
+      "TRACEABILITY: Every major section and BDD cluster must include evidence anchors pointing to concrete file paths, classes, methods, endpoints, tests, resources, or uploaded requirements.",
+      "QUALITY TARGET: BRD should be detailed and enterprise-readable. BDDs should be business-readable, executable Gherkin, and grounded in the discovered implementation.",
+      "OUTPUT: Return only JSON that matches the requested schema.",
+    ].join(" ");
+
+    const user = JSON.stringify({
+      generationMode: context.generationMode,
+      uploadedRequirements: context.uploadedRequirements,
+      packageSignals: context.signals,
+      evidenceDigest: buildEvidenceDigest(context.signals),
+      requiredOutputShape: requiredSuiteShape(),
+      instructions: [
+        "Start by listing the extracted project tree internally and identify the main application, modules, build tool, controllers, services, domain objects, validation rules, configuration, and tests.",
+        "Generate one BRD for the whole application.",
+        "Generate BDD feature files grouped by real business capability, not by technical class names.",
+        "Each BDD must include a concise businessView and a valid Gherkin feature with scenarios/scenario outlines where appropriate.",
+        "If evidence is partial or absent, state that in BRD quality notes instead of hallucinating.",
+        "Prefer high-value workflows and edge cases that the code actually supports.",
+      ],
+    });
+
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "file-analysis",
+      message: "Calling OpenAI Responses API with Code Interpreter and uploaded package.",
+      meta: { fileId, packageName: context.packageUpload.name },
+    });
+
+    await reportProgress({ stage: "drafting", progress: 55, message: "Generating BRD and BDD suite from full package evidence." });
+    const result = await callOpenAIFileTool({
+      system,
+      user,
+      fileId,
+      responseSchema: suiteResponseSchema(),
+      temperature: 0.12,
+    });
+    if (!result) throw new Error("File-based document generation returned no response.");
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "drafting",
+      message: "File-based generation response received from OpenAI.",
+      meta: { bddCount: result.bddFiles?.length || 0 },
+    });
+    return normalizeSuite(result, "ai_file_tool_generated");
+  } finally {
+    await deleteOpenAIFile(fileId).catch(() => {});
+  }
+}
+
+async function uploadPackageToOpenAI(packageUpload) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based document generation.");
+  const bytes = Buffer.from(packageUpload.contentBase64 || "", "base64");
+  if (!bytes.length) throw new Error("Package upload was empty.");
+  const form = new FormData();
+  form.append("purpose", "assistants");
+  form.append("file", new Blob([bytes], { type: packageUpload.type || "application/zip" }), packageUpload.name || "source-package.zip");
+  const response = await fetch("https://api.openai.com/v1/files", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI file upload failed with ${response.status}`);
+  }
+  if (!payload?.id) throw new Error("OpenAI file upload did not return a file id.");
+  return payload.id;
+}
+
+async function deleteOpenAIFile(fileId) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || !fileId) return;
+  await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+async function callOpenAIFileTool({
+  system,
+  user,
+  fileId,
+  responseSchema,
+  temperature = 0.1,
+  timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 900000),
+  model = process.env.OPENAI_MODEL || "gpt-4.1",
+}) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        instructions: system,
+        input: user,
+        temperature,
+        tools: [
+          {
+            type: "code_interpreter",
+            container: {
+              type: "auto",
+              file_ids: [fileId],
+            },
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: responseSchema.name,
+            schema: responseSchema.schema,
+            strict: true,
+          },
+        },
+      }),
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`OpenAI file-tool request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}`);
+  }
+  const outputText = extractResponseText(payload);
+  try {
+    return JSON.parse(outputText);
+  } catch {
+    throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)}`);
+  }
+}
+
+function extractResponseText(payload) {
+  if (payload?.output_text) return payload.output_text;
+  const chunks = [];
+  for (const item of payload?.output || []) {
+    for (const content of item?.content || []) {
+      if (content?.type === "output_text" && content?.text) chunks.push(content.text);
+      if (content?.type === "text" && content?.text) chunks.push(content.text);
+    }
+  }
+  return chunks.join("\n").trim();
 }
 
 async function buildDocumentPlan(context) {
@@ -375,6 +565,74 @@ function validateSuite(payload) {
   return payload;
 }
 
+function requiredSuiteShape() {
+  return {
+    source: "ai_file_tool_generated",
+    brd: {
+      id: "string",
+      title: "string",
+      module: "Application",
+      content: "markdown string with detailed section headings and evidence-backed analysis",
+      evidenceAnchors: ["file path, class, method, endpoint, test, resource, or requirement reference"],
+    },
+    bddFiles: [
+      {
+        id: "string",
+        title: "string",
+        module: "string",
+        businessView: "string",
+        gherkin: "valid Gherkin string",
+        evidenceAnchors: ["file path, class, method, endpoint, test, resource, or requirement reference"],
+      },
+    ],
+    qualityNotes: ["string"],
+  };
+}
+
+function suiteResponseSchema() {
+  return {
+    name: "document_generation_suite",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["source", "brd", "bddFiles", "qualityNotes"],
+      properties: {
+        source: { type: "string" },
+        brd: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "title", "module", "content", "evidenceAnchors"],
+          properties: {
+            id: { type: "string" },
+            title: { type: "string" },
+            module: { type: "string" },
+            content: { type: "string" },
+            evidenceAnchors: { type: "array", items: { type: "string" } },
+          },
+        },
+        bddFiles: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "title", "module", "businessView", "gherkin", "evidenceAnchors"],
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              module: { type: "string" },
+              businessView: { type: "string" },
+              gherkin: { type: "string" },
+              evidenceAnchors: { type: "array", items: { type: "string" } },
+            },
+          },
+        },
+        qualityNotes: { type: "array", items: { type: "string" } },
+      },
+    },
+  };
+}
+
 function normalizeSuite(payload, source) {
   const brd = payload.brd || {};
   const bddFiles = Array.isArray(payload.bddFiles) ? payload.bddFiles : [];
@@ -418,6 +676,17 @@ function summarizeSignals(signals) {
       methodCount: item.methodCount,
       endpoints: item.endpoints || [],
     })),
+  };
+}
+
+function normalizePackageUpload(value) {
+  if (!value || !value.contentBase64) return null;
+  const name = String(value.name || "source-package.zip").split(/[\\/]/).pop() || "source-package.zip";
+  return {
+    name,
+    type: String(value.type || "application/zip"),
+    size: Number(value.size || 0),
+    contentBase64: String(value.contentBase64 || ""),
   };
 }
 

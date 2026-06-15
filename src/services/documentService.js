@@ -1,5 +1,8 @@
+import { fileToBase64, safeFileName } from './encoding';
+
 export async function generateRequirementSuite({
   packageSignals,
+  packageFile = null,
   uploadedRequirements = [],
   gapResults = null,
   generationMode = 'initial',
@@ -9,10 +12,18 @@ export async function generateRequirementSuite({
   onStatusUpdate = null,
 }) {
   const jobId = createJobId();
+  const packageUpload = packageFile
+    ? {
+        name: safeFileName(packageFile.name || packageSignals?.fileName || 'source-package.zip'),
+        type: packageFile.type || 'application/zip',
+        size: packageFile.size || 0,
+        contentBase64: await fileToBase64(packageFile),
+      }
+    : null;
   const response = await fetch('/.netlify/functions/generate-documents-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId, packageSignals, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
+    body: JSON.stringify({ jobId, packageSignals, packageUpload, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
   });
   if (!response.ok) {
     const payload = await readJsonResponse(response, 'Document generation');
