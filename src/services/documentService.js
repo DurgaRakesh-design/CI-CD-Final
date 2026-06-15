@@ -144,12 +144,15 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
-export async function runGapAnalysis({ packageSignals, documents, jobTimeoutMs = 900000, onStatusUpdate = null }) {
+export async function runGapAnalysis({ packageSignals, documents, packageFile = null, jobTimeoutMs = 900000, onStatusUpdate = null }) {
   const jobId = createJobId();
+  const packageUpload = packageFile
+    ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
+    : null;
   const response = await fetch('/.netlify/functions/gap-analysis-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId, packageSignals, documents }),
+    body: JSON.stringify({ jobId, packageSignals, packageUpload, documents }),
   });
   if (!response.ok) {
     const payload = await readJsonResponse(response, 'Gap analysis');

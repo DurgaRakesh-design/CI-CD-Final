@@ -140,7 +140,10 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       } : doc));
       setViewMode('business');
       setIsEditing(false);
-      removeGapFindings(selectedGaps);
+      markGapFindingsCovered(selectedGaps, {
+        resolutionType: 'document_regeneration',
+        resolutionNote: `${selectedDoc.type} regenerated with linked findings.`,
+      });
       toast({
         title: `${selectedDoc.type} regenerated`,
         description: 'Linked gap findings were applied to this document. Please review and approve it again.',
@@ -177,7 +180,10 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       setSelectedId(generated[0].id);
       setViewMode('business');
       setIsEditing(false);
-      removeGapFindings(gapModel.unlinkedGaps);
+      markGapFindingsCovered(gapModel.unlinkedGaps, {
+        resolutionType: 'bdd_gap_generation',
+        resolutionNote: `${generated.length} BDD document${generated.length === 1 ? '' : 's'} generated for unlinked findings.`,
+      });
       toast({
         title: 'BDD coverage generated',
         description: `${generated.length} BDD document${generated.length === 1 ? '' : 's'} created from unlinked gap findings.`,
@@ -189,19 +195,34 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
     }
   };
 
-  const removeGapFindings = (resolvedGaps) => {
+  const markGapFindingsCovered = (resolvedGaps, resolution = {}) => {
     if (!onGapResultsChange || !Array.isArray(gapResults?.findings)) return;
     const resolvedKeys = new Set(resolvedGaps.map(gapKey));
-    const remaining = gapResults.findings.filter((gap) => !resolvedKeys.has(gapKey(gap)));
+    const updatedFindings = gapResults.findings.map((gap) => resolvedKeys.has(gapKey(gap))
+      ? {
+          ...gap,
+          status: 'covered',
+          coverageStatus: 'covered_after_regeneration',
+          coveredAt: new Date().toISOString(),
+          resolutionType: resolution.resolutionType || 'document_update',
+          resolutionNote: resolution.resolutionNote || 'Document was updated from this finding.',
+        }
+      : gap);
+    const activeFindings = updatedFindings.filter((gap) => !isCoveredGap(gap));
+    const coveredFindings = updatedFindings.filter(isCoveredGap);
     onGapResultsChange({
       ...gapResults,
-      findings: remaining,
-      summary: summarizeFindings(remaining),
+      findings: updatedFindings,
+      summary: {
+        ...(gapResults.summary || {}),
+        ...summarizeFindings(activeFindings),
+        covered: coveredFindings.length,
+      },
       updatedAt: new Date().toISOString(),
       analysisSource: 'regeneration_update',
-      recommendations: remaining.length
+      recommendations: activeFindings.length
         ? gapResults.recommendations || []
-        : ['Resolved generated gap findings. Run gap analysis again to confirm closure.'],
+        : ['All previously discovered gaps are marked covered by document updates. Re-run gap analysis to verify closure against source code.'],
     });
   };
 
@@ -648,6 +669,11 @@ function gapKey(gap) {
   ].map((value) => String(value || '').trim().toLowerCase()).join('|');
 }
 
+function isCoveredGap(gap) {
+  const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
+  return status === 'covered' || status.includes('covered_after_regeneration');
+}
+
 function summarizeFindings(findings) {
   const high = findings.filter((item) => item.severity === 'high').length;
   const medium = findings.filter((item) => item.severity === 'medium').length;
@@ -673,7 +699,9 @@ function InfoTile({ label, value }) {
 function buildGapModel(gapResults, documents) {
   const docGapMap = new Map(documents.map((doc) => [doc.id, []]));
   const unlinkedGaps = [];
-  const findings = Array.isArray(gapResults?.findings) ? gapResults.findings : [];
+  const findings = Array.isArray(gapResults?.findings)
+    ? gapResults.findings.filter((gap) => !isCoveredGap(gap))
+    : [];
   findings.forEach((gap, index) => {
     const normalizedGap = { ...gap, uiId: `gap-${index}` };
     const match = findMatchingDocument(normalizedGap, documents);

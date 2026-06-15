@@ -29,6 +29,11 @@ const gapStatusMeta = {
     tone: 'bg-amber-50 text-amber-700 border-amber-200',
     text: 'Documents changed after this analysis. Re-run only when you want a fresh source-to-document check.',
   },
+  skipped: {
+    label: 'Gap Analysis Skipped',
+    tone: 'bg-slate-50 text-slate-700 border-slate-200',
+    text: 'The source-to-document traceability audit was skipped by the user. You can continue, or come back and run it later.',
+  },
 };
 
 export default function GapAnalysisStep({ workspaceData, documents, setDocuments, gapResults, onNext, onBack, onGapsFound, onReset }) {
@@ -41,7 +46,11 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
     setRunning(true);
     setError('');
     try {
-      const payload = await runGapAnalysis({ packageSignals: workspaceData.package_signals, documents });
+      const payload = await runGapAnalysis({
+        packageSignals: workspaceData.package_signals,
+        packageFile: workspaceData.package_file,
+        documents,
+      });
       const stampedPayload = stampGapResult(payload, documents, 'fresh');
       onGapsFound?.(stampedPayload);
       setDocuments?.(prev => {
@@ -61,7 +70,32 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
     }
   };
 
-  const findings = result?.findings || [];
+  const skipAnalysis = () => {
+    const skippedPayload = stampGapResult({
+      skipped: true,
+      findings: [],
+      recommendations: [
+        'Gap analysis was skipped for this run. Review documents manually before approving if this is a production package.',
+      ],
+      qualityNotes: [
+        'No source-to-BRD/BDD traceability audit was executed for this workspace state.',
+      ],
+      summary: {
+        totalFindings: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        covered: 0,
+        readiness: 'Skipped by user',
+      },
+    }, documents, 'skipped');
+    onGapsFound?.(skippedPayload);
+    onNext?.();
+  };
+
+  const activeFindings = result?.findings?.filter((gap) => !isCoveredGap(gap)) || [];
+  const coveredFindings = result?.findings?.filter(isCoveredGap) || [];
+  const summary = buildDisplaySummary(result, activeFindings, coveredFindings);
   const canDownload = Boolean(result);
 
   return (
@@ -94,10 +128,15 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
               </div>
               <div>
                 <p className="text-sm text-muted-foreground mb-4">Run a production-grade review before allowing the pipeline trigger.</p>
-                <Button onClick={runAnalysis} className="rounded-xl h-11 px-6">
-                  <BarChart3 className="w-4 h-4 mr-2" />
-                  Run Gap Analysis
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                  <Button variant="outline" onClick={skipAnalysis} className="rounded-xl h-11 px-6">
+                    Skip for now
+                  </Button>
+                  <Button onClick={runAnalysis} className="rounded-xl h-11 px-6">
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    Run Gap Analysis
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (
@@ -129,25 +168,58 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <SummaryCard label="High" value={result.summary?.high || 0} tone="red" />
-            <SummaryCard label="Medium" value={result.summary?.medium || 0} tone="amber" />
-            <SummaryCard label="Low" value={result.summary?.low || 0} tone="blue" />
-            <SummaryCard label="Readiness" value={readinessLabel(result.summary?.readiness)} tone="emerald" />
+            <SummaryCard label="High" value={summary.high || 0} tone="red" />
+            <SummaryCard label="Medium" value={summary.medium || 0} tone="amber" />
+            <SummaryCard label="Low" value={summary.low || 0} tone="blue" />
+            <SummaryCard label="Readiness" value={readinessLabel(summary.readiness)} tone="emerald" />
           </div>
+
+          {hasTraceabilityScores(result) && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <ScoreCard label="Traceability" value={result.summary?.traceabilityScore} />
+              <ScoreCard label="Document Coverage" value={result.summary?.documentCoverageScore} />
+              <ScoreCard label="BDD Quality" value={result.summary?.bddQualityScore} />
+            </div>
+          )}
 
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">
             <p className="text-xs font-semibold uppercase tracking-wide">Readiness Summary</p>
-            <p className="mt-1 text-sm leading-relaxed">{result.summary?.readiness || 'Ready'}</p>
+            <p className="mt-1 text-sm leading-relaxed">{summary.readiness || 'Ready'}</p>
           </div>
+
+          {Array.isArray(result.coverageMatrix) && result.coverageMatrix.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+              <div className="p-4 border-b border-slate-100">
+                <h3 className="font-semibold text-sm">Source-to-BRD/BDD Traceability Matrix</h3>
+                <p className="text-xs text-muted-foreground mt-1">Capability coverage verified against source evidence and reviewed documents.</p>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {result.coverageMatrix.slice(0, 8).map((row, index) => (
+                  <div key={`${row.capability}-${index}`} className="p-4 grid gap-3 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr] text-xs">
+                    <div>
+                      <p className="font-semibold text-sm text-slate-900">{row.capability || 'Capability'}</p>
+                      <p className="text-muted-foreground mt-1 line-clamp-2">{(row.sourceEvidence || []).join(' | ') || 'Source evidence not specified'}</p>
+                    </div>
+                    <TraceBadge label="BRD" value={row.brdCoverage} />
+                    <TraceBadge label="BDD" value={row.bddCoverage} />
+                    <div>
+                      <Badge variant="outline" className="text-xs">{formatCoverageStatus(row.coverageStatus)}</Badge>
+                      <p className="text-muted-foreground mt-2 line-clamp-2">{row.notes}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             <h3 className="font-semibold text-sm">Coverage Findings</h3>
-            {findings.length === 0 ? (
+            {activeFindings.length === 0 ? (
               <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4" />
-                No major gaps detected. Review is ready for approval.
+                {result.skipped ? 'Gap analysis was skipped. You can still continue to manual approval.' : 'No open gaps detected. Review is ready for approval.'}
               </div>
-            ) : findings.map((gap, i) => (
+            ) : activeFindings.map((gap, i) => (
               <div key={i} className={`p-4 rounded-xl border ${severityColors[gap.severity] || severityColors.medium}`}>
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -159,11 +231,37 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
                       {gap.relatedDocument && <Badge variant="outline" className="text-xs">{gap.relatedDocument}</Badge>}
                     </div>
                     {gap.recommendedFix && <p className="text-xs mt-2 font-medium">Fix: {gap.recommendedFix}</p>}
+                    {Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length > 0 && (
+                      <p className="text-xs mt-2 opacity-80">Source: {gap.sourceEvidence.slice(0, 3).join(' | ')}</p>
+                    )}
+                    {Array.isArray(gap.documentEvidence) && gap.documentEvidence.length > 0 && (
+                      <p className="text-xs mt-1 opacity-80">Document: {gap.documentEvidence.slice(0, 3).join(' | ')}</p>
+                    )}
                   </div>
                 </div>
               </div>
             ))}
           </div>
+
+          {coveredFindings.length > 0 && (
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                <CheckCircle2 className="w-4 h-4" />
+                Covered After Document Updates
+              </div>
+              <p className="text-xs text-emerald-700">
+                {coveredFindings.length} previous finding{coveredFindings.length === 1 ? '' : 's'} marked covered by regeneration or document updates.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {coveredFindings.slice(0, 4).map((gap, index) => (
+                  <div key={`${gap.title}-${index}`} className="rounded-lg border border-emerald-100 bg-white/70 p-3 text-xs text-emerald-800">
+                    <p className="font-semibold line-clamp-1">{gap.title || 'Covered finding'}</p>
+                    <p className="mt-1 line-clamp-2">{gap.resolutionNote || 'Document updated from this finding.'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="p-4 rounded-xl bg-violet-50 border border-violet-100 space-y-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-violet-800">
@@ -207,10 +305,15 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
         right={(
           <>
           {!result && (
-            <Button onClick={runAnalysis} disabled={running} className="rounded-xl h-11 px-6">
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Run Analysis
-            </Button>
+            <>
+              <Button variant="outline" onClick={skipAnalysis} disabled={running} className="rounded-xl h-11 px-6">
+                Skip Analysis
+              </Button>
+              <Button onClick={runAnalysis} disabled={running} className="rounded-xl h-11 px-6">
+                <BarChart3 className="w-4 h-4 mr-2" />
+                Run Analysis
+              </Button>
+            </>
           )}
           {result && (
             <Button onClick={onNext} className="rounded-xl h-11 px-6">
@@ -236,8 +339,49 @@ function stampGapResult(payload, documents, source) {
 
 function getGapStatusMeta(result) {
   if (!result) return gapStatusMeta.retained;
+  if (result.skipped || result.analysisSource === 'skipped') return gapStatusMeta.skipped;
   if (result.analysisSource === 'regeneration_update') return gapStatusMeta.updated;
   return gapStatusMeta.retained;
+}
+
+function buildDisplaySummary(result, activeFindings, coveredFindings) {
+  if (!result) {
+    return {
+      totalFindings: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      covered: 0,
+      readiness: 'Ready',
+    };
+  }
+  const high = activeFindings.filter((item) => item.severity === 'high').length;
+  const medium = activeFindings.filter((item) => item.severity === 'medium').length;
+  const low = activeFindings.filter((item) => item.severity === 'low').length;
+  return {
+    ...(result.summary || {}),
+    totalFindings: activeFindings.length,
+    high,
+    medium,
+    low,
+    covered: coveredFindings.length,
+    readiness: result.skipped
+      ? 'Skipped by user'
+      : high
+        ? 'Blocked'
+        : medium
+          ? 'Needs Review'
+          : low
+            ? 'Partial'
+            : coveredFindings.length
+              ? 'Ready after document updates - re-run to verify'
+              : result.summary?.readiness || 'Ready',
+  };
+}
+
+function isCoveredGap(gap) {
+  const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
+  return status === 'covered' || status.includes('covered_after_regeneration');
 }
 
 function buildDocumentSignature(documents) {
@@ -247,6 +391,9 @@ function buildDocumentSignature(documents) {
 }
 
 function downloadGapAnalysis(result, workspaceData) {
+  const activeFindings = Array.isArray(result.findings) ? result.findings.filter((gap) => !isCoveredGap(gap)) : [];
+  const coveredFindings = Array.isArray(result.findings) ? result.findings.filter(isCoveredGap) : [];
+  const summary = buildDisplaySummary(result, activeFindings, coveredFindings);
   const lines = [
     '# Gap Analysis Report',
     '',
@@ -254,27 +401,70 @@ function downloadGapAnalysis(result, workspaceData) {
     `Generated: ${formatTimestamp(result.generatedAt || result.updatedAt)}`,
     '',
     '## Summary',
-    `- High: ${result.summary?.high || 0}`,
-    `- Medium: ${result.summary?.medium || 0}`,
-    `- Low: ${result.summary?.low || 0}`,
-    `- Readiness: ${result.summary?.readiness || 'Ready'}`,
+    `- High: ${summary.high || 0}`,
+    `- Medium: ${summary.medium || 0}`,
+    `- Low: ${summary.low || 0}`,
+    `- Covered: ${summary.covered || 0}`,
+    `- Readiness: ${summary.readiness || 'Ready'}`,
+    ...(hasTraceabilityScores(result)
+      ? [
+          `- Traceability Score: ${formatScore(result.summary?.traceabilityScore)}`,
+          `- Document Coverage Score: ${formatScore(result.summary?.documentCoverageScore)}`,
+          `- BDD Quality Score: ${formatScore(result.summary?.bddQualityScore)}`,
+        ]
+      : []),
+    '',
+    '## Source-to-BRD/BDD Traceability Matrix',
+    ...(Array.isArray(result.coverageMatrix) && result.coverageMatrix.length
+      ? result.coverageMatrix.flatMap((row, index) => [
+          `${index + 1}. ${row.capability || 'Capability'}`,
+          `   Source Evidence: ${(row.sourceEvidence || []).join(' | ')}`,
+          `   BRD Coverage: ${row.brdCoverage || 'Not specified'}`,
+          `   BDD Coverage: ${row.bddCoverage || 'Not specified'}`,
+          `   Status: ${formatCoverageStatus(row.coverageStatus)}`,
+          `   Confidence: ${row.confidence || 'Not specified'}`,
+          `   Notes: ${row.notes || ''}`,
+          '',
+        ])
+      : ['No traceability matrix returned.', '']),
     '',
     '## Findings',
-    ...(Array.isArray(result.findings) && result.findings.length
-      ? result.findings.flatMap((gap, index) => [
-          `${index + 1}. ${gap.title || 'Coverage finding'}`,
+    ...(activeFindings.length
+      ? activeFindings.flatMap((gap, index) => [
+          `${index + 1}. ${gap.gapId ? `${gap.gapId}: ` : ''}${gap.title || 'Coverage finding'}`,
+          `   Gap Type: ${gap.gapType || 'Not specified'}`,
           `   Severity: ${gap.severity || 'medium'}`,
+          `   Confidence: ${gap.confidence || 'Not specified'}`,
           `   Module: ${gap.module || 'Application'}`,
           `   Related Document: ${gap.relatedDocument || gap.relatedDocumentId || 'Unlinked'}`,
           `   Evidence: ${gap.packageSignal || 'Not specified'}`,
+          ...(Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length
+            ? [`   Source Evidence: ${gap.sourceEvidence.join(' | ')}`]
+            : []),
+          ...(Array.isArray(gap.documentEvidence) && gap.documentEvidence.length
+            ? [`   Document Evidence: ${gap.documentEvidence.join(' | ')}`]
+            : []),
           ...(Array.isArray(gap.evidenceAnchors) && gap.evidenceAnchors.length
             ? [`   Evidence Anchors: ${gap.evidenceAnchors.join(' | ')}`]
+            : []),
+          ...(Array.isArray(gap.missingScenarios) && gap.missingScenarios.length
+            ? [`   Missing Scenarios: ${gap.missingScenarios.join(' | ')}`]
             : []),
           `   Description: ${gap.description || ''}`,
           `   Recommended Fix: ${gap.recommendedFix || ''}`,
           '',
         ])
-      : ['No findings.', '']),
+      : ['No open findings.', '']),
+    '## Covered Findings',
+    ...(coveredFindings.length
+      ? coveredFindings.flatMap((gap, index) => [
+          `${index + 1}. ${gap.gapId ? `${gap.gapId}: ` : ''}${gap.title || 'Covered finding'}`,
+          `   Status: ${gap.status || gap.coverageStatus || 'covered'}`,
+          `   Covered At: ${formatTimestamp(gap.coveredAt)}`,
+          `   Resolution: ${gap.resolutionNote || 'Document updated from this finding.'}`,
+          '',
+        ])
+      : ['No covered findings.', '']),
     '## Recommendations',
     ...(result.recommendations || []).map((item) => `- ${item}`),
     '',
@@ -313,7 +503,9 @@ function readinessLabel(value) {
 
 function findImpactedDocumentIds(gapResults, documents) {
   const impacted = new Set();
-  const findings = Array.isArray(gapResults?.findings) ? gapResults.findings : [];
+  const findings = Array.isArray(gapResults?.findings)
+    ? gapResults.findings.filter((gap) => !isCoveredGap(gap))
+    : [];
   findings.forEach((gap) => {
     const matched = findMatchingDocument(gap, documents);
     if (matched) impacted.add(matched.id);
@@ -354,4 +546,43 @@ function SummaryCard({ label, value, tone }) {
       <p className="text-xs font-medium mt-1">{label}</p>
     </div>
   );
+}
+
+function ScoreCard({ label, value }) {
+  return (
+    <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-violet-900">{formatScore(value)}</p>
+    </div>
+  );
+}
+
+function TraceBadge({ label, value }) {
+  const normalized = String(value || '').toLowerCase();
+  const tone = normalized.includes('covered')
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : normalized.includes('partial')
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : 'bg-red-50 text-red-700 border-red-200';
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <Badge variant="outline" className={`mt-1 text-xs ${tone}`}>{value || 'Not specified'}</Badge>
+    </div>
+  );
+}
+
+function hasTraceabilityScores(result) {
+  return ['traceabilityScore', 'documentCoverageScore', 'bddQualityScore']
+    .some((key) => typeof result?.summary?.[key] === 'number');
+}
+
+function formatScore(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}%` : '—';
+}
+
+function formatCoverageStatus(value) {
+  return String(value || 'review')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

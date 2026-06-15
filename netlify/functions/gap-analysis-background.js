@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, buildEvidenceDigest, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, buildEvidenceDigest, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent, getPackageUploadBytes } from "./_shared.js";
 
 const JOB_TYPE = "gap-analysis";
 
@@ -63,6 +63,32 @@ export const handler = async (event) => {
 };
 
 async function analyzeWithAI(context, reportProgress) {
+  if (hasPackageUploadPayload(context.packageUpload)) {
+    await reportProgress({ stage: "file-analysis", progress: 10, message: "Uploading package to OpenAI for source-to-document traceability audit." });
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "file-analysis",
+      message: "Using OpenAI file/tool workflow for full source-code-to-BRD/BDD traceability audit.",
+      meta: {
+        fileName: context.packageUpload.name,
+        size: context.packageUpload.size,
+        blobUploadId: context.packageUpload.blobUploadId || "",
+        model: process.env.OPENAI_MODEL || "gpt-4.1",
+      },
+    });
+    const audit = await buildFileBasedTraceabilityAudit(context, reportProgress);
+    await reportProgress({ stage: "verifying", progress: 85, message: "Verifying traceability audit quality." });
+    const validated = normalizeGapPayload(audit);
+    if (!validated.findings.length && !validated.coverageMatrix?.length && !validated.summary) {
+      throw new Error("Traceability audit returned no usable findings or coverage matrix.");
+    }
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "done",
+      message: "File-based traceability audit succeeded.",
+      meta: { totalFindings: validated.summary?.totalFindings || 0, coverageRows: validated.coverageMatrix?.length || 0 },
+    });
+    return validated;
+  }
+
   await reportProgress({ stage: "planning", progress: 20, message: "Planning evidence review." });
   await appendAiJobLog(JOB_TYPE, context.jobId, {
     stage: "planning",
@@ -99,6 +125,99 @@ async function analyzeWithAI(context, reportProgress) {
     meta: { totalFindings: validated.summary?.totalFindings || 0 },
   });
   return validated;
+}
+
+async function buildFileBasedTraceabilityAudit(context, reportProgress) {
+  const fileId = await uploadPackageToOpenAI(context.packageUpload);
+  try {
+    const system = [
+      "ROLE: You are a principal QA governance auditor, Java solution architect, business analyst, and BDD traceability specialist.",
+      "MISSION: Perform a full source-code-to-BRD/BDD traceability audit using the attached Java project ZIP and the reviewed BRD/BDD documents.",
+      "SOURCE OF TRUTH: The ZIP source code is the primary evidence. The BRD/BDD documents are claims that must be verified against code evidence.",
+      "NO HALLUCINATION CONTRACT: Do not invent features, validations, roles, integrations, tests, pages, APIs, or business rules. If the code is silent, mark the item as missing, unsupported, or low-confidence.",
+      "AUDIT DEPTH: Inspect controllers, services, models/entities/documents, DTOs, validators, security config, repositories, resource/config files, frontend routes/pages where present, tests, and build files.",
+      "TRACEABILITY: Every finding must include concrete source evidence anchors and document evidence anchors where available.",
+      "QUALITY BAR: Prefer precise, actionable findings over generic observations. Distinguish missing document coverage from unsupported document claims.",
+      "OUTPUT: Return only JSON that matches the requested schema.",
+    ].join(" ");
+
+    const userPayload = {
+      packageSignals: context.signals,
+      evidenceDigest: buildEvidenceDigest(context.signals),
+      documents: context.documents.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        type: doc.type,
+        module: doc.module,
+        content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
+        evidenceAnchors: Array.isArray(doc.evidenceAnchors) ? doc.evidenceAnchors : [],
+      })),
+      auditInstructions: [
+        "First build an internal source inventory grouped by capability: authentication, catalog/product, category, cart, wishlist, order/payment, review, admin, profile, integration, security, validation, error handling, persistence, tests, frontend.",
+        "Map source capabilities to BRD FR/BR/GAP/RISK IDs and BDD Feature/Scenario coverage.",
+        "For each capability classify coverageStatus as covered, partial, missing_brd, missing_bdd, unsupported_document_claim, weak_traceability, or not_applicable.",
+        "Flag BDD quality gaps when scenarios are too generic, lack concrete validations, omit negative/security/boundary cases evidenced by code, or cannot be traced to source methods/endpoints.",
+        "Flag BRD quality gaps when source capabilities are omitted, requirements are unsupported by source, risks are missing, or evidence anchors are vague.",
+        "Flag automation/test gaps if source has no tests or BDDs claim coverage without evidence.",
+        "For every high/medium finding, provide recommendedFix that can drive BRD/BDD regeneration or manual document correction.",
+      ],
+      requiredOutputShape: traceabilityAuditOutputShape(),
+    };
+
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "file-analysis",
+      message: "Calling OpenAI Responses API with Code Interpreter and uploaded package for traceability audit.",
+      meta: { fileId, documentCount: context.documents.length },
+    });
+    await reportProgress({ stage: "analyzing", progress: 55, message: "Auditing source capabilities against BRD and BDD coverage." });
+
+    let result = await callOpenAIFileTool({
+      system,
+      user: JSON.stringify(userPayload),
+      fileId,
+      responseSchema: traceabilityAuditResponseSchema(),
+      temperature: 0.08,
+      maxOutputTokens: Number(process.env.OPENAI_GAP_MAX_OUTPUT_TOKENS || process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+    });
+    if (!result) throw new Error("File-based traceability audit returned no response.");
+
+    const qualityGate = evaluateTraceabilityAuditDepth(result, context.documents);
+    if (!qualityGate.passed) {
+      await appendAiJobLog(JOB_TYPE, context.jobId, {
+        stage: "analyzing",
+        message: "Initial traceability audit was too shallow; requesting deeper source-to-document audit.",
+        meta: qualityGate,
+      });
+      result = await callOpenAIFileTool({
+        system,
+        user: JSON.stringify({
+          ...userPayload,
+          qualityGateFeedback: {
+            status: "previous_audit_too_shallow",
+            missing: qualityGate.issues,
+            requiredAction: "Regenerate the audit with a deeper capability matrix, concrete source/document evidence, unsupported claim checks, missing scenario checks, and actionable BRD/BDD regeneration guidance.",
+          },
+        }),
+        fileId,
+        responseSchema: traceabilityAuditResponseSchema(),
+        temperature: 0.06,
+        maxOutputTokens: Number(process.env.OPENAI_GAP_MAX_OUTPUT_TOKENS || process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+      });
+    }
+
+    await appendAiJobLog(JOB_TYPE, context.jobId, {
+      stage: "analyzing",
+      message: "File-based traceability audit response received from OpenAI.",
+      meta: {
+        findings: result.findings?.length || 0,
+        coverageRows: result.coverageMatrix?.length || 0,
+        missingScenarios: result.missingScenarios?.length || 0,
+      },
+    });
+    return result;
+  } finally {
+    await deleteOpenAIFile(fileId).catch(() => {});
+  }
 }
 
 async function buildGapAssessmentPlan(context) {
@@ -299,6 +418,9 @@ async function buildGapAssessmentReport(context, plan) {
 
 function normalizeGapPayload(payload) {
   const findings = (Array.isArray(payload.findings) ? payload.findings : []).map((item) => ({
+    gapId: item.gapId || item.id || "",
+    gapType: item.gapType || "",
+    confidence: item.confidence || "",
     severity: ["high", "medium", "low"].includes(String(item.severity).toLowerCase())
       ? String(item.severity).toLowerCase()
       : "medium",
@@ -313,10 +435,14 @@ function normalizeGapPayload(payload) {
     recommendedFix: item.recommendedFix || "",
     actionType: item.actionType === "regenerate_document" || item.actionType === "create_bdd" ? item.actionType : "",
     evidenceAnchors: Array.isArray(item.evidenceAnchors) ? item.evidenceAnchors : [],
+    sourceEvidence: Array.isArray(item.sourceEvidence) ? item.sourceEvidence : [],
+    documentEvidence: Array.isArray(item.documentEvidence) ? item.documentEvidence : [],
+    missingScenarios: Array.isArray(item.missingScenarios) ? item.missingScenarios : [],
   }));
   const high = findings.filter((item) => item.severity === "high").length;
   const medium = findings.filter((item) => item.severity === "medium").length;
   const low = findings.filter((item) => item.severity === "low").length;
+  const summary = payload.summary || {};
   return {
     summary: {
       totalFindings: findings.length,
@@ -324,12 +450,38 @@ function normalizeGapPayload(payload) {
       medium,
       low,
       readiness: high ? "Blocked" : medium ? "Needs Review" : "Ready",
-      ...(payload.summary || {}),
+      traceabilityScore: typeof summary.traceabilityScore === "number" ? summary.traceabilityScore : null,
+      documentCoverageScore: typeof summary.documentCoverageScore === "number" ? summary.documentCoverageScore : null,
+      bddQualityScore: typeof summary.bddQualityScore === "number" ? summary.bddQualityScore : null,
+      ...summary,
     },
     findings,
+    coverageMatrix: normalizeCoverageMatrix(payload.coverageMatrix),
+    unsupportedClaims: normalizeSimpleRows(payload.unsupportedClaims),
+    missingScenarios: normalizeSimpleRows(payload.missingScenarios),
+    sourceInventory: normalizeSimpleRows(payload.sourceInventory),
     recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
     qualityNotes: Array.isArray(payload.qualityNotes) ? payload.qualityNotes : [],
   };
+}
+
+function normalizeCoverageMatrix(value) {
+  return (Array.isArray(value) ? value : []).map((row) => ({
+    capability: row.capability || "",
+    sourceEvidence: Array.isArray(row.sourceEvidence) ? row.sourceEvidence : [],
+    brdCoverage: row.brdCoverage || "",
+    bddCoverage: row.bddCoverage || "",
+    coverageStatus: row.coverageStatus || "",
+    confidence: row.confidence || "",
+    notes: row.notes || "",
+  }));
+}
+
+function normalizeSimpleRows(value) {
+  return (Array.isArray(value) ? value : []).map((row) => {
+    if (typeof row === "string") return { title: row };
+    return { ...row };
+  });
 }
 
 function buildGapContext(request, jobId) {
@@ -338,9 +490,11 @@ function buildGapContext(request, jobId) {
     jobId,
     documents: Array.isArray(request.documents) ? request.documents : [],
     signals,
+    packageUpload: normalizePackageUpload(request.packageUpload),
     auditRequest: {
       documentCount: Array.isArray(request.documents) ? request.documents.length : 0,
       packageSignals: summarizeSignals(signals),
+      hasPackageUpload: hasPackageUploadPayload(request.packageUpload),
     },
   };
 }
@@ -370,4 +524,355 @@ function summarizeSignals(signals) {
 function normalizeJobId(value) {
   const cleaned = String(value || '').trim();
   return cleaned || crypto.randomUUID();
+}
+
+function normalizePackageUpload(value) {
+  if (!hasPackageUploadPayload(value)) return null;
+  const name = String(value.name || "source-package.zip").split(/[\\/]/).pop() || "source-package.zip";
+  return {
+    name,
+    type: String(value.type || "application/zip"),
+    size: Number(value.size || 0),
+    blobUploadId: value.blobUploadId ? String(value.blobUploadId) : "",
+    chunkCount: Number(value.chunkCount || 0),
+    contentBase64: String(value.contentBase64 || ""),
+  };
+}
+
+function hasPackageUploadPayload(value) {
+  return Boolean(value?.contentBase64 || value?.blobUploadId);
+}
+
+async function uploadPackageToOpenAI(packageUpload) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based gap analysis.");
+  const storedPackage = packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null;
+  const bytes = storedPackage?.bytes || Buffer.from(packageUpload.contentBase64 || "", "base64");
+  if (!bytes.length) throw new Error("Package upload was empty.");
+  const form = new FormData();
+  form.append("purpose", process.env.OPENAI_FILE_PURPOSE || "user_data");
+  form.append("file", new Blob([bytes], { type: storedPackage?.type || packageUpload.type || "application/zip" }), storedPackage?.name || packageUpload.name || "source-package.zip");
+  const response = await fetch("https://api.openai.com/v1/files", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI file upload failed with ${response.status}: ${raw.slice(0, 240)}`);
+  }
+  if (!payload?.id) throw new Error("OpenAI file upload did not return a file id.");
+  return payload.id;
+}
+
+async function deleteOpenAIFile(fileId) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || !fileId) return;
+  await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+async function callOpenAIFileTool({
+  system,
+  user,
+  fileId,
+  responseSchema,
+  temperature = 0.1,
+  timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 840000),
+  maxOutputTokens = Number(process.env.OPENAI_GAP_MAX_OUTPUT_TOKENS || 30000),
+  model = process.env.OPENAI_MODEL || "gpt-4.1",
+}) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        instructions: system,
+        input: user,
+        temperature,
+        max_output_tokens: maxOutputTokens,
+        tools: [
+          {
+            type: "code_interpreter",
+            container: {
+              type: "auto",
+              file_ids: [fileId],
+            },
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: responseSchema.name,
+            schema: responseSchema.schema,
+            strict: true,
+          },
+        },
+      }),
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`OpenAI file-tool request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
+  }
+  const outputText = extractResponseText(payload);
+  if (!String(outputText || "").trim()) {
+    throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
+  }
+  try {
+    return JSON.parse(outputText);
+  } catch {
+    throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)} ${summarizeResponsePayload(payload)}`);
+  }
+}
+
+function parseJsonOrNull(raw) {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return null;
+  }
+}
+
+function extractResponseText(payload) {
+  if (payload?.output_text) return payload.output_text;
+  const chunks = [];
+  for (const item of payload?.output || []) {
+    for (const content of item?.content || []) {
+      if (content?.type === "output_text" && content?.text) chunks.push(content.text);
+      if (content?.type === "text" && content?.text) chunks.push(content.text);
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+function summarizeResponsePayload(payload) {
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  const outputTypes = output.map((item) => item?.type || item?.role || "unknown").slice(0, 8);
+  return `Response status=${payload?.status || "unknown"} outputTypes=${outputTypes.join(",") || "none"} incompleteReason=${payload?.incomplete_details?.reason || ""}`;
+}
+
+function evaluateTraceabilityAuditDepth(payload, documents) {
+  const issues = [];
+  const matrix = Array.isArray(payload?.coverageMatrix) ? payload.coverageMatrix : [];
+  const findings = Array.isArray(payload?.findings) ? payload.findings : [];
+  if (matrix.length < Math.min(4, Math.max(2, documents.length))) issues.push(`Coverage matrix is too small (${matrix.length} rows).`);
+  if (!findings.some((item) => Array.isArray(item.sourceEvidence) && item.sourceEvidence.length)) issues.push("Findings do not include sourceEvidence anchors.");
+  if (!findings.some((item) => Array.isArray(item.documentEvidence) && item.documentEvidence.length)) issues.push("Findings do not include documentEvidence anchors.");
+  if (!Array.isArray(payload?.sourceInventory) || payload.sourceInventory.length < 3) issues.push("Source inventory is too shallow.");
+  if (!payload?.summary || typeof payload.summary.traceabilityScore !== "number") issues.push("Summary is missing numeric traceabilityScore.");
+  return { passed: issues.length === 0, issues };
+}
+
+function traceabilityAuditOutputShape() {
+  return {
+    summary: {
+      totalFindings: "number",
+      high: "number",
+      medium: "number",
+      low: "number",
+      readiness: "Blocked | Needs Review | Ready",
+      traceabilityScore: "0-100 number",
+      documentCoverageScore: "0-100 number",
+      bddQualityScore: "0-100 number",
+    },
+    sourceInventory: [
+      {
+        capability: "business capability",
+        sourceAreas: ["file/class/method/endpoint/resource evidence"],
+        notes: "string",
+      },
+    ],
+    coverageMatrix: [
+      {
+        capability: "business capability",
+        sourceEvidence: ["file/class/method/endpoint/resource evidence"],
+        brdCoverage: "covered | partial | missing | unsupported",
+        bddCoverage: "covered | partial | missing | unsupported",
+        coverageStatus: "covered | partial | missing_brd | missing_bdd | unsupported_document_claim | weak_traceability | not_applicable",
+        confidence: "high | medium | low",
+        notes: "string",
+      },
+    ],
+    findings: [
+      {
+        gapId: "GAP-001",
+        gapType: "missing_brd | missing_bdd | unsupported_document_claim | weak_traceability | security | validation | integration | automation | risk",
+        severity: "high | medium | low",
+        confidence: "high | medium | low",
+        title: "string",
+        description: "string",
+        relatedDocumentId: "string",
+        relatedDocument: "string",
+        linkStatus: "linked | unlinked",
+        module: "business module",
+        packageSignal: "short source evidence hint",
+        sourceEvidence: ["file/class/method/endpoint/resource evidence"],
+        documentEvidence: ["BRD/BDD section, FR/BR/GAP ID, feature/scenario title"],
+        impact: "business impact",
+        recommendedFix: "actionable regeneration/manual correction guidance",
+        actionType: "regenerate_document | create_bdd",
+        evidenceAnchors: ["reviewer-friendly combined anchors"],
+        missingScenarios: ["BDD scenario titles to add when applicable"],
+      },
+    ],
+    unsupportedClaims: [
+      {
+        claim: "documented claim",
+        documentEvidence: "doc/section/scenario",
+        sourceEvidence: "why source does not support it",
+        recommendedFix: "string",
+      },
+    ],
+    missingScenarios: [
+      {
+        capability: "string",
+        scenarioTitle: "string",
+        scenarioType: "happy_path | negative | boundary | security | integration | error_handling | data_integrity",
+        sourceEvidence: "string",
+        targetDocument: "string",
+      },
+    ],
+    recommendations: ["string"],
+    qualityNotes: ["string"],
+  };
+}
+
+function traceabilityAuditResponseSchema() {
+  const stringArray = { type: "array", items: { type: "string" } };
+  return {
+    name: "source_to_brd_bdd_traceability_audit",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["summary", "sourceInventory", "coverageMatrix", "findings", "unsupportedClaims", "missingScenarios", "recommendations", "qualityNotes"],
+      properties: {
+        summary: {
+          type: "object",
+          additionalProperties: false,
+          required: ["totalFindings", "high", "medium", "low", "readiness", "traceabilityScore", "documentCoverageScore", "bddQualityScore"],
+          properties: {
+            totalFindings: { type: "number" },
+            high: { type: "number" },
+            medium: { type: "number" },
+            low: { type: "number" },
+            readiness: { type: "string" },
+            traceabilityScore: { type: "number" },
+            documentCoverageScore: { type: "number" },
+            bddQualityScore: { type: "number" },
+          },
+        },
+        sourceInventory: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["capability", "sourceAreas", "notes"],
+            properties: {
+              capability: { type: "string" },
+              sourceAreas: stringArray,
+              notes: { type: "string" },
+            },
+          },
+        },
+        coverageMatrix: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["capability", "sourceEvidence", "brdCoverage", "bddCoverage", "coverageStatus", "confidence", "notes"],
+            properties: {
+              capability: { type: "string" },
+              sourceEvidence: stringArray,
+              brdCoverage: { type: "string" },
+              bddCoverage: { type: "string" },
+              coverageStatus: { type: "string" },
+              confidence: { type: "string" },
+              notes: { type: "string" },
+            },
+          },
+        },
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["gapId", "gapType", "severity", "confidence", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "sourceEvidence", "documentEvidence", "impact", "recommendedFix", "actionType", "evidenceAnchors", "missingScenarios"],
+            properties: {
+              gapId: { type: "string" },
+              gapType: { type: "string" },
+              severity: { type: "string" },
+              confidence: { type: "string" },
+              title: { type: "string" },
+              description: { type: "string" },
+              relatedDocumentId: { type: "string" },
+              relatedDocument: { type: "string" },
+              linkStatus: { type: "string" },
+              module: { type: "string" },
+              packageSignal: { type: "string" },
+              sourceEvidence: stringArray,
+              documentEvidence: stringArray,
+              impact: { type: "string" },
+              recommendedFix: { type: "string" },
+              actionType: { type: "string" },
+              evidenceAnchors: stringArray,
+              missingScenarios: stringArray,
+            },
+          },
+        },
+        unsupportedClaims: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["claim", "documentEvidence", "sourceEvidence", "recommendedFix"],
+            properties: {
+              claim: { type: "string" },
+              documentEvidence: { type: "string" },
+              sourceEvidence: { type: "string" },
+              recommendedFix: { type: "string" },
+            },
+          },
+        },
+        missingScenarios: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["capability", "scenarioTitle", "scenarioType", "sourceEvidence", "targetDocument"],
+            properties: {
+              capability: { type: "string" },
+              scenarioTitle: { type: "string" },
+              scenarioType: { type: "string" },
+              sourceEvidence: { type: "string" },
+              targetDocument: { type: "string" },
+            },
+          },
+        },
+        recommendations: stringArray,
+        qualityNotes: stringArray,
+      },
+    },
+  };
 }
