@@ -12,10 +12,24 @@ export const handler = async (event) => {
 
   let jobId = "";
   try {
+    console.info("generate-documents-background: request received", {
+      method: event.httpMethod,
+      requestId: event.headers?.["x-nf-request-id"] || event.headers?.["x-request-id"] || "",
+      bodyBytes: event.body ? Buffer.byteLength(event.body, event.isBase64Encoded ? "base64" : "utf8") : 0,
+      isBase64Encoded: Boolean(event.isBase64Encoded),
+    });
     connectBlobsFromEvent(event);
     const request = parseEventBody(event);
     jobId = normalizeJobId(request.jobId);
     const context = buildGenerationContext(request, jobId);
+    console.info("generate-documents-background: request parsed", {
+      jobId,
+      generationMode: context.generationMode,
+      hasPackageUpload: Boolean(context.packageUpload?.contentBase64),
+      packageName: context.packageUpload?.name || "",
+      packageSize: context.packageUpload?.size || 0,
+      uploadedRequirementCount: context.uploadedRequirements.length,
+    });
     await appendAiJobLog(JOB_TYPE, jobId, {
       stage: "queued",
       message: "Document generation request received.",
@@ -49,8 +63,21 @@ export const handler = async (event) => {
 
     return json(202, { jobId, status: "accepted" });
   } catch (error) {
-    console.error("generate-documents failed", error);
+    console.error("generate-documents-background failed", {
+      jobId,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause,
+    });
     if (jobId) {
+      await appendAiJobLog(JOB_TYPE, jobId, {
+        level: "error",
+        stage: "failed",
+        message: error.message || "Document generation failed.",
+        meta: {
+          stack: String(error.stack || "").slice(0, 1200),
+        },
+      }).catch(() => {});
       await upsertAiJob(JOB_TYPE, jobId, {
         status: "failed",
         stage: "failed",
@@ -149,7 +176,21 @@ function buildGenerationContext(request, jobId) {
 }
 
 async function buildSuiteFromPackageFile(context, reportProgress) {
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "file-upload",
+    message: "Uploading source package to OpenAI Files API.",
+    meta: {
+      fileName: context.packageUpload.name,
+      size: context.packageUpload.size,
+      purpose: process.env.OPENAI_FILE_PURPOSE || "user_data",
+    },
+  });
   const fileId = await uploadPackageToOpenAI(context.packageUpload);
+  await appendAiJobLog(JOB_TYPE, context.jobId, {
+    stage: "file-upload",
+    message: "OpenAI file upload completed.",
+    meta: { fileId },
+  });
   try {
     await reportProgress({ stage: "file-analysis", progress: 25, message: "Analyzing package structure with OpenAI Code Interpreter." });
     const system = [
@@ -160,6 +201,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       "MANDATORY ANALYSIS ORDER: First unzip and inventory the project. Then inspect build files, dependency manifests, Java source, resources, controllers, services, repositories, entities, DTOs, configuration, security, tests, existing feature/spec files, scripts, and documentation before drafting.",
       "FILE COVERAGE: Read all business-relevant files completely when practical. For generated/vendor/build artifacts, list them as excluded with reason. If any file cannot be read due to size/encoding/binary format, record that limitation in qualityNotes.",
       "TRACEABILITY: Every BRD section, functional requirement, business rule, BDD feature, and risk must include evidence anchors pointing to concrete file paths plus class/method/endpoint/resource names where available.",
+      "TOOL USE: You must use the python tool / Code Interpreter to unzip the attached package, list files, inspect project structure, and read relevant source files before producing JSON.",
       "BDD QUALITY: BDDs must be executable Gherkin, business-readable, tagged, and linked to requirement IDs/business rules in comments. Prefer Scenario Outline with Examples for data-driven logic.",
       "RISK QUALITY: Actively check for security, data integrity, error handling, performance, business logic, and compliance risks. Report only risks supported by code evidence.",
       "DEPTH BAR: The BRD must be a full enterprise analysis document, not a short summary. A small application still requires complete document control, application profile, FR catalogue, NFRs, data rules, gaps, risks, recommendations, and traceability.",
@@ -306,16 +348,17 @@ async function uploadPackageToOpenAI(packageUpload) {
   const bytes = Buffer.from(packageUpload.contentBase64 || "", "base64");
   if (!bytes.length) throw new Error("Package upload was empty.");
   const form = new FormData();
-  form.append("purpose", "assistants");
+  form.append("purpose", process.env.OPENAI_FILE_PURPOSE || "user_data");
   form.append("file", new Blob([bytes], { type: packageUpload.type || "application/zip" }), packageUpload.name || "source-package.zip");
   const response = await fetch("https://api.openai.com/v1/files", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
-  const payload = await response.json().catch(() => ({}));
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI file upload failed with ${response.status}`);
+    throw new Error(payload?.error?.message || `OpenAI file upload failed with ${response.status}: ${raw.slice(0, 240)}`);
   }
   if (!payload?.id) throw new Error("OpenAI file upload did not return a file id.");
   return payload.id;
@@ -357,6 +400,7 @@ async function callOpenAIFileTool({
         instructions: system,
         input: user,
         temperature,
+        tool_choice: "required",
         max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
         tools: [
           {
@@ -385,15 +429,24 @@ async function callOpenAIFileTool({
   } finally {
     clearTimeout(timer);
   }
-  const payload = await response.json().catch(() => ({}));
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}`);
+    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
   }
   const outputText = extractResponseText(payload);
   try {
     return JSON.parse(outputText);
   } catch {
     throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)}`);
+  }
+}
+
+function parseJsonOrNull(raw) {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return null;
   }
 }
 
