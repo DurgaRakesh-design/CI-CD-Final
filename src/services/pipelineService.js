@@ -1,5 +1,5 @@
 import { portalConfig } from '@/config/portalConfig';
-import { dispatchRepositoryEvent, listRepoContents } from '@/services/githubApi';
+import { dispatchRepositoryEvent, listRepoContents, upsertRepoFile } from '@/services/githubApi';
 import { fileToBase64, safeFileName, toBase64, uniquePortalRunId } from '@/services/encoding';
 import { buildBddUploadFiles, buildBrdUploadFile } from '@/services/documentService';
 
@@ -74,23 +74,58 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   };
   const manifestPath = `${requirementRoot}/manifest.json`;
 
+  const uploads = [];
+  if (packageFile) {
+    uploads.push(upsertRepoFile({
+      path: packagePath,
+      contentBase64: packageContentBase64,
+      message: `chore: upload package ${packageName}`,
+      branch: portalConfig.branch,
+    }));
+  }
+
+  if (brdFile?.content) {
+    uploads.push(upsertRepoFile({
+      path: brdPath,
+      contentBase64: brdContentBase64,
+      message: `chore: upload BRD ${brdFile.name}`,
+      branch: portalConfig.branch,
+    }));
+  }
+
+  bddFiles.forEach((bdd, index) => {
+    const path = bddPaths[index];
+    const contentBase64 = bddContent[index];
+    if (!path || !contentBase64) return;
+    uploads.push(upsertRepoFile({
+      path,
+      contentBase64,
+      message: `chore: upload BDD ${bdd.name}`,
+      branch: portalConfig.branch,
+    }));
+  });
+
+  uploads.push(upsertRepoFile({
+    path: manifestPath,
+    contentBase64: toBase64(JSON.stringify(manifest, null, 2)),
+    message: `chore: upload manifest for ${runId}`,
+    branch: portalConfig.branch,
+  }));
+
+  await Promise.all(uploads);
+
   const payload = {
     triggered_by: 'react-portal',
-    file_name: packageName,
-    file_path: packagePath,
     artifact_bundle: toBase64(JSON.stringify({
-      uploadMethod: packageFile ? 'contents' : 'existing',
-      fileContent: packageContentBase64,
+      file_name: packageName,
+      file_path: packagePath,
       runId,
       requirementRoot,
       packagePath,
       manifestPath,
-      manifestContent: toBase64(JSON.stringify(manifest, null, 2)),
       brdFileName: brdFile?.name || '',
-      brdContent: brdContentBase64,
       brdFilePath: brdPath,
-      bddFileName: bddFiles[0]?.name || '',
-      bddContent: bddContent[0] || '',
+      bddFileName: bddFiles.map((bdd) => bdd.name).join(';'),
       bddFilePath: bddPaths.join(';'),
       platform: artifactMeta.metadata.platform,
       environment: artifactMeta.metadata.environment,
@@ -99,10 +134,8 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       requirement_source: artifactMeta.metadata.requirementSource,
       branch: portalConfig.branch,
       env: artifactMeta.metadata.environment,
+      uploadMethod: packageFile ? 'contents' : 'existing',
     })),
-    runId,
-    branch: portalConfig.branch,
-    env: artifactMeta.metadata.environment,
   };
 
   await dispatchRepositoryEvent('portal-upload', payload);
