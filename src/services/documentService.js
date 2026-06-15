@@ -1,4 +1,6 @@
-import { fileToBase64, safeFileName } from './encoding';
+import { safeFileName } from './encoding';
+
+const PACKAGE_CHUNK_BYTES = 768 * 1024;
 
 export async function generateRequirementSuite({
   packageSignals,
@@ -12,13 +14,8 @@ export async function generateRequirementSuite({
   onStatusUpdate = null,
 }) {
   const jobId = createJobId();
-  const packageUpload = packageFile
-    ? {
-        name: safeFileName(packageFile.name || packageSignals?.fileName || 'source-package.zip'),
-        type: packageFile.type || 'application/zip',
-        size: packageFile.size || 0,
-        contentBase64: await fileToBase64(packageFile),
-      }
+  const packageUpload = packageFile && generationMode === 'initial'
+    ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
     : null;
   const response = await fetch('/.netlify/functions/generate-documents-background', {
     method: 'POST',
@@ -36,6 +33,62 @@ export async function generateRequirementSuite({
     onStatusUpdate,
   });
   return normalizeGeneratedSuite(job.result || job.payload || job);
+}
+
+async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate }) {
+  const uploadId = `${jobId}-${Date.now()}`;
+  const name = safeFileName(packageFile.name || packageSignals?.fileName || 'source-package.zip');
+  const type = packageFile.type || 'application/zip';
+  const buffer = await packageFile.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const total = Math.max(1, Math.ceil(bytes.length / PACKAGE_CHUNK_BYTES));
+
+  for (let index = 0; index < total; index += 1) {
+    const start = index * PACKAGE_CHUNK_BYTES;
+    const end = Math.min(start + PACKAGE_CHUNK_BYTES, bytes.length);
+    const contentBase64 = bytesToBase64(bytes.slice(start, end));
+    onStatusUpdate?.({
+      status: 'running',
+      stage: 'package-upload',
+      progress: Math.min(8, Math.round(((index + 1) / total) * 8)),
+      message: `Uploading source package chunk ${index + 1} of ${total}.`,
+    });
+    const response = await fetch('/.netlify/functions/ai-package-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'chunk', uploadId, name, type, size: packageFile.size || bytes.length, index, total, contentBase64 }),
+    });
+    if (!response.ok) {
+      const payload = await readJsonResponse(response, 'Package upload');
+      throw new Error(payload?.message || 'Package upload failed.');
+    }
+  }
+
+  const response = await fetch('/.netlify/functions/ai-package-upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'complete', uploadId, name, type, size: packageFile.size || bytes.length, chunkCount: total }),
+  });
+  if (!response.ok) {
+    const payload = await readJsonResponse(response, 'Package upload');
+    throw new Error(payload?.message || 'Package upload failed.');
+  }
+  const payload = await readJsonResponse(response, 'Package upload');
+  return payload.packageUpload || {
+    name,
+    type,
+    size: packageFile.size || bytes.length,
+    blobUploadId: uploadId,
+    chunkCount: total,
+  };
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
 }
 
 export async function runGapAnalysis({ packageSignals, documents, jobTimeoutMs = 900000, onStatusUpdate = null }) {

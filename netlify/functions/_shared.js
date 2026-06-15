@@ -8,6 +8,8 @@ export const CORS_HEADERS = {
 
 let aiJobStore = null;
 let aiJobStoreFallback = new Map();
+let packageUploadStore = null;
+let packageUploadFallback = new Map();
 
 function getAiJobStore() {
   if (aiJobStore !== null) return aiJobStore;
@@ -116,6 +118,19 @@ export function buildEvidenceDigest(signals = {}) {
     topFiles,
     summary: signals.summary || {},
   };
+}
+
+function getPackageUploadStore() {
+  if (packageUploadStore !== null) return packageUploadStore;
+  try {
+    packageUploadStore = getStore({ name: "ai-package-uploads" });
+  } catch (error) {
+    if (isNetlifyRuntime()) {
+      throw error;
+    }
+    packageUploadStore = null;
+  }
+  return packageUploadStore;
 }
 
 export async function callOpenAI({
@@ -233,6 +248,101 @@ export async function appendAiJobLog(type, jobId, entry) {
     ...(current || {}),
     logs: nextLogs,
   });
+}
+
+export async function setPackageUploadChunk(uploadId, index, contentBase64) {
+  const key = packageChunkKey(uploadId, index);
+  const store = getPackageUploadStore();
+  if (store) {
+    await store.set(key, String(contentBase64 || ""));
+  } else {
+    packageUploadFallback.set(key, String(contentBase64 || ""));
+  }
+}
+
+export async function setPackageUploadManifest(uploadId, manifest) {
+  const payload = {
+    uploadId,
+    completedAt: new Date().toISOString(),
+    ...manifest,
+  };
+  const store = getPackageUploadStore();
+  if (store) {
+    await store.setJSON(packageManifestKey(uploadId), payload);
+  } else {
+    packageUploadFallback.set(packageManifestKey(uploadId), payload);
+  }
+  return payload;
+}
+
+export async function getPackageUploadBytes(uploadId) {
+  const manifest = await getPackageUploadManifest(uploadId);
+  if (!manifest) throw new Error("Uploaded package reference was not found.");
+
+  const chunks = [];
+  const total = Number(manifest.chunkCount || manifest.total || 0);
+  if (!total) throw new Error("Uploaded package reference has no chunks.");
+
+  for (let index = 0; index < total; index += 1) {
+    const chunk = await getPackageUploadChunkWithRetry(uploadId, index);
+    if (!chunk) throw new Error(`Uploaded package chunk ${index + 1} of ${total} was not found.`);
+    chunks.push(String(chunk));
+  }
+
+  const bytes = Buffer.from(chunks.join(""), "base64");
+  if (manifest.size && bytes.length !== Number(manifest.size)) {
+    throw new Error(`Uploaded package size mismatch. Expected ${manifest.size} bytes but found ${bytes.length}.`);
+  }
+  return {
+    bytes,
+    name: manifest.name || "source-package.zip",
+    type: manifest.type || "application/zip",
+    size: bytes.length,
+  };
+}
+
+async function getPackageUploadManifest(uploadId) {
+  const key = packageManifestKey(uploadId);
+  const store = getPackageUploadStore();
+  if (store) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const manifest = await store.get(key, { type: "json" });
+      if (manifest) return manifest;
+      await sleep(300 * (attempt + 1));
+    }
+    return null;
+  }
+  return packageUploadFallback.get(key) || null;
+}
+
+async function getPackageUploadChunkWithRetry(uploadId, index) {
+  const key = packageChunkKey(uploadId, index);
+  const store = getPackageUploadStore();
+  if (store) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const chunk = await store.get(key);
+      if (chunk) return chunk;
+      await sleep(300 * (attempt + 1));
+    }
+    return null;
+  }
+  return packageUploadFallback.get(key) || null;
+}
+
+function packageManifestKey(uploadId) {
+  return `${safeBlobSegment(uploadId)}/manifest.json`;
+}
+
+function packageChunkKey(uploadId, index) {
+  return `${safeBlobSegment(uploadId)}/chunks/${String(index).padStart(5, "0")}.b64`;
+}
+
+function safeBlobSegment(value) {
+  return String(value || "upload").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "upload";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function slugify(value) {

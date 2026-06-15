@@ -1,4 +1,4 @@
-import { CORS_HEADERS, json, parseEventBody, compactSignals, buildEvidenceDigest, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent } from "./_shared.js";
+import { CORS_HEADERS, json, parseEventBody, compactSignals, buildEvidenceDigest, callOpenAI, upsertAiJob, appendAiJobLog, connectBlobsFromEvent, getPackageUploadBytes } from "./_shared.js";
 
 const JOB_TYPE = "generate-documents";
 
@@ -25,7 +25,7 @@ export const handler = async (event) => {
     console.info("generate-documents-background: request parsed", {
       jobId,
       generationMode: context.generationMode,
-      hasPackageUpload: Boolean(context.packageUpload?.contentBase64),
+      hasPackageUpload: hasPackageUploadPayload(context.packageUpload),
       packageName: context.packageUpload?.name || "",
       packageSize: context.packageUpload?.size || 0,
       uploadedRequirementCount: context.uploadedRequirements.length,
@@ -90,7 +90,7 @@ export const handler = async (event) => {
 };
 
 async function generateWithAI(context, reportProgress) {
-  if (context.packageUpload?.contentBase64 && context.generationMode === "initial") {
+  if (hasPackageUploadPayload(context.packageUpload) && context.generationMode === "initial") {
     await reportProgress({ stage: "file-analysis", progress: 10, message: "Uploading package to OpenAI for full source analysis." });
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "file-analysis",
@@ -98,6 +98,7 @@ async function generateWithAI(context, reportProgress) {
       meta: {
         fileName: context.packageUpload.name,
         size: context.packageUpload.size,
+        blobUploadId: context.packageUpload.blobUploadId || "",
         model: process.env.OPENAI_MODEL || "gpt-4.1",
       },
     });
@@ -168,7 +169,7 @@ function buildGenerationContext(request, jobId) {
       targetDocument: request.targetDocument || null,
       targetGap: request.targetGap || null,
       uploadedRequirementCount: Array.isArray(request.uploadedRequirements) ? request.uploadedRequirements.length : 0,
-      hasPackageUpload: Boolean(request.packageUpload?.contentBase64),
+      hasPackageUpload: hasPackageUploadPayload(request.packageUpload),
       hasGapResults: Boolean(request.gapResults),
       packageSignals: summarizeSignals(signals),
     },
@@ -182,6 +183,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
     meta: {
       fileName: context.packageUpload.name,
       size: context.packageUpload.size,
+      blobUploadId: context.packageUpload.blobUploadId || "",
       purpose: process.env.OPENAI_FILE_PURPOSE || "user_data",
     },
   });
@@ -345,11 +347,12 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
 async function uploadPackageToOpenAI(packageUpload) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based document generation.");
-  const bytes = Buffer.from(packageUpload.contentBase64 || "", "base64");
+  const storedPackage = packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null;
+  const bytes = storedPackage?.bytes || Buffer.from(packageUpload.contentBase64 || "", "base64");
   if (!bytes.length) throw new Error("Package upload was empty.");
   const form = new FormData();
   form.append("purpose", process.env.OPENAI_FILE_PURPOSE || "user_data");
-  form.append("file", new Blob([bytes], { type: packageUpload.type || "application/zip" }), packageUpload.name || "source-package.zip");
+  form.append("file", new Blob([bytes], { type: storedPackage?.type || packageUpload.type || "application/zip" }), storedPackage?.name || packageUpload.name || "source-package.zip");
   const response = await fetch("https://api.openai.com/v1/files", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -860,14 +863,20 @@ function summarizeSignals(signals) {
 }
 
 function normalizePackageUpload(value) {
-  if (!value || !value.contentBase64) return null;
+  if (!hasPackageUploadPayload(value)) return null;
   const name = String(value.name || "source-package.zip").split(/[\\/]/).pop() || "source-package.zip";
   return {
     name,
     type: String(value.type || "application/zip"),
     size: Number(value.size || 0),
+    blobUploadId: value.blobUploadId ? String(value.blobUploadId) : "",
+    chunkCount: Number(value.chunkCount || 0),
     contentBase64: String(value.contentBase64 || ""),
   };
+}
+
+function hasPackageUploadPayload(value) {
+  return Boolean(value?.contentBase64 || value?.blobUploadId);
 }
 
 function normalizeJobId(value) {
