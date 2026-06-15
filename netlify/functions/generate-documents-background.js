@@ -382,7 +382,7 @@ async function callOpenAIFileTool({
   fileId,
   responseSchema,
   temperature = 0.1,
-  timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 900000),
+  timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 840000),
   model = process.env.OPENAI_MODEL || "gpt-4.1",
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -403,7 +403,6 @@ async function callOpenAIFileTool({
         instructions: system,
         input: user,
         temperature,
-        tool_choice: "required",
         max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
         tools: [
           {
@@ -438,10 +437,13 @@ async function callOpenAIFileTool({
     throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
   }
   const outputText = extractResponseText(payload);
+  if (!String(outputText || "").trim()) {
+    throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
+  }
   try {
     return JSON.parse(outputText);
   } catch {
-    throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)}`);
+    throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)} ${summarizeResponsePayload(payload)}`);
   }
 }
 
@@ -463,6 +465,12 @@ function extractResponseText(payload) {
     }
   }
   return chunks.join("\n").trim();
+}
+
+function summarizeResponsePayload(payload) {
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  const outputTypes = output.map((item) => item?.type || item?.role || "unknown").slice(0, 8);
+  return `Response status=${payload?.status || "unknown"} outputTypes=${outputTypes.join(",") || "none"} incompleteReason=${payload?.incomplete_details?.reason || ""}`;
 }
 
 async function buildDocumentPlan(context) {

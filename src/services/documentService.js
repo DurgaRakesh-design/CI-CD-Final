@@ -1,8 +1,46 @@
 import { safeFileName } from './encoding';
 
 const PACKAGE_CHUNK_BYTES = 768 * 1024;
+const inFlightRequirementSuites = new Map();
 
 export async function generateRequirementSuite({
+  packageSignals,
+  packageFile = null,
+  uploadedRequirements = [],
+  gapResults = null,
+  generationMode = 'initial',
+  targetDocument = null,
+  targetGap = null,
+  jobTimeoutMs = 900000,
+  onStatusUpdate = null,
+}) {
+  const requestKey = buildGenerationRequestKey({ packageSignals, packageFile, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap });
+  if (requestKey && inFlightRequirementSuites.has(requestKey)) {
+    return inFlightRequirementSuites.get(requestKey);
+  }
+
+  const promise = generateRequirementSuiteRequest({
+    packageSignals,
+    packageFile,
+    uploadedRequirements,
+    gapResults,
+    generationMode,
+    targetDocument,
+    targetGap,
+    jobTimeoutMs,
+    onStatusUpdate,
+  });
+
+  if (!requestKey) return promise;
+  inFlightRequirementSuites.set(requestKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightRequirementSuites.delete(requestKey);
+  }
+}
+
+async function generateRequirementSuiteRequest({
   packageSignals,
   packageFile = null,
   uploadedRequirements = [],
@@ -33,6 +71,21 @@ export async function generateRequirementSuite({
     onStatusUpdate,
   });
   return normalizeGeneratedSuite(job.result || job.payload || job);
+}
+
+function buildGenerationRequestKey({ packageSignals, packageFile, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }) {
+  if (generationMode !== 'initial' || !packageFile) return '';
+  return JSON.stringify({
+    mode: generationMode,
+    fileName: packageFile.name || packageSignals?.fileName || '',
+    fileSize: packageFile.size || 0,
+    fileModified: packageFile.lastModified || 0,
+    projectName: packageSignals?.projectName || '',
+    uploadedRequirementCount: uploadedRequirements?.length || 0,
+    hasGapResults: Boolean(gapResults),
+    targetDocumentId: targetDocument?.id || '',
+    targetGapId: targetGap?.id || '',
+  });
 }
 
 async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate }) {
