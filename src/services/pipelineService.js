@@ -76,43 +76,45 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
 
   const uploads = [];
   if (packageFile) {
-    uploads.push(upsertRepoFile({
+    uploads.push({
       path: packagePath,
       contentBase64: packageContentBase64,
       message: `chore: upload package ${packageName}`,
       branch: portalConfig.branch,
-    }));
+    });
   }
 
   if (brdFile?.content) {
-    uploads.push(upsertRepoFile({
+    uploads.push({
       path: brdPath,
       contentBase64: brdContentBase64,
       message: `chore: upload BRD ${brdFile.name}`,
       branch: portalConfig.branch,
-    }));
+    });
   }
 
   bddFiles.forEach((bdd, index) => {
     const path = bddPaths[index];
     const contentBase64 = bddContent[index];
     if (!path || !contentBase64) return;
-    uploads.push(upsertRepoFile({
+    uploads.push({
       path,
       contentBase64,
       message: `chore: upload BDD ${bdd.name}`,
       branch: portalConfig.branch,
-    }));
+    });
   });
 
-  uploads.push(upsertRepoFile({
+  uploads.push({
     path: manifestPath,
     contentBase64: toBase64(JSON.stringify(manifest, null, 2)),
     message: `chore: upload manifest for ${runId}`,
     branch: portalConfig.branch,
-  }));
+  });
 
-  await Promise.all(uploads);
+  for (const upload of uploads) {
+    await upsertRepoFile(upload);
+  }
 
   const payload = {
     triggered_by: 'react-portal',
