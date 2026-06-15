@@ -162,10 +162,12 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       "TRACEABILITY: Every BRD section, functional requirement, business rule, BDD feature, and risk must include evidence anchors pointing to concrete file paths plus class/method/endpoint/resource names where available.",
       "BDD QUALITY: BDDs must be executable Gherkin, business-readable, tagged, and linked to requirement IDs/business rules in comments. Prefer Scenario Outline with Examples for data-driven logic.",
       "RISK QUALITY: Actively check for security, data integrity, error handling, performance, business logic, and compliance risks. Report only risks supported by code evidence.",
-      "OUTPUT: Return only JSON matching the requested schema. Put the complete formal BRD inside brd.content and the Gherkin feature files inside bddFiles[].gherkin.",
+      "DEPTH BAR: The BRD must be a full enterprise analysis document, not a short summary. A small application still requires complete document control, application profile, FR catalogue, NFRs, data rules, gaps, risks, recommendations, and traceability.",
+      "BDD BAR: Produce separate BDD feature files for each meaningful capability or workflow. For small apps, split by startup/configuration, user interaction/input flow, core business operation, validation/error behavior, or other evidenced capabilities instead of collapsing everything into one file.",
+      "OUTPUT: Return only JSON matching the requested schema. Put the complete formal BRD inside brd.content and each separate Gherkin feature file inside bddFiles[].gherkin.",
     ].join(" ");
 
-    const user = JSON.stringify({
+    const userPayload = {
       generationMode: context.generationMode,
       uploadedRequirements: context.uploadedRequirements,
       packageSignals: context.signals,
@@ -189,6 +191,20 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
         "Prioritized Recommendations",
         "Traceability Matrix",
       ],
+      brdContentContract: [
+        "Start brd.content with an Executive Summary of exactly 3 substantial paragraphs.",
+        "Include a Document Control table.",
+        "Include an Application Profile with factual one-sentence answers for application type, architecture, roles, database/ORM, integrations, and security mechanism.",
+        "Include a Functional Requirements catalogue with unique FR IDs for every business function or workflow. Do not merge unrelated functions.",
+        "Include Non-Functional Requirements covering performance, security, scalability, maintainability, and availability.",
+        "Include Data Requirements with entity/model fields, types, constraints, and relationships when evidenced.",
+        "Include Integration Requirements. If none exist, state 'No external integration evidenced' and cite why.",
+        "Include Business Rules with BR IDs, condition, action, and source method/class.",
+        "Include Gaps and Missing Requirements using gap IDs and risk.",
+        "Include a Risk Register with severity, category, class/method, business impact, and fix.",
+        "Include Prioritized Recommendations and a Traceability Matrix mapping FR/BR/GAP IDs to evidence anchors and BDD files.",
+        "Target a detailed BRD suitable for sign-off. Avoid short overview-only output.",
+      ],
       functionalRequirementFormat: {
         id: "FR-001",
         title: "Business capability title",
@@ -206,7 +222,8 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
         compliance: ["missing audit fields", "PII exposure", "dates/timezone ambiguity", "no retention/delete policy evidence"],
       },
       bddScenarioCoverageRules: [
-        "Create one Feature per real business module/capability.",
+        "Create one Feature per real business module/capability/workflow. Do not collapse the entire app into one feature unless the project truly has only one evidenced workflow.",
+        "For a small calculator-style app, produce separate features for application startup/configuration, web form submission/user interaction, and arithmetic/business operation processing when evidenced.",
         "For every feature, include supported happy paths and the negative/boundary scenarios evidenced by validation and code branches.",
         "Include unauthorized/security scenarios only when roles/security evidence exists or when missing security is explicitly documented as a gap/BUG scenario.",
         "Include duplicate/conflict, not-found, and integration-failure scenarios only when the code/domain supports those outcomes or the absence is recorded as a gap.",
@@ -215,20 +232,23 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
         "Tag scenarios with @smoke, @regression, @negative, @security, @integration, and @[module-name] where relevant.",
         "Add a comment above each scenario in this style: # Covers: FR-001, BR-001",
         "For code-backed gaps, add BUG scenarios in this style: # BUG: description | CURRENTLY BROKEN: observed behavior from code",
+        "Each feature file should contain multiple scenarios or scenario outlines unless the evidence supports only one behavior.",
       ],
       instructions: [
         "Start by creating an internal file inventory with classification: Entity, DTO, Repository, Service, Controller, Config, Security, Test, Resource, Build, Documentation, Other.",
         "Use the internal inventory to drive the BRD File Inventory and Evidence Coverage section. Do not output thousands of low-value generated/vendor files; summarize exclusions clearly.",
         "Answer the application profile factually: application type, architecture pattern, roles, database/ORM, external integrations, and security mechanism. Cite source files/classes.",
-        "Generate one BRD for the whole application.",
+        "Generate one detailed BRD for the whole application. Do not return a lightweight overview.",
         "Generate BDD feature files grouped by real business capability, not by technical class names or package names.",
         "Every BDD must include a concise businessView plus valid Gherkin with Feature, optional Background, Scenarios/Scenario Outlines, tags, and Covers comments.",
         "Ensure BRD FR/BR IDs align with BDD Covers comments and traceability evidence anchors.",
         "If evidence is partial or absent, state that in BRD quality notes instead of hallucinating.",
         "Prefer complete, code-supported workflows and edge cases over generic template scenarios.",
         "Keep the output practical for a review UI: detailed enough for sign-off, but avoid dumping raw source code or huge inventories.",
+        "If the first draft feels short, expand before returning JSON by adding missing FRs, BRs, gaps, risks, recommendations, and BDD scenarios supported by the code.",
       ],
-    });
+    };
+    const user = JSON.stringify(userPayload);
 
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "file-analysis",
@@ -237,7 +257,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
     });
 
     await reportProgress({ stage: "drafting", progress: 55, message: "Generating BRD and BDD suite from full package evidence." });
-    const result = await callOpenAIFileTool({
+    let result = await callOpenAIFileTool({
       system,
       user,
       fileId,
@@ -245,12 +265,36 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       temperature: 0.12,
     });
     if (!result) throw new Error("File-based document generation returned no response.");
+    let normalized = normalizeSuite(result, "ai_file_tool_generated");
+    const qualityGate = evaluateSuiteDepth(normalized);
+    if (!qualityGate.passed) {
+      await appendAiJobLog(JOB_TYPE, context.jobId, {
+        stage: "drafting",
+        message: "Initial file-based generation was too shallow; requesting expanded enterprise output.",
+        meta: qualityGate,
+      });
+      result = await callOpenAIFileTool({
+        system,
+        user: JSON.stringify({
+          ...userPayload,
+          qualityGateFeedback: {
+            status: "previous_output_too_shallow",
+            missing: qualityGate.issues,
+            requiredAction: "Regenerate from the attached ZIP with a formal enterprise BRD, at least three separate BDD feature files where evidence supports it, detailed FR/BR/GAP/RISK catalogues, and richer traceability. Do not summarize.",
+          },
+        }),
+        fileId,
+        responseSchema: suiteResponseSchema(),
+        temperature: 0.1,
+      });
+      normalized = normalizeSuite(result, "ai_file_tool_generated");
+    }
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "drafting",
       message: "File-based generation response received from OpenAI.",
-      meta: { bddCount: result.bddFiles?.length || 0 },
+      meta: { bddCount: normalized.bddFiles?.length || 0, brdChars: String(normalized.brd?.content || "").length },
     });
-    return normalizeSuite(result, "ai_file_tool_generated");
+    return normalized;
   } finally {
     await deleteOpenAIFile(fileId).catch(() => {});
   }
@@ -313,6 +357,7 @@ async function callOpenAIFileTool({
         instructions: system,
         input: user,
         temperature,
+        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
         tools: [
           {
             type: "code_interpreter",
@@ -614,6 +659,37 @@ function validateSuite(payload) {
   if (!bdds.length) return null;
   if (!bdds.some((doc) => String(doc?.gherkin || "").trim().length > 80)) return null;
   return payload;
+}
+
+function evaluateSuiteDepth(payload) {
+  const issues = [];
+  const brdText = String(payload?.brd?.content || "");
+  const bdds = Array.isArray(payload?.bddFiles) ? payload.bddFiles : [];
+  const brdSections = [
+    "Executive Summary",
+    "Application Profile",
+    "Functional Requirements",
+    "Non-Functional Requirements",
+    "Business Rules",
+    "Gaps",
+    "Risk Register",
+    "Traceability",
+  ];
+  const missingSections = brdSections.filter((section) => !brdText.toLowerCase().includes(section.toLowerCase()));
+  if (brdText.length < 6500) issues.push(`BRD is too short (${brdText.length} chars; target 6500+).`);
+  if (missingSections.length) issues.push(`BRD missing sections: ${missingSections.join(", ")}.`);
+  if (!/FR-\d{3}/i.test(brdText)) issues.push("BRD does not include formal FR identifiers.");
+  if (!/BR-\d{3}/i.test(brdText)) issues.push("BRD does not include formal BR identifiers.");
+  if (!/Gap|GAP-\d{3}/i.test(brdText)) issues.push("BRD does not include a useful gaps catalogue.");
+  if (bdds.length < 3) issues.push(`Only ${bdds.length} BDD feature file(s) returned; target at least 3 for fresh package generation when evidence supports it.`);
+  bdds.forEach((doc, index) => {
+    const gherkin = String(doc?.gherkin || "");
+    const scenarioCount = (gherkin.match(/^\s*Scenario(?: Outline)?:/gim) || []).length;
+    if (gherkin.length < 700) issues.push(`BDD ${index + 1} is too short (${gherkin.length} chars).`);
+    if (scenarioCount < 2) issues.push(`BDD ${index + 1} has fewer than 2 scenarios.`);
+    if (!/#\s*Covers:/i.test(gherkin)) issues.push(`BDD ${index + 1} is missing # Covers traceability comments.`);
+  });
+  return { passed: issues.length === 0, issues };
 }
 
 function requiredSuiteShape() {
