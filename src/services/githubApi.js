@@ -32,7 +32,7 @@ export function repoApi(path) {
 
 export async function getRepoFile(path, branch = portalConfig.branch) {
   const cleanPath = String(path || '').replace(/^\/+/, '');
-  return await githubFetch(repoApi(`/contents/${encodeURIComponentPath(cleanPath)}?ref=${encodeURIComponent(branch)}`));
+  return await githubFetch(repoContentsApi(cleanPath, branch));
 }
 
 export async function putRepoFile({ path, contentBase64, message, branch = portalConfig.branch, sha }) {
@@ -49,6 +49,15 @@ export async function putRepoFile({ path, contentBase64, message, branch = porta
 }
 
 export async function upsertRepoFile({ path, contentBase64, message, branch = portalConfig.branch }) {
+  try {
+    return await putRepoFile({ path, contentBase64, message, branch });
+  } catch (error) {
+    const messageText = String(error?.message || '');
+    if (!/GitHub (409|422)/.test(messageText)) {
+      throw error;
+    }
+  }
+
   let sha;
   try {
     const current = await getRepoFile(path, branch);
@@ -58,12 +67,13 @@ export async function upsertRepoFile({ path, contentBase64, message, branch = po
       throw error;
     }
   }
+
   return await putRepoFile({ path, contentBase64, message, branch, sha });
 }
 
 export async function listRepoContents(path, branch = portalConfig.branch) {
   const cleanPath = String(path || '').replace(/^\/+/, '');
-  const data = await githubFetch(repoApi(`/contents/${encodeURIComponentPath(cleanPath)}?ref=${encodeURIComponent(branch)}`));
+  const data = await githubFetch(repoContentsApi(cleanPath, branch));
   return Array.isArray(data) ? data : [];
 }
 
@@ -71,6 +81,16 @@ export async function dispatchWorkflow(inputs, branch = portalConfig.branch) {
   return await githubFetch(repoApi(`/actions/workflows/${encodeURIComponent(portalConfig.ciWorkflow)}/dispatches`), {
     method: 'POST',
     body: JSON.stringify({ ref: branch, inputs }),
+  });
+}
+
+export async function dispatchRepositoryEvent(eventType, clientPayload) {
+  return await githubFetch(repoApi('/dispatches'), {
+    method: 'POST',
+    body: JSON.stringify({
+      event_type: eventType,
+      client_payload: clientPayload,
+    }),
   });
 }
 
@@ -83,4 +103,8 @@ function encodeURIComponentPath(path) {
     .split('/')
     .map((part) => encodeURIComponent(part))
     .join('/');
+}
+
+function repoContentsApi(path, branch) {
+  return repoApi(`/contents/${encodeURIComponentPath(path)}?ref=${encodeURIComponent(branch)}`);
 }

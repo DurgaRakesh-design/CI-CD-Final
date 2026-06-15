@@ -270,7 +270,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4 h-[620px] overflow-hidden flex flex-col">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Requirement Tree</h3>
-          <div className="flex-1 min-h-0 space-y-2">
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
             <TreeGroup
               label="BRD"
               count={documents.filter((d) => d.type === 'BRD').length}
@@ -295,7 +295,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
               </TreeGroup>
             )}
           </div>
-          <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+          <div className="mt-3 pt-3 border-t border-border/60 space-y-2 text-xs text-muted-foreground shrink-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5" />
@@ -418,7 +418,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             {selectedUnlinkedGaps ? (
               <div className="space-y-2">
                 {gapModel.unlinkedGaps.slice(0, 3).map((gap) => (
-                  <div key={gap.uiId} className={`p-3 rounded-xl border ${severityBadge(gap.severity)}`}>
+                  <div key={gap.uiId} className={`p-3 rounded-xl border break-words ${severityBadge(gap.severity)}`}>
                     <p className="text-sm font-semibold">{gap.title}</p>
                     <p className="text-xs mt-1 max-h-12 overflow-hidden">{gap.description}</p>
                   </div>
@@ -428,7 +428,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             ) : selectedGaps.length > 0 ? (
               <div className="space-y-2">
                 {selectedGaps.slice(0, 3).map((gap, i) => (
-                  <div key={i} className={`p-3 rounded-xl border ${severityBadge(gap.severity)}`}>
+                  <div key={i} className={`p-3 rounded-xl border break-words ${severityBadge(gap.severity)}`}>
                     <div className="flex items-start gap-2">
                       <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
                       <div>
