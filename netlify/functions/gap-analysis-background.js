@@ -158,7 +158,7 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
         "For each capability classify coverageStatus as covered, partial, missing_brd, missing_bdd, unsupported_document_claim, weak_traceability, or not_applicable.",
         "Flag BDD quality gaps when scenarios are too generic, lack concrete validations, omit negative/security/boundary cases evidenced by code, or cannot be traced to source methods/endpoints.",
         "Flag BRD quality gaps when source capabilities are omitted, requirements are unsupported by source, risks are missing, or evidence anchors are vague.",
-        "Flag automation/test gaps if source has no tests or BDDs claim coverage without evidence.",
+        "Automation/test audit rule: do not create a high-severity finding merely because the uploaded source repository has no automated tests or no BDD files. In this product flow, generated/uploaded BDD documents may intentionally live outside the source ZIP and are valid requirements artifacts. Only create an automation/test finding when reviewed documents explicitly claim executable automation, CI test coverage, or implemented BDD tests that the source/package evidence does not support. Otherwise report source test absence as a quality note or low-priority recommendation, not as a blocking BRD/BDD traceability gap.",
         "For every high/medium finding, provide recommendedFix that can drive BRD/BDD regeneration or manual document correction.",
       ],
       requiredOutputShape: traceabilityAuditOutputShape(),
