@@ -91,6 +91,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   );
   const totalDocPages = Math.max(1, Math.ceil(orderedDocuments.length / DOCUMENT_PAGE_SIZE));
   const pagedDocuments = orderedDocuments.slice((docPage - 1) * DOCUMENT_PAGE_SIZE, docPage * DOCUMENT_PAGE_SIZE);
+  const isLastDocPage = docPage >= totalDocPages;
 
   useEffect(() => {
     setDocPage((page) => Math.min(page, totalDocPages));
@@ -321,7 +322,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             >
               {pagedDocuments.filter((doc) => doc.type === 'BDD').map((doc) => renderTreeItem(doc, gapModel.docGapMap.get(doc.id) || [], selectedDoc?.id === doc.id, () => { setSelectedId(doc.id); setIsEditing(false); }))}
             </TreeGroup>
-            {gapModel.unlinkedGaps.length > 0 && (
+            {gapModel.unlinkedGaps.length > 0 && isLastDocPage && (
               <TreeGroup
                 label="Unlinked Gaps"
                 count={gapModel.unlinkedGaps.length}
