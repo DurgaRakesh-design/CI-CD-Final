@@ -1,4 +1,4 @@
-import { githubRepoApi, portalConfig } from '@/config/portalConfig';
+import { githubRepoApi, githubUploadApi, portalConfig } from '@/config/portalConfig';
 
 async function parseResponse(response) {
   const text = await response.text();
@@ -115,6 +115,32 @@ export async function dispatchRepositoryEvent(eventType, clientPayload) {
 
 export async function listWorkflowRuns(limit = 20) {
   return await githubFetch(repoApi(`/actions/runs?per_page=${limit}`));
+}
+
+export async function createUploadRelease({ tagName, name, branch = portalConfig.branch }) {
+  return await githubFetch(repoApi('/releases'), {
+    method: 'POST',
+    body: JSON.stringify({
+      tag_name: tagName,
+      target_commitish: branch,
+      name,
+      draft: false,
+      prerelease: true,
+    }),
+  });
+}
+
+export async function uploadReleaseAsset({ releaseId, name, file, contentType = 'application/zip' }) {
+  if (!releaseId) throw new Error('GitHub release id is missing for large package upload.');
+  if (!name) throw new Error('GitHub release asset name is missing for large package upload.');
+  if (!file) throw new Error('GitHub release asset file is missing.');
+  return await githubFetch(`${githubUploadApi}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': contentType,
+    },
+    body: await file.arrayBuffer(),
+  });
 }
 
 function encodeURIComponentPath(path) {

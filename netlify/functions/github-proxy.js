@@ -1,4 +1,5 @@
 const API_HOST = "api.github.com";
+const UPLOAD_HOST = "uploads.github.com";
 const API_VERSION = "2022-11-28";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -53,8 +54,8 @@ export const handler = async (event) => {
       return json(400, { message: `Invalid target URL: ${error.message}` });
     }
 
-    if (target.protocol !== "https:" || target.hostname !== API_HOST) {
-      return json(400, { message: "Only https://api.github.com targets are allowed." });
+    if (target.protocol !== "https:" || ![API_HOST, UPLOAD_HOST].includes(target.hostname)) {
+      return json(400, { message: "Only GitHub API targets are allowed." });
     }
 
     const owner = String(process.env.GITHUB_OWNER || "").trim();

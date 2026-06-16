@@ -1,7 +1,9 @@
 import { portalConfig } from '@/config/portalConfig';
-import { dispatchRepositoryEvent, listRepoContents, upsertRepoFile } from '@/services/githubApi';
-import { fileToBase64, safeFileName, toBase64, uniquePortalRunId } from '@/services/encoding';
+import { createUploadRelease, dispatchRepositoryEvent, listRepoContents, uploadReleaseAsset, upsertRepoFile } from '@/services/githubApi';
+import { fileToBase64, safeFileName, slugSafeId, toBase64, uniquePortalRunId } from '@/services/encoding';
 import { buildBddUploadFiles, buildBrdUploadFile } from '@/services/documentService';
+
+const LARGE_PACKAGE_RELEASE_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 export async function listUploadedPackages() {
   const items = await listRepoContents(portalConfig.uploadDir, portalConfig.branch);
@@ -26,6 +28,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   const packagePath = packageFile
     ? `${portalConfig.uploadDir}/${packageName}`
     : selectedPackage?.path || `${portalConfig.uploadDir}/${packageName}`;
+  const useReleasePackageUpload = Boolean(packageFile && packageFile.size > LARGE_PACKAGE_RELEASE_THRESHOLD_BYTES);
   const requirementRoot = `${portalConfig.requirementDir}/${runId}`;
   const artifactMeta = {
     triggeredBy: 'react-portal',
@@ -42,7 +45,10 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       requirementSource: metadata.requirementSource || 'generated',
     },
   };
-  const packageContentBase64 = packageFile ? await fileToBase64(packageFile) : '';
+  const packageContentBase64 = packageFile && !useReleasePackageUpload ? await fileToBase64(packageFile) : '';
+  const releaseUpload = useReleasePackageUpload
+    ? await uploadLargePackageToRelease({ packageFile, packageName, runId })
+    : null;
 
   const brdFile = buildBrdUploadFile(documents);
   const brdPath = brdFile?.content ? `${requirementRoot}/brd/${safeFileName(brdFile.name, 'brd.md')}` : '';
@@ -86,7 +92,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   const manifestPath = `${requirementRoot}/manifest.json`;
 
   const uploads = [];
-  if (packageFile) {
+  if (packageFile && !useReleasePackageUpload) {
     uploads.push({
       label: 'source package',
       path: packagePath,
@@ -160,6 +166,8 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       bddFilePath: bddPaths.join(';'),
       gapAnalysisFileName: gapAnalysisFile?.name || '',
       gapAnalysisFilePath: gapAnalysisPath,
+      releaseId: releaseUpload?.releaseId || '',
+      releaseAssetName: releaseUpload?.assetName || '',
       platform: artifactMeta.metadata.platform,
       environment: artifactMeta.metadata.environment,
       version: artifactMeta.metadata.version,
@@ -167,7 +175,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       requirement_source: artifactMeta.metadata.requirementSource,
       branch: portalConfig.branch,
       env: artifactMeta.metadata.environment,
-      uploadMethod: packageFile ? 'contents' : 'existing',
+      uploadMethod: releaseUpload ? 'release' : packageFile ? 'contents' : 'existing',
     })),
   };
 
@@ -177,6 +185,38 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     throw new Error(`Uploaded artifacts, but failed to dispatch GitHub Actions: ${error.message}`);
   }
   return { runId, packagePath, brdPath, bddPaths, gapAnalysisPath, manifestPath, inputs: payload, manifest };
+}
+
+async function uploadLargePackageToRelease({ packageFile, packageName, runId }) {
+  const releaseTag = `portal-upload-${slugSafeId(runId)}`;
+  const releaseName = `Portal upload ${runId}`;
+  let release;
+  try {
+    release = await createUploadRelease({
+      tagName: releaseTag,
+      name: releaseName,
+      branch: portalConfig.branch,
+    });
+  } catch (error) {
+    throw new Error(`Unable to create large package release for ${packageName}: ${error.message}`);
+  }
+
+  try {
+    await uploadReleaseAsset({
+      releaseId: release.id,
+      name: packageName,
+      file: packageFile,
+      contentType: packageFile.type || 'application/zip',
+    });
+  } catch (error) {
+    throw new Error(`Unable to upload large package release asset ${packageName}: ${error.message}`);
+  }
+
+  return {
+    releaseId: String(release.id || ''),
+    assetName: packageName,
+    tagName: releaseTag,
+  };
 }
 
 function buildGapAnalysisUploadFile(gapResults, context = {}) {

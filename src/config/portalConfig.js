@@ -9,3 +9,4 @@ export const portalConfig = {
 };
 
 export const githubRepoApi = `https://api.github.com/repos/${portalConfig.owner}/${portalConfig.repo}`;
+export const githubUploadApi = `https://uploads.github.com/repos/${portalConfig.owner}/${portalConfig.repo}`;

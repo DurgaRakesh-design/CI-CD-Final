@@ -37,6 +37,14 @@ export function uniquePortalRunId(packageName) {
   return `${base}-${stamp}`;
 }
 
+export function slugSafeId(value, fallback = 'upload') {
+  return String(value || fallback)
+    .replace(/[^\w.\-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || fallback;
+}
+
 async function extractDocxText(file) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const documentXml = await zip.file('word/document.xml')?.async('string');
