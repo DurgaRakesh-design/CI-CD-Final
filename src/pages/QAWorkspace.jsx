@@ -78,7 +78,7 @@ export default function QAWorkspace() {
       case 5:
         return <ApprovalStep documents={documents} setDocuments={setDocuments} onNext={internalGoNext} onBack={internalGoBack} onData={updateData} onReset={resetWorkspace} />;
       case 6:
-        return <PipelineTriggerStep workspaceData={workspaceData} documents={documents} onBack={internalGoBack} onReset={resetWorkspace} />;
+        return <PipelineTriggerStep workspaceData={workspaceData} documents={documents} gapResults={gapResults} onBack={internalGoBack} onReset={resetWorkspace} />;
       default:
         return null;
     }

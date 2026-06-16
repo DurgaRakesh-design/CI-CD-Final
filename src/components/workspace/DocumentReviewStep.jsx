@@ -24,6 +24,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   const [error, setError] = useState('');
   const [regenLoading, setRegenLoading] = useState(false);
   const [docPage, setDocPage] = useState(1);
+  const [gapPage, setGapPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +80,11 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   );
   const allBddApproved = documents.filter((doc) => doc.type === 'BDD').every((doc) => doc.approved);
   const selectedGaps = selectedDoc ? gapModel.docGapMap.get(selectedDoc.id) || [] : [];
+  const visibleGaps = selectedUnlinkedGaps ? gapModel.unlinkedGaps : selectedGaps;
+  const totalGapPages = Math.max(1, visibleGaps.length);
+  const activeGap = visibleGaps[Math.min(gapPage - 1, totalGapPages - 1)];
   const hasGapAnalysis = Array.isArray(gapResults?.findings);
+  const documentSourceLabel = workspaceData.requirement_source === 'uploaded' ? 'Manual upload' : 'AI generated';
   const orderedDocuments = useMemo(
     () => [...documents.filter((doc) => doc.type === 'BRD'), ...documents.filter((doc) => doc.type === 'BDD')],
     [documents]
@@ -90,6 +95,14 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   useEffect(() => {
     setDocPage((page) => Math.min(page, totalDocPages));
   }, [totalDocPages]);
+
+  useEffect(() => {
+    setGapPage(1);
+  }, [selectedId]);
+
+  useEffect(() => {
+    setGapPage((page) => Math.min(page, totalGapPages));
+  }, [totalGapPages]);
 
   const updateDoc = (docId, patch) => {
     setDocuments(prev => prev.map(doc => doc.id === docId ? { ...doc, ...patch, lastEdited: new Date().toISOString() } : doc));
@@ -322,7 +335,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5" />
-                <span>AI generated</span>
+                <span>{documentSourceLabel}</span>
               </div>
               <span>{orderedDocuments.length} docs</span>
             </div>
@@ -429,39 +442,32 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             <div className={`p-3 rounded-lg text-xs border ${allBddApproved ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
               {allBddApproved ? 'Pipeline gate is ready. Approved BDD files can be sent to CI.' : 'Pipeline stays locked until all BDD documents are approved.'}
             </div>
-            {gapModel.unlinkedGaps.length > 0 && (
-              <div className="p-3 rounded-lg text-xs border bg-violet-50 border-violet-100 text-violet-700">
-                {gapModel.unlinkedGaps.length} unlinked gap{gapModel.unlinkedGaps.length === 1 ? '' : 's'} need BDD coverage. You can go back and update documents manually, or generate BDD coverage for all unlinked findings at once.
-              </div>
-            )}
           </div>
 
           <div className="bg-white rounded-xl border border-border p-4 space-y-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Detected Gaps</h3>
-            {selectedUnlinkedGaps ? (
-              <div className="space-y-2">
-                {gapModel.unlinkedGaps.slice(0, 3).map((gap) => (
-                  <div key={gap.uiId} className={`p-3 rounded-xl border break-words ${severityBadge(gap.severity)}`}>
-                    <p className="text-sm font-semibold">{gap.title}</p>
-                    <p className="text-xs mt-1 max-h-12 overflow-hidden">{gap.description}</p>
-                  </div>
-                ))}
-                {gapModel.unlinkedGaps.length > 3 && <p className="text-xs text-muted-foreground">+{gapModel.unlinkedGaps.length - 3} more unlinked findings</p>}
-              </div>
-            ) : selectedGaps.length > 0 ? (
-              <div className="space-y-2">
-                {selectedGaps.slice(0, 3).map((gap, i) => (
-                  <div key={i} className={`p-3 rounded-xl border break-words ${severityBadge(gap.severity)}`}>
-                    <div className="flex items-start gap-2">
-                      <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-sm font-semibold">{gap.title}</p>
-                        <p className="text-xs mt-1 max-h-12 overflow-hidden opacity-90">{gap.description}</p>
-                      </div>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Detected Gaps</h3>
+              {visibleGaps.length > 1 && (
+                <span className="text-[11px] text-muted-foreground">Finding {Math.min(gapPage, totalGapPages)} of {totalGapPages}</span>
+              )}
+            </div>
+            {activeGap ? (
+              <div className="space-y-3">
+                <div className={`p-3 rounded-xl border break-words ${severityBadge(activeGap.severity)}`}>
+                  <div className="flex items-start gap-2">
+                    <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{activeGap.title}</p>
+                      <p className="text-xs mt-1 leading-relaxed opacity-90">{activeGap.description}</p>
+                      {activeGap.recommendedFix && (
+                        <p className="text-xs mt-2 font-medium opacity-90">Fix: {activeGap.recommendedFix}</p>
+                      )}
                     </div>
                   </div>
-                ))}
-                {selectedGaps.length > 3 && <p className="text-xs text-muted-foreground">+{selectedGaps.length - 3} more findings on this document</p>}
+                </div>
+                {visibleGaps.length > 1 && (
+                  <GapPager page={gapPage} totalPages={totalGapPages} onPageChange={setGapPage} />
+                )}
               </div>
             ) : (
               <div className="p-3 rounded-xl border bg-blue-50 border-blue-100 text-blue-700 text-xs">
@@ -668,6 +674,21 @@ function gapKey(gap) {
     gap?.relatedDocumentId,
     gap?.actionType,
   ].map((value) => String(value || '').trim().toLowerCase()).join('|');
+}
+
+function GapPager({ page, totalPages, onPageChange }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}>
+        <ChevronLeft className="w-3.5 h-3.5 mr-1" />
+        Prev
+      </Button>
+      <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => onPageChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}>
+        Next
+        <ChevronRight className="w-3.5 h-3.5 ml-1" />
+      </Button>
+    </div>
+  );
 }
 
 function isCoveredGap(gap) {

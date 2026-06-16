@@ -16,7 +16,7 @@ export async function listUploadedPackages() {
     }));
 }
 
-export async function uploadWorkspaceInputs({ packageFile, selectedPackage, documents, metadata = {} }) {
+export async function uploadWorkspaceInputs({ packageFile, selectedPackage, documents, gapResults, metadata = {} }) {
   if (!packageFile && !selectedPackage?.name) {
     throw new Error('Select or upload a package before triggering the pipeline.');
   }
@@ -47,6 +47,11 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   const brdFile = buildBrdUploadFile(documents);
   const brdPath = brdFile?.content ? `${requirementRoot}/brd/${safeFileName(brdFile.name, 'brd.md')}` : '';
   const brdContentBase64 = brdFile?.content ? toBase64(brdFile.content) : '';
+  const gapAnalysisFile = buildGapAnalysisUploadFile(gapResults, { packageName, runId, requirementRoot });
+  const gapAnalysisPath = gapAnalysisFile?.content
+    ? `${requirementRoot}/gap-analysis/${safeFileName(gapAnalysisFile.name, 'gap-analysis-report.md')}`
+    : '';
+  const gapAnalysisContentBase64 = gapAnalysisFile?.content ? toBase64(gapAnalysisFile.content) : '';
 
   const bddFiles = buildBddUploadFiles(documents).filter((item) => item.content?.trim());
   if (!bddFiles.length) {
@@ -71,6 +76,12 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       name: bddFiles[index]?.name || `bdd-${index + 1}.feature`,
       path,
     })),
+    gapAnalysis: gapAnalysisFile ? {
+      name: gapAnalysisFile.name,
+      path: gapAnalysisPath,
+      openFindings: gapAnalysisFile.openFindings,
+      coveredFindings: gapAnalysisFile.coveredFindings,
+    } : null,
   };
   const manifestPath = `${requirementRoot}/manifest.json`;
 
@@ -105,6 +116,15 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     });
   });
 
+  if (gapAnalysisFile?.content) {
+    uploads.push({
+      path: gapAnalysisPath,
+      contentBase64: gapAnalysisContentBase64,
+      message: `chore: upload gap analysis for ${runId}`,
+      branch: portalConfig.branch,
+    });
+  }
+
   uploads.push({
     path: manifestPath,
     contentBase64: toBase64(JSON.stringify(manifest, null, 2)),
@@ -129,6 +149,8 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       brdFilePath: brdPath,
       bddFileName: bddFiles.map((bdd) => bdd.name).join(';'),
       bddFilePath: bddPaths.join(';'),
+      gapAnalysisFileName: gapAnalysisFile?.name || '',
+      gapAnalysisFilePath: gapAnalysisPath,
       platform: artifactMeta.metadata.platform,
       environment: artifactMeta.metadata.environment,
       version: artifactMeta.metadata.version,
@@ -141,5 +163,89 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   };
 
   await dispatchRepositoryEvent('portal-upload', payload);
-  return { runId, packagePath, brdPath, bddPaths, manifestPath, inputs: payload, manifest };
+  return { runId, packagePath, brdPath, bddPaths, gapAnalysisPath, manifestPath, inputs: payload, manifest };
+}
+
+function buildGapAnalysisUploadFile(gapResults, context = {}) {
+  if (!gapResults || gapResults.skipped || !Array.isArray(gapResults.findings)) return null;
+  const openFindings = gapResults.findings.filter((gap) => !isCoveredGap(gap));
+  const coveredFindings = gapResults.findings.filter(isCoveredGap);
+  const summary = gapResults.summary || {};
+  const lines = [
+    '# Gap Analysis Report',
+    '',
+    `Package: ${context.packageName || 'Selected package'}`,
+    `Run ID: ${context.runId || 'Not assigned'}`,
+    `Requirement Root: ${context.requirementRoot || 'Not assigned'}`,
+    `Generated: ${formatTimestamp(gapResults.generatedAt || gapResults.updatedAt)}`,
+    `Analysis Source: ${gapResults.analysisSource || 'gap_analysis'}`,
+    '',
+    '## Summary',
+    '',
+    `- Readiness: ${summary.readiness || 'Needs Review'}`,
+    `- High: ${summary.high ?? openFindings.filter((gap) => gap.severity === 'high').length}`,
+    `- Medium: ${summary.medium ?? openFindings.filter((gap) => gap.severity === 'medium').length}`,
+    `- Low: ${summary.low ?? openFindings.filter((gap) => gap.severity === 'low').length}`,
+    `- Open Findings: ${openFindings.length}`,
+    `- Covered Findings: ${coveredFindings.length}`,
+    '',
+    '## Open Findings',
+    '',
+    ...(openFindings.length ? openFindings.flatMap((gap, index) => formatGapMarkdown(gap, index)) : ['No open findings.', '']),
+    '## Covered Findings',
+    '',
+    ...(coveredFindings.length ? coveredFindings.flatMap((gap, index) => [
+      `${index + 1}. ${gap.gapId ? `${gap.gapId}: ` : ''}${gap.title || 'Covered finding'}`,
+      `   Status: ${gap.status || gap.coverageStatus || 'covered'}`,
+      `   Covered At: ${formatTimestamp(gap.coveredAt)}`,
+      `   Resolution: ${gap.resolutionNote || 'Document updated from this finding.'}`,
+      '',
+    ]) : ['No covered findings.', '']),
+    '## Recommendations',
+    '',
+    ...(gapResults.recommendations || []).map((item) => `- ${item}`),
+    '',
+    '## Quality Notes',
+    '',
+    ...(gapResults.qualityNotes || []).map((item) => `- ${item}`),
+    '',
+  ];
+  return {
+    name: 'gap-analysis-report.md',
+    content: lines.join('\n'),
+    openFindings: openFindings.length,
+    coveredFindings: coveredFindings.length,
+  };
+}
+
+function formatGapMarkdown(gap, index) {
+  return [
+    `${index + 1}. ${gap.gapId ? `${gap.gapId}: ` : ''}${gap.title || 'Coverage finding'}`,
+    `   Gap Type: ${gap.gapType || 'Not specified'}`,
+    `   Severity: ${gap.severity || 'medium'}`,
+    `   Confidence: ${gap.confidence || 'Not specified'}`,
+    `   Module: ${gap.module || 'Application'}`,
+    `   Related Document: ${gap.relatedDocument || gap.relatedDocumentId || 'Unlinked'}`,
+    ...(Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length ? [`   Source Evidence: ${gap.sourceEvidence.join(' | ')}`] : []),
+    ...(Array.isArray(gap.documentEvidence) && gap.documentEvidence.length ? [`   Document Evidence: ${gap.documentEvidence.join(' | ')}`] : []),
+    ...(Array.isArray(gap.evidenceAnchors) && gap.evidenceAnchors.length ? [`   Evidence Anchors: ${gap.evidenceAnchors.join(' | ')}`] : []),
+    ...(Array.isArray(gap.missingScenarios) && gap.missingScenarios.length ? [`   Missing Scenarios: ${gap.missingScenarios.join(' | ')}`] : []),
+    `   Description: ${gap.description || ''}`,
+    `   Recommended Fix: ${gap.recommendedFix || ''}`,
+    '',
+  ];
+}
+
+function isCoveredGap(gap) {
+  const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
+  return status === 'covered' || status.includes('covered_after_regeneration');
+}
+
+function formatTimestamp(value) {
+  if (!value) return new Date().toISOString();
+  try {
+    return new Date(value).toISOString();
+  } catch (_) {
+    return String(value);
+  }
 }

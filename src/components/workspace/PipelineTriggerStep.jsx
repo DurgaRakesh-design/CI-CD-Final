@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Check, Loader2, Package, FileText, Fingerprint, ArrowRight, ArrowLeft, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Play, Check, Loader2, Package, FileText, Fingerprint, ArrowRight, ArrowLeft, AlertTriangle, ExternalLink, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
@@ -12,10 +12,11 @@ const stages = [
   { name: 'Upload package', key: 'package' },
   { name: 'Upload BRD', key: 'brd' },
   { name: 'Upload BDD features', key: 'bdd' },
+  { name: 'Upload gap analysis', key: 'gap-analysis' },
   { name: 'Dispatch GitHub Actions', key: 'dispatch' },
 ];
 
-export default function PipelineTriggerStep({ workspaceData, documents, onBack, onReset }) {
+export default function PipelineTriggerStep({ workspaceData, documents, gapResults, onBack, onReset }) {
   const navigate = useNavigate();
   const [triggering, setTriggering] = useState(false);
   const [result, setResult] = useState(null);
@@ -25,6 +26,9 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
   const brdCount = documents.filter(doc => doc.type === 'BRD').length;
   const bddNames = documents.filter((doc) => doc.type === 'BDD').map((doc) => doc.title);
   const brdNames = documents.filter((doc) => doc.type === 'BRD').map((doc) => doc.title);
+  const hasGapReport = Array.isArray(gapResults?.findings) && !gapResults?.skipped;
+  const openGapCount = hasGapReport ? gapResults.findings.filter((gap) => !isCoveredGap(gap)).length : 0;
+  const visibleStages = hasGapReport ? stages : stages.filter((stage) => stage.key !== 'gap-analysis');
 
   const triggerPipeline = async () => {
     setTriggering(true);
@@ -35,6 +39,7 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
         packageFile: workspaceData.package_file,
         selectedPackage: workspaceData.selected_package,
         documents,
+        gapResults,
         metadata: {
           platform: workspaceData.platform,
           version: workspaceData.version,
@@ -62,16 +67,18 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
         <InputRow icon={Package} label="Java Package" value={workspaceData.package_name || 'Selected package'} />
         <InputRow icon={FileText} label="BRD" value={`${brdCount} document${brdCount === 1 ? '' : 's'}`} />
         <InputRow icon={FileText} label="BDD Features" value={`${bddCount} feature file${bddCount === 1 ? '' : 's'}`} />
+        <InputRow icon={BarChart3} label="Gap Analysis" value={hasGapReport ? `1 report · ${openGapCount} open finding${openGapCount === 1 ? '' : 's'}` : 'Not generated'} />
         <InputRow icon={Fingerprint} label="Target Repository" value={`${portalConfig.owner}/${portalConfig.repo} · ${portalConfig.branch}`} />
         <div className="grid gap-2 pt-2">
           {brdNames.length > 0 && <DetailList label="BRD artifacts" items={brdNames} />}
           {bddNames.length > 0 && <DetailList label="BDD feature artifacts" items={bddNames} />}
+          {hasGapReport && <DetailList label="Gap analysis artifact" items={[`gap-analysis-report.md · ${openGapCount} open finding${openGapCount === 1 ? '' : 's'}`]} />}
         </div>
       </div>
 
       {triggering && (
         <div className="space-y-3">
-          {stages.map((stage) => (
+          {visibleStages.map((stage) => (
             <div key={stage.key} className="flex items-center gap-3 p-3 rounded-xl border bg-primary/5 border-primary/20">
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
               <span className="text-sm font-medium">{stage.name}</span>
@@ -99,6 +106,7 @@ export default function PipelineTriggerStep({ workspaceData, documents, onBack, 
             <p><strong>Package:</strong> {result.packagePath}</p>
             {result.brdPath && <p><strong>BRD:</strong> {result.brdPath}</p>}
             <p><strong>BDD:</strong> {result.bddPaths.join('; ')}</p>
+            {result.gapAnalysisPath && <p><strong>Gap Analysis:</strong> {result.gapAnalysisPath}</p>}
             {result.manifestPath && <p><strong>Manifest:</strong> {result.manifestPath}</p>}
           </div>
         </motion.div>
@@ -143,6 +151,11 @@ function InputRow({ icon: Icon, label, value }) {
       <Badge variant="secondary" className="font-mono text-xs truncate">{value}</Badge>
     </div>
   );
+}
+
+function isCoveredGap(gap) {
+  const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
+  return status === 'covered' || status.includes('covered_after_regeneration');
 }
 
 function DetailList({ label, items }) {
