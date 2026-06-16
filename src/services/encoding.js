@@ -10,9 +10,17 @@ export function toBase64(text) {
 }
 
 export async function fileToBase64(file) {
-  const buffer = await file.arrayBuffer();
+  return blobToBase64(file);
+}
+
+export async function blobToBase64(blob) {
+  const buffer = await blob.arrayBuffer();
+  return bytesToBase64(new Uint8Array(buffer));
+}
+
+function bytesToBase64(bytes) {
   let binary = '';
-  new Uint8Array(buffer).forEach((byte) => {
+  bytes.forEach((byte) => {
     binary += String.fromCharCode(byte);
   });
   return btoa(binary);

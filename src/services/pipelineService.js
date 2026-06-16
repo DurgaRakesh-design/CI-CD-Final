@@ -1,9 +1,10 @@
 import { portalConfig } from '@/config/portalConfig';
-import { createUploadRelease, dispatchRepositoryEvent, listRepoContents, uploadReleaseAsset, upsertRepoFile } from '@/services/githubApi';
-import { fileToBase64, safeFileName, slugSafeId, toBase64, uniquePortalRunId } from '@/services/encoding';
+import { dispatchRepositoryEvent, listRepoContents, upsertRepoFile } from '@/services/githubApi';
+import { blobToBase64, fileToBase64, safeFileName, toBase64, uniquePortalRunId } from '@/services/encoding';
 import { buildBddUploadFiles, buildBrdUploadFile } from '@/services/documentService';
 
-const LARGE_PACKAGE_RELEASE_THRESHOLD_BYTES = 20 * 1024 * 1024;
+const LARGE_PACKAGE_CHUNK_THRESHOLD_BYTES = 8 * 1024 * 1024;
+const LARGE_PACKAGE_CHUNK_BYTES = 768 * 1024;
 
 export async function listUploadedPackages() {
   const items = await listRepoContents(portalConfig.uploadDir, portalConfig.branch);
@@ -28,7 +29,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   const packagePath = packageFile
     ? `${portalConfig.uploadDir}/${packageName}`
     : selectedPackage?.path || `${portalConfig.uploadDir}/${packageName}`;
-  const useReleasePackageUpload = Boolean(packageFile && packageFile.size > LARGE_PACKAGE_RELEASE_THRESHOLD_BYTES);
+  const useChunkedPackageUpload = Boolean(packageFile && packageFile.size > LARGE_PACKAGE_CHUNK_THRESHOLD_BYTES);
   const requirementRoot = `${portalConfig.requirementDir}/${runId}`;
   const artifactMeta = {
     triggeredBy: 'react-portal',
@@ -45,9 +46,9 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       requirementSource: metadata.requirementSource || 'generated',
     },
   };
-  const packageContentBase64 = packageFile && !useReleasePackageUpload ? await fileToBase64(packageFile) : '';
-  const releaseUpload = useReleasePackageUpload
-    ? await uploadLargePackageToRelease({ packageFile, packageName, runId })
+  const packageContentBase64 = packageFile && !useChunkedPackageUpload ? await fileToBase64(packageFile) : '';
+  const chunkedUpload = useChunkedPackageUpload
+    ? await uploadLargePackageChunks({ packageFile, packageName, runId })
     : null;
 
   const brdFile = buildBrdUploadFile(documents);
@@ -92,7 +93,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   const manifestPath = `${requirementRoot}/manifest.json`;
 
   const uploads = [];
-  if (packageFile && !useReleasePackageUpload) {
+  if (packageFile && !useChunkedPackageUpload) {
     uploads.push({
       label: 'source package',
       path: packagePath,
@@ -166,8 +167,9 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       bddFilePath: bddPaths.join(';'),
       gapAnalysisFileName: gapAnalysisFile?.name || '',
       gapAnalysisFilePath: gapAnalysisPath,
-      releaseId: releaseUpload?.releaseId || '',
-      releaseAssetName: releaseUpload?.assetName || '',
+      chunkRoot: chunkedUpload?.chunkRoot || '',
+      chunkCount: chunkedUpload?.chunkCount || '',
+      chunkSize: chunkedUpload?.chunkSize || '',
       platform: artifactMeta.metadata.platform,
       environment: artifactMeta.metadata.environment,
       version: artifactMeta.metadata.version,
@@ -175,7 +177,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
       requirement_source: artifactMeta.metadata.requirementSource,
       branch: portalConfig.branch,
       env: artifactMeta.metadata.environment,
-      uploadMethod: releaseUpload ? 'release' : packageFile ? 'contents' : 'existing',
+      uploadMethod: chunkedUpload ? 'chunks' : packageFile ? 'contents' : 'existing',
     })),
   };
 
@@ -187,35 +189,32 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   return { runId, packagePath, brdPath, bddPaths, gapAnalysisPath, manifestPath, inputs: payload, manifest };
 }
 
-async function uploadLargePackageToRelease({ packageFile, packageName, runId }) {
-  const releaseTag = `portal-upload-${slugSafeId(runId)}`;
-  const releaseName = `Portal upload ${runId}`;
-  let release;
-  try {
-    release = await createUploadRelease({
-      tagName: releaseTag,
-      name: releaseName,
-      branch: portalConfig.branch,
-    });
-  } catch (error) {
-    throw new Error(`Unable to create large package release for ${packageName}: ${error.message}`);
-  }
+async function uploadLargePackageChunks({ packageFile, packageName, runId }) {
+  const chunkRoot = `${portalConfig.uploadDir}/_chunks/${runId}`;
+  const chunkCount = Math.ceil(packageFile.size / LARGE_PACKAGE_CHUNK_BYTES);
 
-  try {
-    await uploadReleaseAsset({
-      releaseId: release.id,
-      name: packageName,
-      file: packageFile,
-      contentType: packageFile.type || 'application/zip',
-    });
-  } catch (error) {
-    throw new Error(`Unable to upload large package release asset ${packageName}: ${error.message}`);
+  for (let index = 0; index < chunkCount; index += 1) {
+    const start = index * LARGE_PACKAGE_CHUNK_BYTES;
+    const end = Math.min(start + LARGE_PACKAGE_CHUNK_BYTES, packageFile.size);
+    const chunk = packageFile.slice(start, end);
+    const chunkPath = `${chunkRoot}/${String(index).padStart(4, '0')}.part`;
+    try {
+      await upsertRepoFile({
+        label: `source package chunk ${index + 1}/${chunkCount}`,
+        path: chunkPath,
+        contentBase64: await blobToBase64(chunk),
+        message: `chore: upload package chunk ${index + 1}/${chunkCount} for ${packageName}`,
+        branch: portalConfig.branch,
+      });
+    } catch (error) {
+      throw new Error(`Unable to upload package chunk ${index + 1}/${chunkCount} (${chunkPath}): ${error.message}`);
+    }
   }
 
   return {
-    releaseId: String(release.id || ''),
-    assetName: packageName,
-    tagName: releaseTag,
+    chunkRoot,
+    chunkCount,
+    chunkSize: LARGE_PACKAGE_CHUNK_BYTES,
   };
 }
 
