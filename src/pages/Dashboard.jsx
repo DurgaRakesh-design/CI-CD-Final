@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
   ArrowRight,
@@ -19,7 +20,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { overview, runs } from '@/data/dashboardData';
+import { loadDashboardSnapshot, loadLocalDashboardSnapshot } from '@/services/dashboardService';
 
 const metricIcons = {
   flask: FlaskConical,
@@ -28,12 +29,6 @@ const metricIcons = {
   bot: Brain,
   shield: ShieldCheck,
 };
-
-const heroMetrics = [
-  { icon: TrendingUp, label: 'Success Rate', value: `${overview.successRate}%` },
-  { icon: AlertCircle, label: 'Active Issues', value: String(overview.activeIssues) },
-  { icon: Clock, label: 'Avg Duration', value: overview.avgDuration },
-];
 
 const RUNS_PER_PAGE = 4;
 
@@ -45,7 +40,7 @@ function StatusPill({ status }) {
   };
   const label = status === 'success' ? 'Success' : status === 'failure' ? 'Failed' : 'Running';
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ${map[status]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ${map[status] || map.running}`}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {label}
     </span>
@@ -103,26 +98,50 @@ function KpiTile({ icon: Icon, label, value, sub, tone }) {
   );
 }
 
-function DashboardPage() {
-  const [selectedId, setSelectedId] = useState(runs[1].runNumber);
+export default function DashboardPage() {
+  const { data: snapshot = loadLocalDashboardSnapshot(), isFetching, refetch } = useQuery({
+    queryKey: ['dashboard-snapshot'],
+    queryFn: loadDashboardSnapshot,
+    initialData: loadLocalDashboardSnapshot(),
+    staleTime: 30_000,
+  });
+
+  const overview = snapshot.overview;
+  const runs = snapshot.runs || [];
+  const repo = snapshot.repo || {};
+
+  const [selectedId, setSelectedId] = useState(() => snapshot.selectedRun?.runNumber || runs[0]?.runNumber || 1);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
-  const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? runs[0];
+  useEffect(() => {
+    if (!runs.length) return;
+    if (!runs.some((run) => run.runNumber === selectedId)) {
+      setSelectedId(snapshot.selectedRun?.runNumber || runs[0].runNumber);
+    }
+  }, [runs, selectedId, snapshot.selectedRun]);
+
+  const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot.selectedRun ?? runs[0] ?? null;
 
   const filtered = useMemo(
     () =>
       runs.filter((run) =>
         !query || `${run.runNumber} ${run.projectName} ${run.branch}`.toLowerCase().includes(query.toLowerCase())
       ),
-    [query]
+    [runs, query]
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / RUNS_PER_PAGE));
   const currentPage = Math.min(page, totalPages);
   const pagedRuns = filtered.slice((currentPage - 1) * RUNS_PER_PAGE, currentPage * RUNS_PER_PAGE);
-  const runPassRate = Math.round((selectedRun.testsPassed / Math.max(selectedRun.testsTotal, 1)) * 100);
-  const selectedBddCoverage = Math.round((selectedRun.bddCovered / Math.max(selectedRun.bddTotal, 1)) * 100);
+  const runPassRate = Math.round((selectedRun?.testsPassed || 0) / Math.max(selectedRun?.testsTotal || 1, 1) * 100);
+  const selectedBddCoverage = Math.round((selectedRun?.bddCovered || 0) / Math.max(selectedRun?.bddTotal || 1, 1) * 100);
+
+  const heroMetrics = [
+    { icon: TrendingUp, label: 'Success Rate', value: `${overview.successRate}%` },
+    { icon: AlertCircle, label: 'Active Issues', value: String(overview.activeIssues) },
+    { icon: Clock, label: 'Avg Duration', value: overview.avgDuration },
+  ];
 
   const handleQueryChange = (event) => {
     setQuery(event.target.value);
@@ -146,7 +165,7 @@ function DashboardPage() {
                   <CheckCircle2 className="h-3 w-3" /> {overview.readinessLabel}
                 </span>
                 <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium">
-                  Production-ready candidate
+                  {repo.owner || 'Repo'}/{repo.name || 'workspace'} · refreshed {repo.updatedAt || 'just now'}
                 </span>
               </div>
             </div>
@@ -161,7 +180,7 @@ function DashboardPage() {
         <section className="mt-6">
           <SectionLabel>Key Metrics</SectionLabel>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {overview.keyMetrics.map((metric) => {
+            {(overview.keyMetrics || []).map((metric) => {
               const Icon = metricIcons[metric.icon] ?? FlaskConical;
               const tone =
                 metric.tone === 'violet'
@@ -186,9 +205,9 @@ function DashboardPage() {
                   <SectionLabel inline>Pipeline Runs</SectionLabel>
                   <p className="mt-1 text-xl font-heading font-bold">{filtered.length} runs</p>
                 </div>
-                <Button variant="outline" size="sm" className="h-9 rounded-xl px-3">
+                <Button variant="outline" size="sm" className="h-9 rounded-xl px-3" onClick={() => refetch()} disabled={isFetching}>
                   <RefreshCw className="mr-2 h-3.5 w-3.5" />
-                  Refresh
+                  {isFetching ? 'Refreshing' : 'Refresh'}
                 </Button>
               </div>
 
@@ -212,7 +231,7 @@ function DashboardPage() {
                   const active = run.runNumber === selectedId;
                   return (
                     <button
-                      key={run.runNumber}
+                      key={`${run.source || 'run'}-${run.runNumber}`}
                       type="button"
                       onClick={() => setSelectedId(run.runNumber)}
                       className={`w-full rounded-xl border bg-card p-4 text-left transition-all hover:shadow-sm ${
@@ -278,17 +297,17 @@ function DashboardPage() {
                 <div>
                   <SectionLabel inline>Selected Pipeline</SectionLabel>
                   <h2 className="mt-1 font-heading text-2xl font-bold leading-tight">
-                    Run #{selectedRun.runNumber} · {selectedRun.projectName}
+                    Run #{selectedRun?.runNumber || '0'} · {selectedRun?.projectName || 'Workspace'}
                   </h2>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
-                      <Clock className="h-3.5 w-3.5" /> Triggered {selectedRun.age}
+                      <Clock className="h-3.5 w-3.5" /> Triggered {selectedRun?.age || 'just now'}
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <GitBranch className="h-3.5 w-3.5" /> {selectedRun.branch}
+                      <GitBranch className="h-3.5 w-3.5" /> {selectedRun?.branch || 'develop'}
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <Play className="h-3.5 w-3.5" /> {selectedRun.trigger}
+                      <Play className="h-3.5 w-3.5" /> {selectedRun?.trigger || 'dispatch'}
                     </span>
                   </div>
                 </div>
@@ -297,7 +316,7 @@ function DashboardPage() {
                     <Download className="mr-2 h-4 w-4" /> Artifacts
                   </Button>
                   <Button asChild className="rounded-xl shadow-[var(--shadow-glow)]">
-                    <Link to={`/summary/${selectedRun.runNumber}`}>
+                    <Link to={`/summary/${selectedRun?.runNumber || 1}`}>
                       <ExternalLink className="mr-2 h-4 w-4" /> Open Summary
                     </Link>
                   </Button>
@@ -308,16 +327,16 @@ function DashboardPage() {
                 <div className="rounded-xl bg-rose-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Run Status</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-rose-700">
-                    {selectedRun.status === 'failure' ? 'Failed' : selectedRun.status === 'success' ? 'Success' : 'Running'}
+                    {selectedRun?.status === 'failure' ? 'Failed' : selectedRun?.status === 'success' ? 'Success' : 'Running'}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">Packaged release status</p>
                 </div>
 
                 <div className="rounded-xl bg-violet-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Executed Tests</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun.testsTotal}</div>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Detected Tests</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun?.testsTotal || 0}</div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedRun.testsPassed} passed · {selectedRun.testsFailed} failed
+                    {selectedRun?.testsPassed || 0} passed · {selectedRun?.testsFailed || 0} failed
                   </p>
                 </div>
 
@@ -325,13 +344,13 @@ function DashboardPage() {
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">BDD Coverage</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-indigo-700">{selectedBddCoverage}%</div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedRun.bddCovered}/{selectedRun.bddTotal} scenarios
+                    {selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0} scenarios
                   </p>
                 </div>
 
                 <div className="rounded-xl bg-amber-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Coverage / AI</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{selectedRun.coverageAi}%</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{selectedRun?.coverageAi || 0}%</div>
                   <p className="mt-1 text-xs text-muted-foreground">{runPassRate}% success rate</p>
                 </div>
               </div>
@@ -339,32 +358,28 @@ function DashboardPage() {
               <div className="mt-5 rounded-2xl border border-border bg-background p-4">
                 <div className="flex items-center justify-between">
                   <SectionLabel inline>Pipeline Stages</SectionLabel>
-                  <Link to={`/summary/${selectedRun.runNumber}`} className="text-sm font-semibold text-primary hover:underline">
+                  <Link to={`/summary/${selectedRun?.runNumber || 1}`} className="text-sm font-semibold text-primary hover:underline">
                     Open full pipeline summary <ArrowRight className="ml-1 inline-block h-4 w-4" />
                   </Link>
                 </div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {[
-                    ['Detect', '0.8s', true],
-                    ['Build', '2m 15s', true],
-                    ['Test', '5m 30s', selectedRun.status !== 'failure'],
-                    ['Analyse', '1m 45s', true],
-                    ['Reports', '0.5s', true],
-                    ['Publish', '0.3s', false],
-                  ].map(([name, duration, success]) => (
-                    <div
-                      key={name}
-                      className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
-                        success ? 'border-emerald-200 bg-emerald-50' : name === 'Test' ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className={`h-4 w-4 ${success ? 'text-emerald-600' : name === 'Test' ? 'text-rose-600' : 'text-slate-500'}`} />
-                        <span className="text-sm font-semibold">{name}</span>
+                  {(snapshot.pipelineJobs || []).map((job) => {
+                    const success = job.status !== 'failure';
+                    return (
+                      <div
+                        key={job.name}
+                        className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
+                          success ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className={`h-4 w-4 ${success ? 'text-emerald-600' : 'text-rose-600'}`} />
+                          <span className="text-sm font-semibold">{job.name}</span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-muted-foreground">{job.duration}</span>
                       </div>
-                      <span className="text-[11px] font-semibold text-muted-foreground">{duration}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -382,7 +397,7 @@ function DashboardPage() {
                     </div>
                   </div>
                   <Button asChild className="rounded-xl">
-                    <Link to={`/summary/${selectedRun.runNumber}`}>
+                    <Link to={`/summary/${selectedRun?.runNumber || 1}`}>
                       View Summary <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
                   </Button>
@@ -395,5 +410,3 @@ function DashboardPage() {
     </div>
   );
 }
-
-export default DashboardPage;

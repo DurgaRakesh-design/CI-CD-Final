@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useNavigate } from 'react-router-dom';
 import { portalConfig } from '@/config/portalConfig';
 import { uploadWorkspaceInputs } from '@/services/pipelineService';
+import { recordPipelineRunSnapshot } from '@/services/dashboardService';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
 const stages = [
@@ -46,6 +47,12 @@ export default function PipelineTriggerStep({ workspaceData, documents, gapResul
           environment: workspaceData.environment || 'dev',
           requirementSource: workspaceData.requirement_source,
         },
+      });
+      recordPipelineRunSnapshot({
+        result: payload,
+        workspaceData,
+        documents,
+        gapResults,
       });
       setResult(payload);
     } catch (err) {
