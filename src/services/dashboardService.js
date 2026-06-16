@@ -134,6 +134,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const remoteHistory = remoteRuns
     .map((run) => normalizeRemoteRun(run, normalizedWorkspace))
     .filter(Boolean);
+  const remoteSelectedRun = remoteHistory[0] || null;
 
   const localHistory = Array.isArray(history) ? history.filter(Boolean) : [];
   const runMap = new Map();
@@ -148,7 +149,9 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
     });
 
   const runs = [...runMap.values()].sort((a, b) => compareRuns(a, b));
-  const selectedRun = localRun || runs[0] || null;
+  const selectedRun = remoteSelectedRun
+    ? mergeRunDetails(remoteSelectedRun, localRun || runs[0] || null)
+    : (localRun || runs[0] || null);
   const statusSummary = buildStatusSummary({
     selectedRun,
     approvedDocs,
@@ -790,24 +793,50 @@ async function loadRemoteWorkflowRuns() {
 }
 
 function readLocalState() {
+  const storedWorkspace = readJsonStorage(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE);
+  const workspaceContainer = storedWorkspace && typeof storedWorkspace === 'object' ? storedWorkspace : {};
+  const workspaceData = workspaceContainer.workspaceData && typeof workspaceContainer.workspaceData === 'object'
+    ? workspaceContainer.workspaceData
+    : workspaceContainer;
   return {
-    workspaceState: sanitizeWorkspaceData(readJsonStorage(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE)),
+    workspaceState: sanitizeWorkspaceData(workspaceData),
     latestRun: readJsonStorage(STORAGE_KEYS.latestRun, null),
     history: readJsonStorage(STORAGE_KEYS.history, []),
-    documents: readDocuments(),
-    gapResults: readGapResults(),
+    documents: Array.isArray(workspaceContainer.documents) ? workspaceContainer.documents : [],
+    gapResults: workspaceContainer.gapResults || null,
   };
 }
 
-function readDocuments() {
-  const workspace = readJsonStorage(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE);
-  const documents = Array.isArray(workspace?.documents) ? workspace.documents : [];
-  return documents;
-}
+function mergeRunDetails(primary, fallback) {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
 
-function readGapResults() {
-  const workspace = readJsonStorage(STORAGE_KEYS.workspace, DEFAULT_WORKSPACE);
-  return workspace?.gapResults || null;
+  const merged = {
+    ...fallback,
+    ...primary,
+  };
+
+  const metricKeys = ['testsTotal', 'testsPassed', 'testsFailed', 'testsSkipped', 'bddTotal', 'bddCovered', 'bddUncovered', 'codeCoverage', 'coverageAi'];
+  for (const key of metricKeys) {
+    const fallbackValue = Number(fallback[key]);
+    const primaryValue = Number(primary[key]);
+    if (Number.isFinite(fallbackValue) && fallbackValue > 0) {
+      merged[key] = fallbackValue;
+    } else if (Number.isFinite(primaryValue) && primaryValue > 0) {
+      merged[key] = primaryValue;
+    }
+  }
+
+  merged.status = primary.status || fallback.status || 'running';
+  merged.age = primary.age || fallback.age || 'just now';
+  merged.branch = primary.branch || fallback.branch || portalConfig.branch;
+  merged.trigger = primary.trigger || fallback.trigger || 'GitHub Actions dispatch';
+  merged.duration = primary.duration && primary.duration !== 'pending' ? primary.duration : fallback.duration || 'pending';
+  merged.updatedAt = primary.updatedAt || fallback.updatedAt || new Date().toISOString();
+  merged.createdAt = primary.createdAt || fallback.createdAt || merged.updatedAt;
+
+  return merged;
 }
 
 function sanitizeWorkspaceData(rawWorkspaceData) {
