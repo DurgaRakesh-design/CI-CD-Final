@@ -304,8 +304,8 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         <p className="text-muted-foreground mt-1 text-sm">Review, edit, and approve your requirement documents</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-        <div className="lg:col-span-3 bg-white rounded-xl border border-border p-4 h-[620px] overflow-hidden flex flex-col">
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_360px] gap-4 items-stretch">
+        <div className="bg-white rounded-xl border border-border p-4 h-[700px] overflow-hidden flex flex-col">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Requirement Tree</h3>
           <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
             <TreeGroup
@@ -346,7 +346,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
         </div>
 
-        <div className="lg:col-span-6 bg-white rounded-xl border border-border flex flex-col h-[620px]">
+        <div className="bg-white rounded-xl border border-border flex flex-col h-[700px]">
           <div className="flex items-center justify-between gap-2 p-3 border-b border-border">
             <span className="font-semibold text-sm truncate">{selectedUnlinkedGaps ? 'Unlinked Gap Findings' : selectedDoc?.title}</span>
             <div className="flex items-center gap-1">
@@ -402,7 +402,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           </div>
         </div>
 
-        <div className="lg:col-span-3 space-y-4 h-[620px] overflow-hidden">
+        <div className="space-y-4 h-[700px] overflow-y-auto pr-1">
           <div className="bg-white rounded-xl border border-border p-4 space-y-4">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Readiness</h3>
             <div>
@@ -727,9 +727,11 @@ function buildGapModel(gapResults, documents) {
     : [];
   findings.forEach((gap, index) => {
     const normalizedGap = { ...gap, uiId: `gap-${index}` };
-    const match = findMatchingDocument(normalizedGap, documents);
-    if (match) {
-      docGapMap.set(match.id, [...(docGapMap.get(match.id) || []), normalizedGap]);
+    const matches = findMatchingDocuments(normalizedGap, documents);
+    if (matches.length) {
+      matches.forEach((match) => {
+        docGapMap.set(match.id, [...(docGapMap.get(match.id) || []), normalizedGap]);
+      });
     } else {
       unlinkedGaps.push(normalizedGap);
     }
@@ -738,26 +740,34 @@ function buildGapModel(gapResults, documents) {
 }
 
 function findMatchingDocument(gap, documents) {
+  return findMatchingDocuments(gap, documents)[0] || null;
+}
+
+function findMatchingDocuments(gap, documents) {
+  const bddMissingGap = isMissingBddGap(gap);
+  const candidateDocs = bddMissingGap ? documents.filter((doc) => doc.type === 'BDD') : documents;
   const explicitId = String(gap?.relatedDocumentId || '').trim();
   if (explicitId) {
-    const byId = documents.find((doc) => doc.id === explicitId);
-    if (byId) return byId;
+    const byId = candidateDocs.find((doc) => doc.id === explicitId);
+    if (byId) return [byId];
   }
   const relatedTokens = [
     gap?.relatedDocument,
     gap?.module,
+    gap?.title,
     ...(Array.isArray(gap?.documentEvidence) ? gap.documentEvidence : []),
     ...(Array.isArray(gap?.evidenceAnchors) ? gap.evidenceAnchors : []),
+    ...(Array.isArray(gap?.missingScenarios) ? gap.missingScenarios : []),
   ].map(normalizeGapText).filter(Boolean);
   const meaningfulTokens = relatedTokens.filter((token) => !isGenericDocumentToken(token));
-  const match = documents.find((doc) => {
+  const matches = candidateDocs.filter((doc) => {
     const title = normalizeGapText(doc.title);
     const module = normalizeGapText(doc.module);
     return meaningfulTokens.some((token) => tokenIncludesDocument(token, title, module));
-  }) || null;
-  if (match) return match;
-  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
-  return null;
+  });
+  if (matches.length) return matches;
+  if (bddMissingGap || gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return [];
+  return [];
 }
 
 function pickReplacementDoc(nextDocs, selectedDoc) {
@@ -814,6 +824,22 @@ function isGenericDocumentToken(value) {
     'traceability matrix',
     'risk register',
   ].includes(value);
+}
+
+function isMissingBddGap(gap) {
+  const text = [
+    gap?.gapType,
+    gap?.coverageStatus,
+    gap?.actionType,
+    gap?.title,
+    gap?.description,
+    gap?.recommendedFix,
+  ].map(normalizeGapText).join(' ');
+  return text.includes('missing bdd')
+    || text.includes('no bdd')
+    || text.includes('bdd coverage')
+    || text.includes('create bdd')
+    || text.includes('generate bdd');
 }
 
 function tokenIncludesDocument(token, title, module) {

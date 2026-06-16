@@ -159,6 +159,8 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
         "Flag BDD quality gaps when scenarios are too generic, lack concrete validations, omit negative/security/boundary cases evidenced by code, or cannot be traced to source methods/endpoints.",
         "Flag BRD quality gaps when source capabilities are omitted, requirements are unsupported by source, risks are missing, or evidence anchors are vague.",
         "Automation/test audit rule: do not create a high-severity finding merely because the uploaded source repository has no automated tests or no BDD files. In this product flow, generated/uploaded BDD documents may intentionally live outside the source ZIP and are valid requirements artifacts. Only create an automation/test finding when reviewed documents explicitly claim executable automation, CI test coverage, or implemented BDD tests that the source/package evidence does not support. Otherwise report source test absence as a quality note or low-priority recommendation, not as a blocking BRD/BDD traceability gap.",
+        "Missing BDD ownership rule: if a source capability is covered in the BRD but no specific BDD feature/scenario covers it, set gapType='missing_bdd', linkStatus='unlinked', relatedDocumentId='', relatedDocument='', and actionType='create_bdd'. Do not attach the finding only to the BRD just because the BRD mentions the capability.",
+        "Multi-document rule: when a finding affects multiple existing documents, include all specific document titles/sections in documentEvidence and evidenceAnchors. relatedDocument should name the most actionable owner only; avoid generic BRD-only ownership for BDD gaps.",
         "For every high/medium finding, provide recommendedFix that can drive BRD/BDD regeneration or manual document correction.",
       ],
       requiredOutputShape: traceabilityAuditOutputShape(),
@@ -338,7 +340,9 @@ async function buildGapAssessmentReport(context, plan) {
     rules: [
       "If a finding clearly belongs to an existing BRD or BDD, set linkStatus='linked', relatedDocumentId to that document id when available, and actionType='regenerate_document'.",
       "If a finding represents a missing capability with no existing BRD/BDD owner, set linkStatus='unlinked' and actionType='create_bdd'.",
+      "If a source capability is covered in BRD but missing from all BDD feature/scenario documents, set gapType='missing_bdd', linkStatus='unlinked', relatedDocumentId='', relatedDocument='', and actionType='create_bdd'. Do not link it to BRD only.",
       "Do not use generic relatedDocument values such as 'BRD/BDD' when a specific document cannot be identified. Leave it empty and mark unlinked.",
+      "Do not create a finding titled like 'No automated test or BDD files in source repository' merely because source tests or in-repo BDD files are absent. External generated/uploaded BDD documents are valid in this flow; source test absence belongs in qualityNotes unless documents falsely claim executable automation.",
       "Use business capability names, not technical layer names, for modules.",
       "Do not report a gap unless you can point to source evidence or an uploaded requirement.",
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
@@ -417,7 +421,13 @@ async function buildGapAssessmentReport(context, plan) {
 }
 
 function normalizeGapPayload(payload) {
-  const findings = (Array.isArray(payload.findings) ? payload.findings : []).map((item) => ({
+  const suppressedQualityNotes = [];
+  const rawFindings = (Array.isArray(payload.findings) ? payload.findings : []).filter((item) => {
+    if (!isSourceOnlyAutomationFinding(item)) return true;
+    suppressedQualityNotes.push("Source repository test/BDD absence was treated as a non-blocking quality note because BRD/BDD artifacts are supplied externally in this flow.");
+    return false;
+  });
+  const findings = rawFindings.map((item) => ({
     gapId: item.gapId || item.id || "",
     gapType: item.gapType || "",
     confidence: item.confidence || "",
@@ -461,8 +471,25 @@ function normalizeGapPayload(payload) {
     missingScenarios: normalizeSimpleRows(payload.missingScenarios),
     sourceInventory: normalizeSimpleRows(payload.sourceInventory),
     recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
-    qualityNotes: Array.isArray(payload.qualityNotes) ? payload.qualityNotes : [],
+    qualityNotes: [...(Array.isArray(payload.qualityNotes) ? payload.qualityNotes : []), ...suppressedQualityNotes],
   };
+}
+
+function isSourceOnlyAutomationFinding(item) {
+  const text = [
+    item?.gapType,
+    item?.title,
+    item?.description,
+    item?.module,
+    item?.recommendedFix,
+    item?.packageSignal,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+  const isGenericSourceTestGap =
+    text.includes("no automated test")
+    && text.includes("bdd")
+    && (text.includes("source repository") || text.includes("source code") || text.includes("repository"));
+  const isTestingModuleOnly = /testing|automation|application/.test(String(item?.module || "Application").toLowerCase());
+  return isGenericSourceTestGap && isTestingModuleOnly;
 }
 
 function normalizeCoverageMatrix(value) {

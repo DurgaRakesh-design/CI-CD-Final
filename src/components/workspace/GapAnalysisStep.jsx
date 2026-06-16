@@ -507,33 +507,40 @@ function findImpactedDocumentIds(gapResults, documents) {
     ? gapResults.findings.filter((gap) => !isCoveredGap(gap))
     : [];
   findings.forEach((gap) => {
-    const matched = findMatchingDocument(gap, documents);
-    if (matched) impacted.add(matched.id);
+    findMatchingDocuments(gap, documents).forEach((matched) => impacted.add(matched.id));
   });
   return impacted;
 }
 
 function findMatchingDocument(gap, documents) {
+  return findMatchingDocuments(gap, documents)[0] || null;
+}
+
+function findMatchingDocuments(gap, documents) {
+  const bddMissingGap = isMissingBddGap(gap);
+  const candidateDocs = bddMissingGap ? documents.filter((doc) => doc.type === 'BDD') : documents;
   const explicitId = String(gap?.relatedDocumentId || '').trim();
   if (explicitId) {
-    const byId = documents.find((doc) => doc.id === explicitId);
-    if (byId) return byId;
+    const byId = candidateDocs.find((doc) => doc.id === explicitId);
+    if (byId) return [byId];
   }
   const relatedTokens = [
     gap?.relatedDocument,
     gap?.module,
+    gap?.title,
     ...(Array.isArray(gap?.documentEvidence) ? gap.documentEvidence : []),
     ...(Array.isArray(gap?.evidenceAnchors) ? gap.evidenceAnchors : []),
+    ...(Array.isArray(gap?.missingScenarios) ? gap.missingScenarios : []),
   ].map(normalize).filter(Boolean);
   const meaningfulTokens = relatedTokens.filter((token) => !isGenericDocumentToken(token));
-  const match = documents.find((doc) => {
+  const matches = candidateDocs.filter((doc) => {
     const title = normalize(doc.title);
     const module = normalize(doc.module);
     return meaningfulTokens.some((token) => tokenIncludesDocument(token, title, module));
-  }) || null;
-  if (match) return match;
-  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
-  return null;
+  });
+  if (matches.length) return matches;
+  if (bddMissingGap || gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return [];
+  return [];
 }
 
 function normalize(value) {
@@ -557,6 +564,22 @@ function tokenIncludesDocument(token, title, module) {
   if (!token) return false;
   return title && (title.includes(token) || token.includes(title))
     || module && (module.includes(token) || token.includes(module));
+}
+
+function isMissingBddGap(gap) {
+  const text = [
+    gap?.gapType,
+    gap?.coverageStatus,
+    gap?.actionType,
+    gap?.title,
+    gap?.description,
+    gap?.recommendedFix,
+  ].map(normalize).join(' ');
+  return text.includes('missing bdd')
+    || text.includes('no bdd')
+    || text.includes('bdd coverage')
+    || text.includes('create bdd')
+    || text.includes('generate bdd');
 }
 
 function SummaryCard({ label, value, tone }) {
