@@ -1,10 +1,10 @@
 import { portalConfig } from '@/config/portalConfig';
-import { dispatchRepositoryEvent, listRepoContents, upsertRepoFile } from '@/services/githubApi';
+import { dispatchRepositoryEvent, listRepoContents, putRepoFile, upsertRepoFile } from '@/services/githubApi';
 import { blobToBase64, fileToBase64, safeFileName, toBase64, uniquePortalRunId } from '@/services/encoding';
 import { buildBddUploadFiles, buildBrdUploadFile } from '@/services/documentService';
 
 const LARGE_PACKAGE_CHUNK_THRESHOLD_BYTES = 8 * 1024 * 1024;
-const LARGE_PACKAGE_CHUNK_BYTES = 768 * 1024;
+const LARGE_PACKAGE_CHUNK_BYTES = 2 * 1024 * 1024;
 
 export async function listUploadedPackages() {
   const items = await listRepoContents(portalConfig.uploadDir, portalConfig.branch);
@@ -199,7 +199,7 @@ async function uploadLargePackageChunks({ packageFile, packageName, runId }) {
     const chunk = packageFile.slice(start, end);
     const chunkPath = `${chunkRoot}/${String(index).padStart(4, '0')}.part`;
     try {
-      await upsertRepoFile({
+      await putRepoFile({
         label: `source package chunk ${index + 1}/${chunkCount}`,
         path: chunkPath,
         contentBase64: await blobToBase64(chunk),
