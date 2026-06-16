@@ -514,23 +514,49 @@ function findImpactedDocumentIds(gapResults, documents) {
 }
 
 function findMatchingDocument(gap, documents) {
-  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
   const explicitId = String(gap?.relatedDocumentId || '').trim();
   if (explicitId) {
     const byId = documents.find((doc) => doc.id === explicitId);
     if (byId) return byId;
   }
-  const related = normalize(`${gap?.relatedDocument || ''} ${gap?.module || ''}`);
-  if (!related || related === 'brd bdd' || related === 'bdd' || related === 'brd') return null;
-  return documents.find((doc) => {
+  const relatedTokens = [
+    gap?.relatedDocument,
+    gap?.module,
+    ...(Array.isArray(gap?.documentEvidence) ? gap.documentEvidence : []),
+    ...(Array.isArray(gap?.evidenceAnchors) ? gap.evidenceAnchors : []),
+  ].map(normalize).filter(Boolean);
+  const meaningfulTokens = relatedTokens.filter((token) => !isGenericDocumentToken(token));
+  const match = documents.find((doc) => {
     const title = normalize(doc.title);
     const module = normalize(doc.module);
-    return title.includes(related) || module.includes(related) || related.includes(title) || related.includes(module);
+    return meaningfulTokens.some((token) => tokenIncludesDocument(token, title, module));
   }) || null;
+  if (match) return match;
+  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
+  return null;
 }
 
 function normalize(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function isGenericDocumentToken(value) {
+  return [
+    'brd',
+    'bdd',
+    'brd bdd',
+    'requirement',
+    'requirements',
+    'business requirements document',
+    'traceability matrix',
+    'risk register',
+  ].includes(value);
+}
+
+function tokenIncludesDocument(token, title, module) {
+  if (!token) return false;
+  return title && (title.includes(token) || token.includes(title))
+    || module && (module.includes(token) || token.includes(module));
 }
 
 function SummaryCard({ label, value, tone }) {

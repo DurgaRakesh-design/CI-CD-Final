@@ -128,10 +128,11 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         targetDocument: selectedDoc,
       });
       const replacement = pickReplacementDoc(nextDocs, selectedDoc);
+      const mergedReplacement = mergeRegeneratedDocument(selectedDoc, replacement);
       setDocuments(prev => prev.map((doc) => doc.id === selectedDoc.id ? {
         ...doc,
-        content: replacement.content || doc.content,
-        gherkinContent: replacement.gherkinContent || doc.gherkinContent,
+        content: mergedReplacement.content || doc.content,
+        gherkinContent: mergedReplacement.gherkinContent || doc.gherkinContent,
         module: replacement.module || doc.module,
         approved: false,
         status: 'review',
@@ -715,19 +716,26 @@ function buildGapModel(gapResults, documents) {
 }
 
 function findMatchingDocument(gap, documents) {
-  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
   const explicitId = String(gap?.relatedDocumentId || '').trim();
   if (explicitId) {
     const byId = documents.find((doc) => doc.id === explicitId);
     if (byId) return byId;
   }
-  const related = normalizeGapText(`${gap?.relatedDocument || ''} ${gap?.module || ''}`);
-  if (!related || ['brd', 'bdd', 'brd bdd', 'requirement', 'requirements'].includes(related)) return null;
-  return documents.find((doc) => {
+  const relatedTokens = [
+    gap?.relatedDocument,
+    gap?.module,
+    ...(Array.isArray(gap?.documentEvidence) ? gap.documentEvidence : []),
+    ...(Array.isArray(gap?.evidenceAnchors) ? gap.evidenceAnchors : []),
+  ].map(normalizeGapText).filter(Boolean);
+  const meaningfulTokens = relatedTokens.filter((token) => !isGenericDocumentToken(token));
+  const match = documents.find((doc) => {
     const title = normalizeGapText(doc.title);
     const module = normalizeGapText(doc.module);
-    return title.includes(related) || module.includes(related) || related.includes(title) || related.includes(module);
+    return meaningfulTokens.some((token) => tokenIncludesDocument(token, title, module));
   }) || null;
+  if (match) return match;
+  if (gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return null;
+  return null;
 }
 
 function pickReplacementDoc(nextDocs, selectedDoc) {
@@ -737,8 +745,59 @@ function pickReplacementDoc(nextDocs, selectedDoc) {
     || selectedDoc;
 }
 
+function mergeRegeneratedDocument(existingDoc, replacementDoc) {
+  const existingContent = String(existingDoc?.content || '').trim();
+  const replacementContent = String(replacementDoc?.content || '').trim();
+  const existingGherkin = String(existingDoc?.gherkinContent || '').trim();
+  const replacementGherkin = String(replacementDoc?.gherkinContent || '').trim();
+  return {
+    ...replacementDoc,
+    content: preserveRegeneratedContent({
+      existing: existingContent,
+      replacement: replacementContent,
+      heading: 'Regeneration Addendum - Findings Coverage',
+      minRetentionRatio: existingDoc?.type === 'BRD' ? 0.9 : 0.75,
+    }),
+    gherkinContent: preserveRegeneratedContent({
+      existing: existingGherkin,
+      replacement: replacementGherkin,
+      heading: 'Regenerated finding coverage',
+      minRetentionRatio: 0.75,
+      commentPrefix: '# ',
+    }),
+  };
+}
+
+function preserveRegeneratedContent({ existing, replacement, heading, minRetentionRatio, commentPrefix = '' }) {
+  if (!replacement) return existing;
+  if (!existing) return replacement;
+  if (replacement.length >= existing.length * minRetentionRatio) return replacement;
+  if (existing.includes(replacement)) return existing;
+  const headingLine = commentPrefix ? `${commentPrefix}${heading}` : `## ${heading}`;
+  return `${existing}\n\n---\n\n${headingLine}\n${replacement}`;
+}
+
 function normalizeGapText(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function isGenericDocumentToken(value) {
+  return [
+    'brd',
+    'bdd',
+    'brd bdd',
+    'requirement',
+    'requirements',
+    'business requirements document',
+    'traceability matrix',
+    'risk register',
+  ].includes(value);
+}
+
+function tokenIncludesDocument(token, title, module) {
+  if (!token) return false;
+  return title && (title.includes(token) || token.includes(title))
+    || module && (module.includes(token) || token.includes(module));
 }
 
 function severityBadge(severity) {
