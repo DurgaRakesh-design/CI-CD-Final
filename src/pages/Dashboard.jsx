@@ -109,6 +109,18 @@ export default function DashboardPage() {
   const overview = snapshot.overview;
   const runs = snapshot.runs || [];
   const repo = snapshot.repo || {};
+  const hasRemoteRuns = Boolean(snapshot.remoteAvailable);
+  const hasLocalRuns = runs.length > 0;
+  const sourceLabel = hasRemoteRuns
+    ? 'GitHub workflow runs'
+    : hasLocalRuns
+      ? 'Local workspace snapshot'
+      : 'No pipeline data yet';
+  const sourceBody = hasRemoteRuns
+    ? 'Dashboard values are coming from the latest GitHub workflow runs.'
+    : hasLocalRuns
+      ? 'GitHub workflow data is unavailable right now, so the dashboard is showing the local workspace snapshot.'
+      : 'No pipeline run has been captured yet. Trigger a run from Workspace to populate the dashboard.';
 
   const [selectedId, setSelectedId] = useState(() => snapshot.selectedRun?.runNumber || runs[0]?.runNumber || 1);
   const [query, setQuery] = useState('');
@@ -173,6 +185,18 @@ export default function DashboardPage() {
               {heroMetrics.map((metric) => (
                 <HeroMetric key={metric.label} icon={metric.icon} label={metric.label} value={metric.value} />
               ))}
+            </div>
+          </div>
+          <div className="mt-5 rounded-2xl border border-white/15 bg-white/10 p-4 text-white/90 backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-white/70">Data source</div>
+                <div className="mt-1 font-heading text-lg font-bold">{sourceLabel}</div>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-white/80">{sourceBody}</p>
+              </div>
+              <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${hasRemoteRuns ? 'bg-emerald-400/20 text-emerald-50 ring-1 ring-emerald-300/40' : 'bg-amber-400/20 text-amber-50 ring-1 ring-amber-300/40'}`}>
+                {hasRemoteRuns ? 'Connected' : hasLocalRuns ? 'Fallback active' : 'Waiting for run'}
+              </span>
             </div>
           </div>
         </section>

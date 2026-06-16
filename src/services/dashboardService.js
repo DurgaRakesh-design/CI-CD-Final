@@ -185,6 +185,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   });
 
   return {
+    remoteAvailable,
     repo: {
       owner: portalConfig.owner,
       name: portalConfig.repo,

@@ -73,6 +73,18 @@ export default function PipelineSummary() {
   const codeQuality = snapshot.codeQuality || {};
   const frontend = snapshot.frontend || {};
   const reports = snapshot.reports || [];
+  const hasRemoteRuns = Boolean(snapshot.remoteAvailable);
+  const hasLocalRuns = Boolean(snapshot.selectedRun || (snapshot.runs || []).length);
+  const sourceLabel = hasRemoteRuns
+    ? 'GitHub workflow runs'
+    : hasLocalRuns
+      ? 'Local workspace snapshot'
+      : 'No pipeline data yet';
+  const sourceBody = hasRemoteRuns
+    ? 'This summary is populated from the latest GitHub workflow run data.'
+    : hasLocalRuns
+      ? 'GitHub workflow data is not reachable right now, so this summary is using the local workspace snapshot.'
+      : 'Trigger a run from Workspace to generate a populated summary.';
 
   const readiness = typeof run?.readinessScore === 'number'
     ? run.readinessScore
@@ -154,6 +166,18 @@ export default function PipelineSummary() {
               </div>
             </div>
             <ReadinessGauge value={readiness} status={run.status} />
+          </div>
+          <div className="mt-6 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Data source</p>
+                <h3 className="mt-1 font-heading text-base font-bold">{sourceLabel}</h3>
+                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{sourceBody}</p>
+              </div>
+              <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${hasRemoteRuns ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'}`}>
+                {hasRemoteRuns ? 'Connected' : hasLocalRuns ? 'Fallback active' : 'Waiting for run'}
+              </span>
+            </div>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
