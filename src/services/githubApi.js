@@ -1,11 +1,17 @@
 import { githubRepoApi, portalConfig } from '@/config/portalConfig';
 
 async function parseResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
-    return await response.json();
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      return { message: text };
+    }
   }
-  return await response.text();
+  return text;
 }
 
 export async function githubFetch(target, options = {}) {
@@ -20,8 +26,8 @@ export async function githubFetch(target, options = {}) {
   });
   const body = await parseResponse(response);
   if (!response.ok) {
-    const message = typeof body === 'string' ? body : body?.message;
-    throw new Error(`GitHub ${response.status}: ${message || response.statusText}`);
+    const message = formatGitHubError(body, response.statusText);
+    throw new Error(`GitHub ${response.status}: ${message}`);
   }
   return body;
 }
@@ -36,6 +42,7 @@ export async function getRepoFile(path, branch = portalConfig.branch) {
 }
 
 export async function putRepoFile({ path, contentBase64, message, branch = portalConfig.branch, sha }) {
+  validateRepoUpload({ path, contentBase64, message });
   const body = {
     message,
     content: contentBase64,
@@ -49,19 +56,18 @@ export async function putRepoFile({ path, contentBase64, message, branch = porta
 }
 
 export async function upsertRepoFile({ path, contentBase64, message, branch = portalConfig.branch }) {
+  validateRepoUpload({ path, contentBase64, message });
   const retryablePattern = /GitHub (409|422)/;
   let lastError;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     let sha;
-    if (attempt > 0) {
-      try {
-        const current = await getRepoFile(path, branch);
-        sha = current?.sha;
-      } catch (error) {
-        if (!String(error.message || '').includes('404')) {
-          throw error;
-        }
+    try {
+      const current = await getRepoFile(path, branch);
+      sha = current?.sha;
+    } catch (error) {
+      if (!String(error.message || '').includes('404')) {
+        throw new Error(`GitHub lookup failed for ${path}: ${error.message}`);
       }
     }
 
@@ -71,7 +77,7 @@ export async function upsertRepoFile({ path, contentBase64, message, branch = po
       lastError = error;
       const messageText = String(error?.message || '');
       if (!retryablePattern.test(messageText) || attempt === 3) {
-        throw error;
+        throw new Error(`GitHub upload failed for ${path}: ${messageText}`);
       }
       await sleep(250 * (attempt + 1));
     }
@@ -94,13 +100,17 @@ export async function dispatchWorkflow(inputs, branch = portalConfig.branch) {
 }
 
 export async function dispatchRepositoryEvent(eventType, clientPayload) {
-  return await githubFetch(repoApi('/dispatches'), {
-    method: 'POST',
-    body: JSON.stringify({
-      event_type: eventType,
-      client_payload: clientPayload,
-    }),
-  });
+  try {
+    return await githubFetch(repoApi('/dispatches'), {
+      method: 'POST',
+      body: JSON.stringify({
+        event_type: eventType,
+        client_payload: clientPayload,
+      }),
+    });
+  } catch (error) {
+    throw new Error(`GitHub dispatch failed for ${eventType}: ${error.message}`);
+  }
 }
 
 export async function listWorkflowRuns(limit = 20) {
@@ -116,6 +126,37 @@ function encodeURIComponentPath(path) {
 
 function repoContentsApi(path, branch) {
   return repoApi(`/contents/${encodeURIComponentPath(path)}?ref=${encodeURIComponent(branch)}`);
+}
+
+function validateRepoUpload({ path, contentBase64, message }) {
+  if (!String(path || '').trim()) {
+    throw new Error('GitHub upload path is missing.');
+  }
+  if (!String(message || '').trim()) {
+    throw new Error(`GitHub commit message is missing for ${path}.`);
+  }
+  if (!String(contentBase64 || '').trim()) {
+    throw new Error(`GitHub upload content is empty for ${path}.`);
+  }
+}
+
+function formatGitHubError(body, statusText = '') {
+  if (typeof body === 'string') return body || statusText || 'Request failed';
+  const messages = [];
+  if (body?.message) messages.push(body.message);
+  if (body?.documentation_url) messages.push(`Docs: ${body.documentation_url}`);
+  if (Array.isArray(body?.errors) && body.errors.length) {
+    const details = body.errors
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        return [item.resource, item.field, item.code, item.message].filter(Boolean).join(' ');
+      })
+      .filter(Boolean)
+      .join('; ');
+    if (details) messages.push(details);
+  }
+  if (body?.error) messages.push(body.error);
+  return messages.filter(Boolean).join(' | ') || statusText || 'Request failed with no response body';
 }
 
 function sleep(ms) {

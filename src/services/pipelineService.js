@@ -88,6 +88,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   const uploads = [];
   if (packageFile) {
     uploads.push({
+      label: 'source package',
       path: packagePath,
       contentBase64: packageContentBase64,
       message: `chore: upload package ${packageName}`,
@@ -97,6 +98,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
 
   if (brdFile?.content) {
     uploads.push({
+      label: 'BRD artifact',
       path: brdPath,
       contentBase64: brdContentBase64,
       message: `chore: upload BRD ${brdFile.name}`,
@@ -109,6 +111,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     const contentBase64 = bddContent[index];
     if (!path || !contentBase64) return;
     uploads.push({
+      label: `BDD artifact ${index + 1}`,
       path,
       contentBase64,
       message: `chore: upload BDD ${bdd.name}`,
@@ -118,6 +121,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
 
   if (gapAnalysisFile?.content) {
     uploads.push({
+      label: 'gap analysis artifact',
       path: gapAnalysisPath,
       contentBase64: gapAnalysisContentBase64,
       message: `chore: upload gap analysis for ${runId}`,
@@ -126,6 +130,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   }
 
   uploads.push({
+    label: 'requirements manifest',
     path: manifestPath,
     contentBase64: toBase64(JSON.stringify(manifest, null, 2)),
     message: `chore: upload manifest for ${runId}`,
@@ -133,7 +138,11 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   });
 
   for (const upload of uploads) {
-    await upsertRepoFile(upload);
+    try {
+      await upsertRepoFile(upload);
+    } catch (error) {
+      throw new Error(`Unable to upload ${upload.label || 'artifact'} (${upload.path}): ${error.message}`);
+    }
   }
 
   const payload = {
@@ -162,7 +171,11 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     })),
   };
 
-  await dispatchRepositoryEvent('portal-upload', payload);
+  try {
+    await dispatchRepositoryEvent('portal-upload', payload);
+  } catch (error) {
+    throw new Error(`Uploaded artifacts, but failed to dispatch GitHub Actions: ${error.message}`);
+  }
   return { runId, packagePath, brdPath, bddPaths, gapAnalysisPath, manifestPath, inputs: payload, manifest };
 }
 

@@ -104,7 +104,16 @@ export const handler = async (event) => {
     if (response.status === 204) return { statusCode: 204, headers, body: "" };
 
     if (isTextLike(contentType)) {
-      return { statusCode: response.status, headers, body: await response.text() };
+      const text = await response.text();
+      if (!response.ok) {
+        console.error("github-proxy: GitHub error body", {
+          method: init.method,
+          target: target.pathname,
+          status: response.status,
+          body: text.slice(0, 1000),
+        });
+      }
+      return { statusCode: response.status, headers, body: text };
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
