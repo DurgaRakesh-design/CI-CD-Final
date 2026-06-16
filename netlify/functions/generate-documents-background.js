@@ -436,7 +436,16 @@ async function callOpenAIFileTool({
   if (!response.ok) {
     throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
   }
-  const outputText = extractResponseText(payload);
+  let outputText = extractResponseText(payload);
+  if (!String(outputText || "").trim() && payload?.id) {
+    outputText = await requestFinalJsonFromResponse({
+      apiKey,
+      model,
+      previousResponseId: payload.id,
+      responseSchema,
+      timeoutMs,
+    });
+  }
   if (!String(outputText || "").trim()) {
     throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
   }
@@ -445,6 +454,56 @@ async function callOpenAIFileTool({
   } catch {
     throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)} ${summarizeResponsePayload(payload)}`);
   }
+}
+
+async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        previous_response_id: previousResponseId,
+        input: [
+          {
+            role: "user",
+            content:
+              "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
+          },
+        ],
+        temperature: 0,
+        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+        text: {
+          format: {
+            type: "json_schema",
+            name: responseSchema.name,
+            schema: responseSchema.schema,
+            strict: true,
+          },
+        },
+      }),
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`OpenAI file-tool finalization timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI file-tool finalization failed with ${response.status}: ${raw.slice(0, 400)}`);
+  }
+  return extractResponseText(payload);
 }
 
 function parseJsonOrNull(raw) {
