@@ -385,59 +385,53 @@ async function callOpenAIFileTool({
   responseSchema,
   temperature = 0.1,
   timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 840000),
+  requestTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_REQUEST_TIMEOUT_MS || 120000),
+  finalizationTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_FINALIZATION_TIMEOUT_MS || 240000),
+  pollIntervalMs = Number(process.env.OPENAI_FILE_TOOL_POLL_INTERVAL_MS || 3000),
   model = process.env.OPENAI_MODEL || "gpt-4.1",
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response;
-  try {
-    response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        instructions: system,
-        input: user,
-        temperature,
-        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
-        tools: [
-          {
-            type: "code_interpreter",
-            container: {
-              type: "auto",
-              file_ids: [fileId],
-            },
-          },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: responseSchema.name,
-            schema: responseSchema.schema,
-            strict: true,
+  const effectiveTimeoutMs = Math.max(timeoutMs, 300000);
+  const effectiveRequestTimeoutMs = Math.max(requestTimeoutMs, 120000);
+  const effectiveFinalizationTimeoutMs = Math.max(finalizationTimeoutMs, 180000);
+  const effectivePollIntervalMs = Math.max(pollIntervalMs, 1500);
+  const createPayload = await postOpenAIResponse({
+    apiKey,
+    timeoutMs: effectiveRequestTimeoutMs,
+    body: {
+      model,
+      background: true,
+      instructions: system,
+      input: user,
+      temperature,
+      max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+      tools: [
+        {
+          type: "code_interpreter",
+          container: {
+            type: "auto",
+            file_ids: [fileId],
           },
         },
-      }),
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`OpenAI file-tool request timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-  const raw = await response.text();
-  const payload = parseJsonOrNull(raw);
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
-  }
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: responseSchema.name,
+          schema: responseSchema.schema,
+          strict: true,
+        },
+      },
+    },
+    timeoutLabel: "request",
+  });
+  const payload = await waitForOpenAIResponse({
+    apiKey,
+    initialPayload: createPayload,
+    timeoutMs: effectiveTimeoutMs,
+    pollIntervalMs: effectivePollIntervalMs,
+  });
   let outputText = extractResponseText(payload);
   if (!String(outputText || "").trim() && payload?.id) {
     outputText = await requestFinalJsonFromResponse({
@@ -445,7 +439,8 @@ async function callOpenAIFileTool({
       model,
       previousResponseId: payload.id,
       responseSchema,
-      timeoutMs,
+      timeoutMs: effectiveFinalizationTimeoutMs,
+      pollIntervalMs: effectivePollIntervalMs,
     });
   }
   if (!String(outputText || "").trim()) {
@@ -458,7 +453,44 @@ async function callOpenAIFileTool({
   }
 }
 
-async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs }) {
+async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs, pollIntervalMs }) {
+  const createPayload = await postOpenAIResponse({
+    apiKey,
+    timeoutMs,
+    body: {
+      model,
+      background: true,
+      previous_response_id: previousResponseId,
+      input: [
+        {
+          role: "user",
+          content:
+            "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
+        },
+      ],
+      temperature: 0,
+      max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+      text: {
+        format: {
+          type: "json_schema",
+          name: responseSchema.name,
+          schema: responseSchema.schema,
+          strict: true,
+        },
+      },
+    },
+    timeoutLabel: "finalization",
+  });
+  const payload = await waitForOpenAIResponse({
+    apiKey,
+    initialPayload: createPayload,
+    timeoutMs,
+    pollIntervalMs,
+  });
+  return extractResponseText(payload);
+}
+
+async function postOpenAIResponse({ apiKey, body, timeoutMs, timeoutLabel }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
@@ -470,31 +502,11 @@ async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId,
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model,
-        previous_response_id: previousResponseId,
-        input: [
-          {
-            role: "user",
-            content:
-              "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
-          },
-        ],
-        temperature: 0,
-        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
-        text: {
-          format: {
-            type: "json_schema",
-            name: responseSchema.name,
-            schema: responseSchema.schema,
-            strict: true,
-          },
-        },
-      }),
+      body: JSON.stringify(body),
     });
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error(`OpenAI file-tool finalization timed out after ${timeoutMs}ms`);
+      throw new Error(`OpenAI file-tool ${timeoutLabel} timed out after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
@@ -503,9 +515,50 @@ async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId,
   const raw = await response.text();
   const payload = parseJsonOrNull(raw);
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI file-tool finalization failed with ${response.status}: ${raw.slice(0, 400)}`);
+    throw new Error(payload?.error?.message || `OpenAI file-tool ${timeoutLabel} failed with ${response.status}: ${raw.slice(0, 400)}`);
   }
-  return extractResponseText(payload);
+  return payload;
+}
+
+async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIntervalMs }) {
+  const startedAt = Date.now();
+  let payload = initialPayload;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const status = String(payload?.status || "").toLowerCase();
+    if (!status || status === "completed") {
+      return payload;
+    }
+    if (status === "failed" || status === "cancelled" || status === "incomplete" || status === "expired") {
+      throw new Error(`OpenAI file-tool did not complete successfully. ${summarizeResponsePayload(payload)}`);
+    }
+    if (!payload?.id) {
+      throw new Error(`OpenAI file-tool returned no response id for polling. ${summarizeResponsePayload(payload)}`);
+    }
+    await sleep(pollIntervalMs);
+    payload = await retrieveOpenAIResponse({ apiKey, responseId: payload.id });
+  }
+
+  throw new Error(`OpenAI file-tool processing timed out after ${timeoutMs}ms`);
+}
+
+async function retrieveOpenAIResponse({ apiKey, responseId }) {
+  const response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI response retrieve failed with ${response.status}: ${raw.slice(0, 400)}`);
+  }
+  return payload;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseJsonOrNull(raw) {

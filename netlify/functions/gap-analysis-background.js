@@ -609,60 +609,51 @@ async function callOpenAIFileTool({
   responseSchema,
   temperature = 0.1,
   timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 840000),
+  requestTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_REQUEST_TIMEOUT_MS || 120000),
+  pollIntervalMs = Number(process.env.OPENAI_FILE_TOOL_POLL_INTERVAL_MS || 3000),
   maxOutputTokens = Number(process.env.OPENAI_GAP_MAX_OUTPUT_TOKENS || 30000),
   model = process.env.OPENAI_MODEL || "gpt-4.1",
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response;
-  try {
-    response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        instructions: system,
-        input: user,
-        temperature,
-        max_output_tokens: maxOutputTokens,
-        tools: [
-          {
-            type: "code_interpreter",
-            container: {
-              type: "auto",
-              file_ids: [fileId],
-            },
-          },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: responseSchema.name,
-            schema: responseSchema.schema,
-            strict: true,
+  const effectiveTimeoutMs = Math.max(timeoutMs, 300000);
+  const effectiveRequestTimeoutMs = Math.max(requestTimeoutMs, 120000);
+  const effectivePollIntervalMs = Math.max(pollIntervalMs, 1500);
+  const createPayload = await postOpenAIResponse({
+    apiKey,
+    timeoutMs: effectiveRequestTimeoutMs,
+    body: {
+      model,
+      background: true,
+      instructions: system,
+      input: user,
+      temperature,
+      max_output_tokens: maxOutputTokens,
+      tools: [
+        {
+          type: "code_interpreter",
+          container: {
+            type: "auto",
+            file_ids: [fileId],
           },
         },
-      }),
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`OpenAI file-tool request timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-  const raw = await response.text();
-  const payload = parseJsonOrNull(raw);
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
-  }
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: responseSchema.name,
+          schema: responseSchema.schema,
+          strict: true,
+        },
+      },
+    },
+  });
+  const payload = await waitForOpenAIResponse({
+    apiKey,
+    initialPayload: createPayload,
+    timeoutMs: effectiveTimeoutMs,
+    pollIntervalMs: effectivePollIntervalMs,
+  });
   const outputText = extractResponseText(payload);
   if (!String(outputText || "").trim()) {
     throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
@@ -698,6 +689,77 @@ function summarizeResponsePayload(payload) {
   const output = Array.isArray(payload?.output) ? payload.output : [];
   const outputTypes = output.map((item) => item?.type || item?.role || "unknown").slice(0, 8);
   return `Response status=${payload?.status || "unknown"} outputTypes=${outputTypes.join(",") || "none"} incompleteReason=${payload?.incomplete_details?.reason || ""}`;
+}
+
+async function postOpenAIResponse({ apiKey, body, timeoutMs }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`OpenAI file-tool request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI file-tool request failed with ${response.status}: ${raw.slice(0, 400)}`);
+  }
+  return payload;
+}
+
+async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIntervalMs }) {
+  const startedAt = Date.now();
+  let payload = initialPayload;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const status = String(payload?.status || "").toLowerCase();
+    if (!status || status === "completed") {
+      return payload;
+    }
+    if (status === "failed" || status === "cancelled" || status === "incomplete" || status === "expired") {
+      throw new Error(`OpenAI file-tool did not complete successfully. ${summarizeResponsePayload(payload)}`);
+    }
+    if (!payload?.id) {
+      throw new Error(`OpenAI file-tool returned no response id for polling. ${summarizeResponsePayload(payload)}`);
+    }
+    await sleep(pollIntervalMs);
+    payload = await retrieveOpenAIResponse({ apiKey, responseId: payload.id });
+  }
+
+  throw new Error(`OpenAI file-tool processing timed out after ${timeoutMs}ms`);
+}
+
+async function retrieveOpenAIResponse({ apiKey, responseId }) {
+  const response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+  const raw = await response.text();
+  const payload = parseJsonOrNull(raw);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenAI response retrieve failed with ${response.status}: ${raw.slice(0, 400)}`);
+  }
+  return payload;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function evaluateTraceabilityAuditDepth(payload, documents) {
