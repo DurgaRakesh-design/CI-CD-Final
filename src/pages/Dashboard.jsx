@@ -158,21 +158,21 @@ export default function DashboardPage() {
       ? 'GitHub workflow data is unavailable right now, so the dashboard is showing the local workspace snapshot.'
       : 'No pipeline run has been captured yet. Trigger a run from Workspace to populate the dashboard.';
 
-  const [selectedId, setSelectedId] = useState(() => snapshot.selectedRun?.runNumber || runs[0]?.runNumber || 1);
+  const [selectedId, setSelectedId] = useState(() => snapshot?.selectedRun?.runNumber || runs[0]?.runNumber || 1);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
     if (!runs.length) return;
     if (!runs.some((run) => run.runNumber === selectedId)) {
-      setSelectedId(snapshot.selectedRun?.runNumber || runs[0].runNumber);
+      setSelectedId(snapshot?.selectedRun?.runNumber || runs[0].runNumber);
     }
-  }, [runs, selectedId, snapshot.selectedRun]);
+  }, [runs, selectedId, snapshot?.selectedRun]);
 
-  const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot.selectedRun ?? runs[0] ?? null;
-  const selectedPipelineJobs = selectedRun?.pipelineJobs || snapshot.pipelineJobs || [];
-  const aiExecuted = snapshot.aiDetails?.executed || 0;
-  const aiGenerated = snapshot.aiDetails?.generated || 0;
+  const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot?.selectedRun ?? runs[0] ?? null;
+  const selectedPipelineJobs = selectedRun?.pipelineJobs || snapshot?.pipelineJobs || [];
+  const aiExecuted = snapshot?.aiDetails?.executed || 0;
+  const aiGenerated = snapshot?.aiDetails?.generated || 0;
 
   const filtered = useMemo(
     () =>

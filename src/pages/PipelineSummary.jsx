@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { loadDashboardSnapshot, loadLocalDashboardSnapshot } from '@/services/dashboardService';
+import { loadDashboardSnapshot } from '@/services/dashboardService';
 
 const topTabs = [
   { id: 'pipeline', label: 'Pipeline Details', icon: Zap },
@@ -50,12 +50,26 @@ const statusTone = {
   running: 'text-blue-700 bg-blue-50 border-blue-200',
 };
 
+function SummaryLoading() {
+  return (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-16 md:pt-20">
+      <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-12 w-44 rounded-full bg-white/80 shadow-sm" />
+          <div className="h-80 rounded-2xl bg-white/80 shadow-sm" />
+          <div className="h-20 rounded-2xl bg-white/80 shadow-sm" />
+          <div className="h-[720px] rounded-2xl bg-white/80 shadow-sm" />
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export default function PipelineSummary() {
   const { runNumber } = useParams();
-  const { data: snapshot = loadLocalDashboardSnapshot(), isFetching, refetch } = useQuery({
+  const { data: snapshot, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['dashboard-snapshot'],
     queryFn: loadDashboardSnapshot,
-    initialData: loadLocalDashboardSnapshot(),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
@@ -64,21 +78,21 @@ export default function PipelineSummary() {
   const [pipelineTab, setPipelineTab] = useState('workflow');
 
   const run = useMemo(() => {
-    const matched = (snapshot.runs || []).find((item) => String(item.runNumber) === String(runNumber));
-    return matched || snapshot.selectedRun || snapshot.runs?.[0] || null;
-  }, [runNumber, snapshot.runs, snapshot.selectedRun]);
+    const matched = (snapshot?.runs || []).find((item) => String(item.runNumber) === String(runNumber));
+    return matched || snapshot?.selectedRun || snapshot?.runs?.[0] || null;
+  }, [runNumber, snapshot?.runs, snapshot?.selectedRun]);
 
-  const workspace = snapshot.workspace || {};
-  const pipelineJobs = snapshot.pipelineJobs || [];
-  const testRows = snapshot.testRows || [];
-  const bddScenarios = snapshot.bddScenarios || [];
-  const testScripts = snapshot.testScripts || [];
-  const aiDetails = snapshot.aiDetails || { recommendations: [] };
-  const codeQuality = snapshot.codeQuality || {};
-  const frontend = snapshot.frontend || {};
-  const reports = snapshot.reports || [];
-  const hasRemoteRuns = Boolean(snapshot.remoteAvailable);
-  const hasLocalRuns = Boolean(snapshot.selectedRun || (snapshot.runs || []).length);
+  const workspace = snapshot?.workspace || {};
+  const pipelineJobs = snapshot?.pipelineJobs || [];
+  const testRows = snapshot?.testRows || [];
+  const bddScenarios = snapshot?.bddScenarios || [];
+  const testScripts = snapshot?.testScripts || [];
+  const aiDetails = snapshot?.aiDetails || { recommendations: [] };
+  const codeQuality = snapshot?.codeQuality || {};
+  const frontend = snapshot?.frontend || {};
+  const reports = snapshot?.reports || [];
+  const hasRemoteRuns = Boolean(snapshot?.remoteAvailable);
+  const hasLocalRuns = Boolean(snapshot?.selectedRun || (snapshot?.runs || []).length);
   const sourceLabel = hasRemoteRuns
     ? 'GitHub workflow runs'
     : hasLocalRuns
@@ -97,6 +111,10 @@ export default function PipelineSummary() {
       : run?.status === 'running'
         ? 78
         : 92;
+
+  if (isLoading || !snapshot) {
+    return <SummaryLoading />;
+  }
 
   if (!run) {
     return (
@@ -232,7 +250,7 @@ export default function PipelineSummary() {
               </section>
 
               {pipelineTab === 'workflow' && (
-                <WorkflowTab run={run} pipelineJobs={pipelineJobs} aiDetails={aiDetails} frontend={frontend} workspace={workspace} />
+                <WorkflowTab run={run} pipelineJobs={pipelineJobs} aiDetails={aiDetails} frontend={frontend} workspace={workspace} reports={reports} />
               )}
               {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
               {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
@@ -269,7 +287,7 @@ export default function PipelineSummary() {
   );
 }
 
-function WorkflowTab({ run, pipelineJobs, aiDetails, frontend, workspace }) {
+function WorkflowTab({ run, pipelineJobs, aiDetails, frontend, workspace, reports }) {
   const requirementEvidence = buildRequirementEvidence(workspace);
   return (
     <div className="space-y-6">
