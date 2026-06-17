@@ -264,6 +264,7 @@ export default function PipelineSummary() {
 
 function OverviewTab({ run, pipelineJobs, reports, aiDetails, frontend, workspace }) {
   const relatedEvidence = buildWorkflowEvidence(workspace, reports);
+  const requirementEvidence = buildRequirementEvidence(workspace);
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -299,6 +300,7 @@ function OverviewTab({ run, pipelineJobs, reports, aiDetails, frontend, workspac
           </div>
         </section>
       </div>
+      <WorkflowPackagePanel workspace={workspace} evidence={requirementEvidence} />
       {relatedEvidence.length ? <WorkflowEvidencePanel evidence={relatedEvidence} /> : null}
     </div>
   );
@@ -660,6 +662,118 @@ function ReportsTab({ reports }) {
   );
 }
 
+function WorkflowPackagePanel({ workspace, evidence }) {
+  const packageArtifact = evidence.packageArtifact;
+  const detailRows = [
+    ['Upload mode', workspace.uploadSource || 'Not recorded'],
+    ['Package', workspace.packageName || 'Not recorded'],
+    ['Platform', workspace.platform || 'Unknown'],
+    ['Requirement root', workspace.requirementRoot || 'Not recorded'],
+    ['Package path', workspace.packagePath || packageArtifact?.path || 'Not recorded'],
+    ['Manifest', workspace.manifestPath || 'Not recorded'],
+  ];
+
+  return (
+    <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
+      <TabHeader
+        title="Workflow package and requirements"
+        eyebrow="Manifest-backed input files"
+        description="This is the selected workflow input context: package details plus BRD, BDD, and gap analysis files when the manifest published them."
+      />
+      <div className="mt-5 grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="rounded-2xl border border-border bg-slate-50/80 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Package details</p>
+              <h4 className="mt-2 font-heading text-lg font-bold text-foreground">{workspace.packageName || 'Selected package'}</h4>
+            </div>
+            <Package className="h-6 w-6 text-primary" />
+          </div>
+          <div className="mt-4 space-y-2">
+            {detailRows.map(([label, value]) => (
+              <div key={label} className="rounded-xl bg-white px-3 py-2 ring-1 ring-border">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+                <p className="mt-1 break-words text-xs font-medium text-foreground">{value}</p>
+              </div>
+            ))}
+          </div>
+          {packageArtifact ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <EvidenceActionButtons item={packageArtifact} />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4">
+          <RequirementFileGroup title="BRD" description="Business requirement document selected for this workflow." items={evidence.brd} empty="No BRD file was recorded in the manifest." />
+          <RequirementFileGroup title="BDD feature files" description="Feature files generated or selected for the workflow." items={evidence.bdds} empty="No BDD feature files were recorded in the manifest." />
+          <RequirementFileGroup title="Gap analysis" description="Requirement gap analysis attached to the selected workflow." items={evidence.gaps} empty="No gap analysis report was attached to this workflow." />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RequirementFileGroup({ title, description, items, empty }) {
+  return (
+    <div className="rounded-2xl border border-border bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="font-heading text-sm font-bold text-foreground">{title}</h4>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+          {items.length} file{items.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      <div className="mt-3 space-y-2">
+        {items.length ? items.map((item) => <RequirementFileRow key={`${item.type}-${item.name}-${item.path}`} item={item} />) : (
+          <div className="rounded-xl border border-dashed border-border bg-slate-50 px-3 py-3 text-xs text-muted-foreground">
+            {empty}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RequirementFileRow({ item }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-slate-50/70 p-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">{item.name}</p>
+        <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.path || item.size}</p>
+      </div>
+      <div className="flex shrink-0 flex-wrap gap-2">
+        <EvidenceActionButtons item={item} />
+      </div>
+    </div>
+  );
+}
+
+function EvidenceActionButtons({ item }) {
+  return (
+    <>
+      {item.viewHref ? (
+        <Button asChild variant="outline" size="sm" className="h-8 rounded-lg bg-white px-3">
+          <a href={item.viewHref} target="_blank" rel="noreferrer">
+            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+            View
+          </a>
+        </Button>
+      ) : null}
+      {item.downloadHref ? (
+        <Button asChild variant="outline" size="sm" className="h-8 rounded-lg bg-white px-3">
+          <a href={item.downloadHref} download={item.downloadName || item.name}>
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            Download
+          </a>
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
 function WorkflowEvidencePanel({ evidence }) {
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
@@ -740,6 +854,16 @@ function ReportDownloadButton({ report, compact = false }) {
 function findReports(reports, patterns) {
   const list = Array.isArray(reports) ? reports : [];
   return list.filter((report) => patterns.some((pattern) => pattern.test(String(report?.name || ''))));
+}
+
+function buildRequirementEvidence(workspace) {
+  const artifacts = Array.isArray(workspace?.artifacts) ? workspace.artifacts : [];
+  return {
+    packageArtifact: artifacts.find((artifact) => artifact.type === 'Package') || null,
+    brd: artifacts.filter((artifact) => artifact.type === 'BRD'),
+    bdds: artifacts.filter((artifact) => artifact.type === 'BDD'),
+    gaps: artifacts.filter((artifact) => artifact.type === 'Gap analysis'),
+  };
 }
 
 function buildWorkflowEvidence(workspace, reports) {
