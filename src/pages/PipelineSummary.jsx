@@ -7,6 +7,7 @@ import {
   BarChart3,
   CheckCircle2,
   Clock,
+  Download,
   FileBarChart,
   GitBranch,
   Layers,
@@ -227,11 +228,11 @@ export default function PipelineSummary() {
                 <OverviewTab run={run} pipelineJobs={pipelineJobs} reports={reports} aiDetails={aiDetails} frontend={frontend} />
               )}
               {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
-              {pipelineTab === 'tests' && <TestResultsTab rows={testRows} run={run} />}
-              {pipelineTab === 'traceability' && <TraceabilityTab rows={bddScenarios} run={run} />}
-              {pipelineTab === 'ai' && <AiTab aiDetails={aiDetails} />}
-              {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} />}
-              {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} />}
+              {pipelineTab === 'tests' && <TestResultsTab rows={testRows} run={run} reports={reports} />}
+              {pipelineTab === 'traceability' && <TraceabilityTab rows={bddScenarios} run={run} reports={reports} />}
+              {pipelineTab === 'ai' && <AiTab aiDetails={aiDetails} reports={reports} />}
+              {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} reports={reports} />}
+              {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} reports={reports} />}
               {pipelineTab === 'reports' && <ReportsTab reports={reports} />}
             </div>
           )}
@@ -435,10 +436,16 @@ function StagesTab({ pipelineJobs }) {
   );
 }
 
-function TestResultsTab({ rows, run }) {
+function TestResultsTab({ rows, run, reports }) {
+  const downloads = findReports(reports, [/qa-test-case-report\.xlsx$/i, /qa-test-case-report\.json$/i]);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-base font-bold">Test results</h3>
+      <TabHeader
+        title="Test results"
+        eyebrow="QA workbook evidence"
+        description="Rows come from the published QA test case report, matching the Excel Test Cases and Test Scripts sheets."
+        downloads={downloads}
+      />
       <div className="mt-4 grid gap-3 md:grid-cols-4">
         <MetricCard label="Total tests" value={run.testsTotal || 0} tone="bg-violet-50/70" />
         <MetricCard label="Passed" value={run.testsPassed || 0} tone="bg-emerald-50/70" />
@@ -447,11 +454,14 @@ function TestResultsTab({ rows, run }) {
       </div>
       <div className="mt-4 space-y-2">
         {rows.map((row) => (
-          <div key={`${row.suite}-${row.name}`} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3">
+          <div key={`${row.testCaseId || row.id || row.suite}-${row.name}`} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3">
             <div>
-              <div className="font-semibold">{row.suite}</div>
-              <div className="text-xs text-muted-foreground">{row.name}</div>
-              <div className="mt-1 text-[11px] text-muted-foreground">{row.type || 'test'} - {row.source || 'report-backed'}</div>
+              <div className="font-semibold">{row.name}</div>
+              <div className="text-xs text-muted-foreground">{row.suite}</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                {[row.testCaseId, row.scenarioId, row.type || 'test'].filter(Boolean).join(' - ')}
+              </div>
+              {row.failureReason ? <div className="mt-1 text-[11px] text-rose-600">{row.failureReason}</div> : null}
             </div>
             <Badge variant="outline" className="text-xs">{row.status}</Badge>
           </div>
@@ -461,10 +471,16 @@ function TestResultsTab({ rows, run }) {
   );
 }
 
-function TraceabilityTab({ rows, run }) {
+function TraceabilityTab({ rows, run, reports }) {
+  const downloads = findReports(reports, [/traceability-validation-matrix\.json$/i, /requirement-traceability\.json$/i, /qa-test-case-report\.xlsx$/i]);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-base font-bold">BDD traceability</h3>
+      <TabHeader
+        title="BDD traceability"
+        eyebrow="Requirement coverage"
+        description="Scenario rows are isolated here, with coverage status, execution result, script ID, and source file from traceability reports."
+        downloads={downloads}
+      />
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <MetricCard label="Coverage" value={`${run.bddTotal ? Math.round(((run.bddCovered || 0) / run.bddTotal) * 100) : 0}%`} tone="bg-violet-50/70" />
         <MetricCard label="Features" value={new Set(rows.map((item) => item.feature)).size} tone="bg-blue-50/70" />
@@ -473,11 +489,13 @@ function TraceabilityTab({ rows, run }) {
       </div>
       <div className="mt-4 space-y-2">
         {rows.map((row) => (
-          <div key={`${row.feature}-${row.name}`} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3">
+          <div key={`${row.id || row.feature}-${row.name}`} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3">
             <div>
               <div className="font-semibold">{row.name}</div>
               <div className="text-xs text-muted-foreground">{row.feature}</div>
-              <div className="mt-1 text-[11px] text-muted-foreground">{row.scriptType || 'scenario'} - {row.executionResult || row.status}</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                {[row.feature, row.testCaseId, row.scriptId, row.executionResult || row.status].filter(Boolean).join(' - ')}
+              </div>
             </div>
             <Badge variant="outline" className="text-xs">{row.status}</Badge>
           </div>
@@ -487,10 +505,16 @@ function TraceabilityTab({ rows, run }) {
   );
 }
 
-function AiTab({ aiDetails }) {
+function AiTab({ aiDetails, reports }) {
+  const downloads = findReports(reports, [/GeneratedTestMeta\.json$/i, /GeneratedTestTraceability\.json$/i, /test-script-manifest\.json$/i, /^generated-tests\//i, /^rejected-ai-tests\//i]).slice(0, 10);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-base font-bold">AI execution details</h3>
+      <TabHeader
+        title="AI execution details"
+        eyebrow="Generated script lifecycle"
+        description="This tab only shows AI generation, accepted/rejected scripts, and related metadata from the report bundle."
+        downloads={downloads}
+      />
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
         <MetricCard label="Generated" value={aiDetails.generated || 0} tone="bg-violet-50/70" />
         <MetricCard label="Executed" value={aiDetails.executed || 0} tone="bg-emerald-50/70" />
@@ -502,6 +526,17 @@ function AiTab({ aiDetails }) {
         <div className="mt-1"><strong className="text-foreground">Mode:</strong> {aiDetails.generationMode || 'Not available'}</div>
         <div className="mt-1"><strong className="text-foreground">Fallback:</strong> {aiDetails.fallbackReason || 'None recorded'}</div>
       </div>
+      {aiDetails.rejectionDetails?.length ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {aiDetails.rejectionDetails.map((item) => (
+            <div key={`${item.file}-${item.scenario}`} className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
+              <p className="text-sm font-semibold text-foreground">{item.scenario || item.file}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{item.file}</p>
+              <p className="mt-2 text-xs text-rose-700">{item.reason || 'Rejected during validation'}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-4 space-y-3">
         {(aiDetails.recommendations || []).map((item) => (
           <div key={item.title} className="rounded-2xl border border-border bg-white p-4">
@@ -514,10 +549,16 @@ function AiTab({ aiDetails }) {
   );
 }
 
-function FrontendTab({ frontend }) {
+function FrontendTab({ frontend, reports }) {
+  const downloads = findReports(reports, [/frontend-smoke-report/i, /browser-smoke-report/i, /^frontend\//i, /\.(png|html)$/i]);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-base font-bold">Frontend evidence</h3>
+      <TabHeader
+        title="Frontend evidence"
+        eyebrow="Browser smoke"
+        description="Frontend data is kept separate from backend QA so missing UI journeys do not pollute test totals."
+        downloads={downloads}
+      />
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <MetricCard label="Visual" value={frontend.visual || 'Pending'} tone="bg-violet-50/70" />
         <MetricCard label="Journeys" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} tone="bg-emerald-50/70" />
@@ -539,10 +580,16 @@ function FrontendTab({ frontend }) {
   );
 }
 
-function QualityTab({ codeQuality }) {
+function QualityTab({ codeQuality, reports }) {
+  const downloads = findReports(reports, [/coverage-gap-analysis\.json$/i, /code-improvement-suggestions\.json$/i, /qa-test-case-report\.xlsx$/i]);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-base font-bold">Quality findings</h3>
+      <TabHeader
+        title="Quality findings"
+        eyebrow="Coverage gaps and suggestions"
+        description="Coverage hotspots and improvement suggestions come from their own quality files, not from AI or traceability tabs."
+        downloads={downloads}
+      />
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="AI tests" value={codeQuality.aiTests || 0} tone="bg-violet-50/70" />
         <MetricCard label="Existing tests" value={codeQuality.existingTests || 0} tone="bg-emerald-50/70" />
@@ -579,7 +626,12 @@ function QualityTab({ codeQuality }) {
 function ReportsTab({ reports }) {
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <h3 className="font-heading text-base font-bold">Published reports</h3>
+      <TabHeader
+        title="Reports and downloads"
+        eyebrow="Published artifact bundle"
+        description="Every listed item is a real file from the selected GitHub Actions quality-report artifact."
+        downloads={reports.filter((report) => /qa-test-case-report\.xlsx$|final-test-report\.html$/i.test(report.name || '')).slice(0, 2)}
+      />
       <div className="mt-4 space-y-3">
         {reports.map((report) => (
           <div key={report.name} className="rounded-2xl border border-border bg-white p-4">
@@ -588,7 +640,10 @@ function ReportsTab({ reports }) {
                 <p className="font-semibold text-foreground">{report.name}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{report.desc}</p>
               </div>
-              <FileBarChart className="h-5 w-5 shrink-0 text-primary" />
+              <div className="flex shrink-0 items-center gap-2">
+                <ReportDownloadButton report={report} compact />
+                <FileBarChart className="h-5 w-5 text-primary" />
+              </div>
             </div>
             <div className="mt-3 text-[11px] text-muted-foreground">
               {report.type} - {report.size}
@@ -598,6 +653,48 @@ function ReportsTab({ reports }) {
       </div>
     </section>
   );
+}
+
+function TabHeader({ title, eyebrow, description, downloads = [] }) {
+  return (
+    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div>
+        {eyebrow ? <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">{eyebrow}</p> : null}
+        <h3 className="mt-1 font-heading text-base font-bold md:text-lg">{title}</h3>
+        {description ? <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
+      </div>
+      {downloads.length ? (
+        <div className="flex flex-wrap gap-2 md:justify-end">
+          {downloads.slice(0, 4).map((report) => (
+            <ReportDownloadButton key={report.name} report={report} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReportDownloadButton({ report, compact = false }) {
+  if (!report?.downloadHref) return null;
+  return (
+    <Button asChild variant="outline" size="sm" className={`${compact ? 'h-8 px-2' : 'rounded-full'} bg-white`}>
+      <a href={report.downloadHref} download={report.downloadName || report.name}>
+        <Download className={`${compact ? 'mr-0' : 'mr-2'} h-3.5 w-3.5`} />
+        {compact ? <span className="sr-only">Download {report.name}</span> : `Download ${shortReportLabel(report.name)}`}
+      </a>
+    </Button>
+  );
+}
+
+function findReports(reports, patterns) {
+  const list = Array.isArray(reports) ? reports : [];
+  return list.filter((report) => patterns.some((pattern) => pattern.test(String(report?.name || ''))));
+}
+
+function shortReportLabel(name) {
+  const value = String(name || '').split('/').pop() || 'file';
+  if (value.length <= 24) return value;
+  return `${value.slice(0, 18)}...${value.split('.').pop() || ''}`;
 }
 
 function ReadinessGauge({ value, status }) {

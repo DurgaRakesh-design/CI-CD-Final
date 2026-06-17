@@ -150,7 +150,11 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const localHistory = Array.isArray(history) ? history.filter(Boolean) : [];
   const runMap = new Map();
 
-  [...[localRun], ...localHistory, ...remoteHistory]
+  const visibleHistory = remoteHistory.length
+    ? remoteHistory
+    : [...[localRun], ...localHistory].filter(Boolean);
+
+  visibleHistory
     .filter(Boolean)
     .forEach((run) => {
       const key = `${run.source || 'local'}:${run.runNumber}:${run.createdAt || run.updatedAt || run.age}`;
@@ -168,13 +172,18 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const liveJobs = Array.isArray(livePipeline?.jobs) ? livePipeline.jobs : [];
   const liveArtifacts = Array.isArray(livePipeline?.artifacts) ? livePipeline.artifacts : [];
   const hydratedRun = hydrateRunFromLiveReports(selectedRun, liveReports, liveManifest);
+  const hydratedRuns = runs.map((run) => (
+    hydratedRun && isSamePipelineRun(run, hydratedRun)
+      ? mergeRunDetails(run, hydratedRun)
+      : run
+  ));
   const statusSummary = buildStatusSummary({
     selectedRun: hydratedRun,
     approvedDocs,
     totalDocs,
     openFindings,
     coveredFindings,
-    runHistory: runs,
+    runHistory: hydratedRuns,
     gapResults: gapState,
   });
   const pipelineJobs = liveJobs.length
@@ -258,7 +267,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
           gapResults: gapState,
           selectedRun: hydratedRun,
         }),
-    runs,
+    runs: hydratedRuns,
     selectedRun: hydratedRun,
     pipelineJobs,
     testRows,
@@ -486,14 +495,15 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   if (!run) return null;
   const qaSummary = reports?.qaReport?.summary || {};
   const traceSummary = reports?.traceability?.summary || {};
+  const aiMeta = reports?.generatedTestMeta || {};
   const frontend = reports?.browserSmoke || {};
   const testsTotal = numberFrom(qaSummary.total_test_cases, qaSummary.plannedTestCases, qaSummary.total_unique_test_methods, run.testsTotal);
   const testsPassed = numberFrom(qaSummary.passed, qaSummary.scripts_passed, run.testsPassed);
-  const testsFailed = numberFrom(qaSummary.failed, qaSummary.errors, run.testsFailed);
-  const testsSkipped = numberFrom(qaSummary.not_run, qaSummary.skipped, run.testsSkipped);
-  const bddTotal = numberFrom(traceSummary.scenarios, traceSummary.rows, testsTotal, run.bddTotal);
-  const bddCovered = numberFrom(traceSummary.covered_rows, qaSummary.covered_scenarios, testsPassed, run.bddCovered);
-  const bddUncovered = numberFrom(traceSummary.uncovered_rows, qaSummary.uncovered_scenarios, Math.max(0, bddTotal - bddCovered), run.bddUncovered);
+  const testsFailed = numberFrom(qaSummary.failed, qaSummary.scripts_failed, qaSummary.errors, run.testsFailed);
+  const testsSkipped = numberFrom(qaSummary.not_run, qaSummary.scripts_not_run, qaSummary.skipped, qaSummary.rejectedGeneratedScripts, run.testsSkipped);
+  const bddTotal = numberFrom(traceSummary.scenarios, traceSummary.rows, traceSummary.scenarios_found, testsTotal, run.bddTotal);
+  const bddCovered = numberFrom(traceSummary.covered_rows, traceSummary.covered_scenarios, qaSummary.covered_scenarios, testsPassed, run.bddCovered);
+  const bddUncovered = numberFrom(traceSummary.uncovered_rows, traceSummary.uncovered_scenarios, qaSummary.uncovered_scenarios, Math.max(0, bddTotal - bddCovered), run.bddUncovered);
   const coverageAi = numberFrom(qaSummary.coverage_percent, bddTotal ? Math.round((bddCovered / bddTotal) * 100) : 0, run.coverageAi);
   return {
     ...run,
@@ -517,7 +527,17 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
     readinessScore: bddTotal ? clamp(Math.round((bddCovered / bddTotal) * 100), 0, 100) : run.readinessScore,
     frontendTotal: numberFrom(frontend.total_journeys),
     frontendPassed: numberFrom(frontend.passed_journeys),
+    aiGenerated: numberFrom(qaSummary.generatedScriptCandidates, aiMeta.tests_generated_candidate_methods, qaSummary.generatedScripts),
+    aiAccepted: numberFrom(qaSummary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests, qaSummary.generatedScripts),
+    aiRejected: numberFrom(qaSummary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests),
   };
+}
+
+function isSamePipelineRun(left, right) {
+  if (!left || !right) return false;
+  if (left.id && right.id && String(left.id) === String(right.id)) return true;
+  if (left.runNumber && right.runNumber && String(left.runNumber) === String(right.runNumber)) return true;
+  return false;
 }
 
 function buildLivePipelineJobs(jobs) {
@@ -545,17 +565,24 @@ function buildLivePipelineJobs(jobs) {
 }
 
 function buildLiveTestRows(qaReport) {
-  const rows = Array.isArray(qaReport?.test_cases)
-    ? qaReport.test_cases
-    : Array.isArray(qaReport?.tests)
-      ? qaReport.tests
-      : [];
-  return rows.slice(0, 20).map((row) => ({
+  const rows = Array.isArray(qaReport?.trusted_test_cases)
+    ? qaReport.trusted_test_cases
+    : Array.isArray(qaReport?.test_cases)
+      ? qaReport.test_cases
+      : Array.isArray(qaReport?.tests)
+        ? qaReport.tests
+        : [];
+  return rows.slice(0, 60).map((row) => ({
+    id: row.testCaseId || row.id || row.title || row.scenario,
     suite: row.feature || row.class_name || row.testType || 'Test case',
     name: row.title || row.test_name || row.scenario || row.testCaseId || 'Recorded test',
-    status: String(row.result || row.status || row.executionStatus || 'not_run').toLowerCase().replace(/\s+/g, '_'),
+    status: String(row.result || row.executionStatus || row.status || 'not_run').toLowerCase().replace(/\s+/g, '_'),
     type: row.testType || row.test_type || row.variantLabel || 'report-backed',
     source: row.source || row.automationStatus || 'GitHub artifact',
+    testCaseId: row.testCaseId,
+    scriptId: row.scriptId,
+    scenarioId: row.scenarioId,
+    failureReason: row.failureReason || row.failure_reason || row.reason,
     linkedScenarios: Array.isArray(row.linked_bdd_scenarios) ? row.linked_bdd_scenarios.length : undefined,
   }));
 }
@@ -568,43 +595,53 @@ function buildLiveTraceabilityRows(traceability) {
       : Array.isArray(traceability?.records)
         ? traceability.records
         : [];
-  return rows.slice(0, 24).map((row) => ({
+  return rows.slice(0, 80).map((row) => ({
+    id: row.scenarioId || row.testCaseId || row.scriptId || row.scenario,
     feature: row.feature || row.featureId || 'Feature',
     name: row.scenario || row.name || row.scenarioId || 'Scenario',
     status: isCoveredGap(row) || String(row.coverageStatus || '').toLowerCase() === 'covered' ? 'covered' : 'uncovered',
     executionResult: row.executionResult || row.status || row.coverageStatus || 'Not recorded',
     scriptType: row.scriptType || row.test_type || row.type || 'traceability',
+    testCaseId: row.testCaseId,
+    scriptId: row.scriptId,
+    file: row.file || row.sourceBddFile || row.source_feature_file,
   }));
 }
 
 function buildLiveReports(reportFiles, artifacts) {
   const artifactMap = new Map((artifacts || []).map((artifact) => [artifact.name, artifact]));
   return reportFiles
-    .filter((name) => /\.(json|html|xlsx|txt|xml|md|png)$/i.test(name))
-    .slice(0, 30)
-    .map((name) => ({
-      name,
-      desc: describeReportFile(name),
-      size: artifactMap.get(name)?.size_in_bytes ? formatBytes(artifactMap.get(name).size_in_bytes) : 'GitHub Actions artifact',
-      type: name.split('.').pop()?.toUpperCase() || 'FILE',
+    .map((file) => (typeof file === 'string' ? { name: file } : file))
+    .filter((file) => /\.(json|html|xlsx|txt|xml|md|png|log|java)$/i.test(file.name || ''))
+    .slice(0, 120)
+    .map((file) => ({
+      ...file,
+      name: file.name,
+      desc: describeReportFile(file.name),
+      size: file.size ? formatBytes(file.size) : artifactMap.get(file.name)?.size_in_bytes ? formatBytes(artifactMap.get(file.name).size_in_bytes) : 'GitHub Actions artifact',
+      type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
     }));
 }
 
 function buildLiveAiDetails(reports) {
   const summary = reports?.qaReport?.summary || {};
+  const aiMeta = reports?.generatedTestMeta || {};
+  const scriptManifest = reports?.testScriptManifest?.summary || {};
   const progress = reports?.progressStatus || {};
   const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
-  const generated = numberFrom(summary.generatedScriptCandidates, summary.generatedScripts, progress.details?.generatedScripts);
-  const executed = numberFrom(summary.acceptedGeneratedScripts, summary.scripts_passed, summary.automationReadyTestCases);
-  const rejected = numberFrom(summary.rejectedGeneratedScripts, summary.automationRejectedTestCases, Math.max(0, generated - executed));
+  const generated = numberFrom(summary.generatedScriptCandidates, aiMeta.tests_generated_candidate_methods, scriptManifest.generatedScriptCandidates, summary.generatedScripts, progress.details?.generatedScripts);
+  const executed = numberFrom(summary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests, scriptManifest.acceptedGeneratedScripts, summary.automationReadyTestCases);
+  const rejected = numberFrom(summary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests, scriptManifest.rejectedGeneratedScripts, summary.automationRejectedTestCases, Math.max(0, generated - executed));
   return {
     generated,
     executed,
     rejected,
     accuracy: generated ? Math.round((executed / generated) * 100) : 0,
     progress: progress.status ? `${progress.phase || 'AI generation'} ${progress.status}` : 'No progress status artifact found',
-    generationMode: reports?.codeSuggestions?.generation_mode || 'artifact-driven',
+    generationMode: aiMeta.generation_mode || reports?.generatedTestTraceability?.summary?.generation_mode || reports?.codeSuggestions?.generation_mode || 'artifact-driven',
     fallbackReason: reports?.codeSuggestions?.fallback_reason || '',
+    rejectionReasons: Array.isArray(aiMeta.rejection_reasons) ? aiMeta.rejection_reasons : [],
+    rejectionDetails: Array.isArray(aiMeta.rejection_details) ? aiMeta.rejection_details.slice(0, 12) : [],
     recommendations: suggestions.slice(0, 6).map((item) => ({
       severity: item.priority || 'medium',
       title: item.type || 'Quality recommendation',
@@ -617,10 +654,12 @@ function buildLiveCodeQuality(reports) {
   const coverage = reports?.coverageGap || {};
   const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
   const classes = Array.isArray(coverage.classes_with_gaps) ? coverage.classes_with_gaps : [];
+  const aiTests = Array.isArray(coverage.ai_tests) ? coverage.ai_tests.length : numberFrom(coverage.ai_tests);
+  const existingTests = Array.isArray(coverage.existing_tests) ? coverage.existing_tests.length : numberFrom(coverage.existing_tests);
   return {
     coverageScope: coverage.coverage_scope || 'GitHub artifact',
-    aiTests: numberFrom(coverage.ai_tests),
-    existingTests: numberFrom(coverage.existing_tests),
+    aiTests,
+    existingTests,
     hotspotCount: classes.length,
     improvementCount: suggestions.length,
     verdict: classes.length ? 'Coverage gaps remain' : 'No coverage gap artifact findings',
@@ -1189,10 +1228,23 @@ async function loadQualityReportsFromArtifacts(artifacts) {
 
   const blob = await downloadArtifactArchive(qualityArtifact.archive_download_url);
   const zip = await JSZip.loadAsync(blob);
-  const reportFiles = Object.keys(zip.files)
+  const reportEntryNames = Object.keys(zip.files)
     .filter((name) => !zip.files[name].dir)
-    .map((name) => stripFinalReportPrefix(name))
     .sort();
+  const reportFiles = await Promise.all(
+    reportEntryNames.map(async (entryName) => {
+      const name = stripFinalReportPrefix(entryName);
+      const entry = zip.files[entryName];
+      const base64 = await entry.async('base64');
+      return {
+        name,
+        size: base64ToByteLength(base64),
+        mimeType: mimeTypeForFile(name),
+        downloadName: name.split('/').pop() || name,
+        downloadHref: `data:${mimeTypeForFile(name)};base64,${base64}`,
+      };
+    })
+  );
   const readJson = async (patterns) => {
     const entryName = findZipEntry(zip, patterns);
     if (!entryName) return null;
@@ -1209,12 +1261,35 @@ async function loadQualityReportsFromArtifacts(artifacts) {
     reportFiles,
     qaReport: await readJson([/qa-test-case-report\.json$/i]),
     traceability: await readJson([/traceability-validation-matrix\.json$/i, /requirement-traceability\.json$/i]),
+    requirementTraceability: await readJson([/requirement-traceability\.json$/i]),
+    generatedTestMeta: await readJson([/ai-generation\/GeneratedTestMeta\.json$/i, /GeneratedTestMeta\.json$/i]),
+    generatedTestTraceability: await readJson([/ai-generation\/GeneratedTestTraceability\.json$/i, /GeneratedTestTraceability\.json$/i]),
+    testScriptManifest: await readJson([/test-script-manifest\.json$/i]),
     coverageGap: await readJson([/coverage-gap-analysis\.json$/i]),
     codeSuggestions: await readJson([/code-improvement-suggestions\.json$/i]),
     progressStatus: await readJson([/ai-generation\/progress-status\.json$/i, /progress-status\.json$/i]),
     browserSmoke: await readJson([/frontend\/browser-smoke-report\.json$/i, /browser-smoke-report\.json$/i]),
     frontendSmoke: await readJson([/frontend\/frontend-smoke-report\.json$/i, /frontend-smoke-report\.json$/i]),
   };
+}
+
+function base64ToByteLength(value) {
+  const text = String(value || '');
+  if (!text) return 0;
+  const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((text.length * 3) / 4) - padding);
+}
+
+function mimeTypeForFile(name) {
+  const lower = String(name || '').toLowerCase();
+  if (lower.endsWith('.json')) return 'application/json';
+  if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (lower.endsWith('.html')) return 'text/html';
+  if (lower.endsWith('.md')) return 'text/markdown';
+  if (lower.endsWith('.txt') || lower.endsWith('.log')) return 'text/plain';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.java')) return 'text/plain';
+  return 'application/octet-stream';
 }
 
 function findZipEntry(zip, patterns) {
@@ -1337,7 +1412,7 @@ function mergeRunDetails(primary, fallback) {
     ...primary,
   };
 
-  const metricKeys = ['testsTotal', 'testsPassed', 'testsFailed', 'testsSkipped', 'bddTotal', 'bddCovered', 'bddUncovered', 'codeCoverage', 'coverageAi'];
+  const metricKeys = ['testsTotal', 'testsPassed', 'testsFailed', 'testsSkipped', 'bddTotal', 'bddCovered', 'bddUncovered', 'codeCoverage', 'coverageAi', 'aiGenerated', 'aiAccepted', 'aiRejected'];
   for (const key of metricKeys) {
     const fallbackValue = Number(fallback[key]);
     const primaryValue = Number(primary[key]);
