@@ -199,6 +199,9 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const bddScenarios = liveReports.traceability
     ? buildLiveTraceabilityRows(liveReports.traceability)
     : buildBddScenarios({ documents: docList, gapResults: gapState });
+  const testScripts = liveReports.qaReport || liveReports.testScriptManifest
+    ? buildLiveTestScripts(liveReports)
+    : [];
   const reports = liveReports.reportFiles?.length
     ? buildLiveReports(liveReports.reportFiles, liveArtifacts)
     : buildReports({ selectedRun: hydratedRun, documents: docList, gapResults: gapState });
@@ -272,6 +275,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
     pipelineJobs,
     testRows,
     bddScenarios,
+    testScripts,
     reports,
     aiDetails,
     codeQuality,
@@ -525,7 +529,7 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   const coverageAi = numberFrom(qaSummary.coverage_percent, bddTotal ? Math.round((bddCovered / bddTotal) * 100) : 0, run.coverageAi);
   return {
     ...run,
-    projectName: manifest?.runId || cleanPackageName(manifest?.packageName) || run.projectName,
+    projectName: cleanPackageName(manifest?.packageName) || run.projectName,
     packageName: manifest?.packageName || run.packageName,
     packagePath: manifest?.packagePath || run.packagePath,
     manifestPath: manifest?.manifestPath || run.manifestPath,
@@ -600,6 +604,14 @@ function buildLiveTestRows(qaReport) {
     testCaseId: row.testCaseId,
     scriptId: row.scriptId,
     scenarioId: row.scenarioId,
+    requirementId: row.requirementId,
+    priority: row.priority,
+    preconditions: row.preconditions,
+    steps: row.testSteps || row.steps,
+    testData: row.testData || row.test_data,
+    expectedResult: row.expectedResult || row.expected_result,
+    description: row.description,
+    technique: row.testDesignTechnique,
     failureReason: row.failureReason || row.failure_reason || row.reason,
     linkedScenarios: Array.isArray(row.linked_bdd_scenarios) ? row.linked_bdd_scenarios.length : undefined,
   }));
@@ -623,6 +635,37 @@ function buildLiveTraceabilityRows(traceability) {
     testCaseId: row.testCaseId,
     scriptId: row.scriptId,
     file: row.file || row.sourceBddFile || row.source_feature_file,
+    requirementId: row.requirementId,
+    sourceBddFile: row.sourceBddFile || row.source_feature_file,
+    sourceBrdFile: row.sourceBrdFile,
+    steps: row.steps,
+    expectedResult: row.expectedResult || row.expected_result,
+    coverageSource: row.coverageSource || row.coverage_source,
+    linkedScripts: row.linkedScripts,
+  }));
+}
+
+function buildLiveTestScripts(reports) {
+  const manifestScripts = Array.isArray(reports?.testScriptManifest?.scripts) ? reports.testScriptManifest.scripts : [];
+  const qaScripts = Array.isArray(reports?.qaReport?.test_scripts) ? reports.qaReport.test_scripts : [];
+  const scripts = manifestScripts.length ? manifestScripts : qaScripts;
+  return scripts.slice(0, 120).map((row) => ({
+    id: row.scriptId || row.file || row.className,
+    scriptId: row.scriptId,
+    testCaseId: row.testCaseId,
+    scenarioId: row.scenarioId,
+    feature: row.feature || 'Feature',
+    scenario: row.scenario || 'Scenario',
+    file: row.file || row.generated_test_file || row.source_file,
+    packageName: row.packageName,
+    className: row.className,
+    methodName: row.methodName || row.generated_test_method,
+    qualifiedName: row.qualifiedName,
+    scriptType: row.scriptType || row.testType,
+    status: String(row.status || row.result || row.executionStatus || 'not_run').toLowerCase().replace(/\s+/g, '_'),
+    result: row.result || row.executionResult || row.status,
+    duration: row.duration || row.durationMs,
+    failureReason: row.failureReason || row.reason,
   }));
 }
 
@@ -630,7 +673,7 @@ function buildLiveReports(reportFiles, artifacts) {
   const artifactMap = new Map((artifacts || []).map((artifact) => [artifact.name, artifact]));
   return reportFiles
     .map((file) => (typeof file === 'string' ? { name: file } : file))
-    .filter((file) => /\.(json|html|xlsx|txt|xml|md|png|log|java)$/i.test(file.name || ''))
+    .filter((file) => /\.(zip|json|html|xlsx|txt|xml|md|png|log|java)$/i.test(file.name || ''))
     .slice(0, 120)
     .map((file) => ({
       ...file,
@@ -1130,9 +1173,16 @@ function normalizeRemoteRun(run, workspaceState) {
   if (!run) return null;
   const status = String(run.status || '').toLowerCase();
   const conclusion = String(run.conclusion || '').toLowerCase();
+  const displayTitle = String(run.display_title || '').trim();
+  const workflowName = String(run.name || 'Main CI').trim();
+  const workspacePackage = workspaceState.package_name || workspaceState.selected_package?.name || '';
+  const projectName = cleanPackageName(workspacePackage)
+    || (/^ci pipeline$/i.test(displayTitle) ? portalConfig.repo : displayTitle)
+    || portalConfig.repo;
   return {
     runNumber: Number(run.run_number || 0),
-    projectName: run.display_title || run.name || workspaceState.package_name || workspaceState.name || portalConfig.repo,
+    projectName,
+    workflowName,
     status: status === 'completed'
       ? conclusion === 'success'
         ? 'success'
@@ -1159,7 +1209,7 @@ function normalizeRemoteRun(run, workspaceState) {
     createdAt: run.created_at || run.updated_at || new Date().toISOString(),
     updatedAt: run.updated_at || run.completed_at || run.created_at || new Date().toISOString(),
     source: 'github',
-    packageName: workspaceState.package_name || workspaceState.selected_package?.name || portalConfig.repo,
+    packageName: workspacePackage || portalConfig.repo,
     packagePath: '',
     manifestPath: '',
     bddPaths: [],
@@ -1245,12 +1295,22 @@ async function loadQualityReportsFromArtifacts(artifacts) {
   }
 
   const blob = await downloadArtifactArchive(qualityArtifact.archive_download_url);
-  const zip = await JSZip.loadAsync(blob);
+  const archiveBuffer = await blob.arrayBuffer();
+  const archiveBase64 = arrayBufferToBase64(archiveBuffer);
+  const zip = await JSZip.loadAsync(archiveBuffer);
   const reportEntryNames = Object.keys(zip.files)
     .filter((name) => !zip.files[name].dir)
     .sort();
-  const reportFiles = await Promise.all(
-    reportEntryNames.map(async (entryName) => {
+  const reportFiles = [
+    {
+      name: `${qualityArtifact.name || 'quality-reports'}.zip`,
+      size: archiveBuffer.byteLength,
+      mimeType: 'application/zip',
+      downloadName: `${qualityArtifact.name || 'quality-reports'}.zip`,
+      downloadHref: `data:application/zip;base64,${archiveBase64}`,
+      bundle: true,
+    },
+    ...(await Promise.all(reportEntryNames.map(async (entryName) => {
       const name = stripFinalReportPrefix(entryName);
       const entry = zip.files[entryName];
       const base64 = await entry.async('base64');
@@ -1261,8 +1321,8 @@ async function loadQualityReportsFromArtifacts(artifacts) {
         downloadName: name.split('/').pop() || name,
         downloadHref: `data:${mimeTypeForFile(name)};base64,${base64}`,
       };
-    })
-  );
+    }))),
+  ];
   const readJson = async (patterns) => {
     const entryName = findZipEntry(zip, patterns);
     if (!entryName) return null;
@@ -1296,6 +1356,16 @@ function base64ToByteLength(value) {
   if (!text) return 0;
   const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
   return Math.max(0, Math.floor((text.length * 3) / 4) - padding);
+}
+
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function mimeTypeForFile(name) {
@@ -1398,6 +1468,7 @@ function buildJobSummary(job) {
 
 function describeReportFile(name) {
   const value = String(name || '');
+  if (/quality-reports.*\.zip$/i.test(value)) return 'Complete GitHub Actions quality-report artifact bundle.';
   if (/qa-test-case-report\.json$/i.test(value)) return 'Test case execution and AI script acceptance evidence.';
   if (/qa-test-case-report\.xlsx$/i.test(value)) return 'Excel handoff version of the QA test report.';
   if (/traceability|requirement-traceability/i.test(value)) return 'Requirement, BDD scenario, script, and execution traceability evidence.';

@@ -31,15 +31,18 @@ const topTabs = [
 ];
 
 const pipelineTabs = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'workflow', label: 'Workflow' },
   { id: 'stages', label: 'Stages' },
-  { id: 'tests', label: 'Tests' },
-  { id: 'traceability', label: 'Traceability' },
+  { id: 'test-cases', label: 'Test Cases' },
+  { id: 'bdd', label: 'BDD Scenarios' },
+  { id: 'test-scripts', label: 'Test Scripts' },
   { id: 'ai', label: 'AI' },
-  { id: 'frontend', label: 'Frontend' },
   { id: 'quality', label: 'Quality' },
+  { id: 'frontend', label: 'Frontend' },
   { id: 'reports', label: 'Reports' },
 ];
+
+const PAGE_SIZE = 12;
 
 const statusTone = {
   success: 'text-emerald-700 bg-emerald-50 border-emerald-200',
@@ -53,10 +56,12 @@ export default function PipelineSummary() {
     queryKey: ['dashboard-snapshot'],
     queryFn: loadDashboardSnapshot,
     initialData: loadLocalDashboardSnapshot(),
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
   const [topTab, setTopTab] = useState('pipeline');
-  const [pipelineTab, setPipelineTab] = useState('overview');
+  const [pipelineTab, setPipelineTab] = useState('workflow');
 
   const run = useMemo(() => {
     const matched = (snapshot.runs || []).find((item) => String(item.runNumber) === String(runNumber));
@@ -67,6 +72,7 @@ export default function PipelineSummary() {
   const pipelineJobs = snapshot.pipelineJobs || [];
   const testRows = snapshot.testRows || [];
   const bddScenarios = snapshot.bddScenarios || [];
+  const testScripts = snapshot.testScripts || [];
   const aiDetails = snapshot.aiDetails || { recommendations: [] };
   const codeQuality = snapshot.codeQuality || {};
   const frontend = snapshot.frontend || {};
@@ -225,12 +231,13 @@ export default function PipelineSummary() {
                 </div>
               </section>
 
-              {pipelineTab === 'overview' && (
-                <OverviewTab run={run} pipelineJobs={pipelineJobs} reports={reports} aiDetails={aiDetails} frontend={frontend} workspace={workspace} />
+              {pipelineTab === 'workflow' && (
+                <WorkflowTab run={run} pipelineJobs={pipelineJobs} reports={reports} aiDetails={aiDetails} frontend={frontend} workspace={workspace} />
               )}
               {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
-              {pipelineTab === 'tests' && <TestResultsTab rows={testRows} run={run} reports={reports} />}
-              {pipelineTab === 'traceability' && <TraceabilityTab rows={bddScenarios} run={run} reports={reports} />}
+              {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
+              {pipelineTab === 'bdd' && <BddScenariosTab rows={bddScenarios} run={run} reports={reports} />}
+              {pipelineTab === 'test-scripts' && <TestScriptsTab rows={testScripts} reports={reports} />}
               {pipelineTab === 'ai' && <AiTab aiDetails={aiDetails} reports={reports} />}
               {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} reports={reports} />}
               {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} reports={reports} />}
@@ -262,8 +269,7 @@ export default function PipelineSummary() {
   );
 }
 
-function OverviewTab({ run, pipelineJobs, reports, aiDetails, frontend, workspace }) {
-  const relatedEvidence = buildWorkflowEvidence(workspace, reports);
+function WorkflowTab({ run, pipelineJobs, reports, aiDetails, frontend, workspace }) {
   const requirementEvidence = buildRequirementEvidence(workspace);
   return (
     <div className="space-y-6">
@@ -301,7 +307,6 @@ function OverviewTab({ run, pipelineJobs, reports, aiDetails, frontend, workspac
         </section>
       </div>
       <WorkflowPackagePanel workspace={workspace} evidence={requirementEvidence} />
-      {relatedEvidence.length ? <WorkflowEvidencePanel evidence={relatedEvidence} /> : null}
     </div>
   );
 }
@@ -313,9 +318,9 @@ function WorkspaceTab({ workspace, reports }) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-violet-600">Workspace Details</p>
-            <h2 className="mt-2 font-heading text-xl font-bold tracking-tight md:text-2xl">Requirement payload and published evidence</h2>
+            <h2 className="mt-2 font-heading text-xl font-bold tracking-tight md:text-2xl">VeriSpace flow and published evidence</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              This view is limited to workspace fields that can be verified from the active manifest and published reports.
+              This view follows the portal flow: upload or repository selection, AI/manual requirement selection, BRD/BDD generation, gap analysis, and CI evidence.
             </p>
           </div>
           <Package className="h-7 w-7 text-primary md:h-8 md:w-8" />
@@ -323,15 +328,15 @@ function WorkspaceTab({ workspace, reports }) {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[
-            ['Upload', workspace.uploadSource || 'Not selected', 'bg-violet-50'],
-            ['Package', workspace.packageName || 'Pending', 'bg-fuchsia-50'],
+            ['Flow trigger', workspace.uploadSource || 'Not selected', 'bg-violet-50'],
+            ['Selected package', workspace.packageName || 'Pending', 'bg-fuchsia-50'],
             ['Platform', workspace.platform || 'Unknown', 'bg-indigo-50'],
-            ['BRD', `${workspace.brdCount || 0} requirement file`, 'bg-emerald-50'],
-            ['BDD', `${workspace.bddCount || 0} feature files`, 'bg-amber-50'],
-            ['Traceability', workspace.traceabilityStatus || 'Review', 'bg-cyan-50'],
-            ['Gaps', `${workspace.gapCount || 0} uncovered scenarios`, 'bg-rose-50'],
-            ['Approval', workspace.approvalStatus || 'Pending review', 'bg-lime-50'],
-            ['Generated', workspace.generatedAt || 'Not generated yet', 'bg-slate-50'],
+            ['BRD source', `${workspace.brdCount || 0} requirement file`, 'bg-emerald-50'],
+            ['BDD scenarios', `${workspace.bddCount || 0} feature files`, 'bg-amber-50'],
+            ['Traceability result', workspace.traceabilityStatus || 'Review', 'bg-cyan-50'],
+            ['Gap analysis', `${workspace.gapCount || 0} uncovered scenarios`, 'bg-rose-50'],
+            ['Requirement selection', workspace.approvalStatus || 'Pending review', 'bg-lime-50'],
+            ['Generated at', workspace.generatedAt || 'Not generated yet', 'bg-slate-50'],
           ].map(([label, value, tone]) => (
             <div key={label} className={`rounded-2xl border border-border p-4 ${tone}`}>
               <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
@@ -443,14 +448,15 @@ function StagesTab({ pipelineJobs }) {
   );
 }
 
-function TestResultsTab({ rows, run, reports }) {
+function TestCasesTab({ rows, run, reports }) {
   const downloads = findReports(reports, [/qa-test-case-report\.xlsx$/i, /qa-test-case-report\.json$/i]);
+  const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
-        title="Test results"
+        title="Detailed test cases"
         eyebrow="QA workbook evidence"
-        description="Rows come from the published QA test case report, matching the Excel Test Cases and Test Scripts sheets."
+        description="Each row comes from the QA test-case report and includes scenario, steps, data, expected result, execution status, and linked script IDs when available."
         downloads={downloads}
       />
       <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -460,32 +466,44 @@ function TestResultsTab({ rows, run, reports }) {
         <MetricCard label="Not run" value={run.testsSkipped || 0} tone="bg-amber-50/70" />
       </div>
       <div className="mt-4 space-y-2">
-        {rows.map((row) => (
-          <div key={`${row.testCaseId || row.id || row.suite}-${row.name}`} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3">
-            <div>
-              <div className="font-semibold">{row.name}</div>
-              <div className="text-xs text-muted-foreground">{row.suite}</div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                {[row.testCaseId, row.scenarioId, row.type || 'test'].filter(Boolean).join(' - ')}
+        {pageRows.map((row) => (
+          <div key={`${row.testCaseId || row.id || row.suite}-${row.name}`} className="rounded-2xl border border-border bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold">{row.name}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{row.suite}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  {[row.testCaseId, row.requirementId, row.scenarioId, row.type, row.priority].filter(Boolean).map((item) => (
+                    <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5">{item}</span>
+                  ))}
+                </div>
               </div>
-              {row.failureReason ? <div className="mt-1 text-[11px] text-rose-600">{row.failureReason}</div> : null}
+              <Badge variant="outline" className="text-xs">{row.status}</Badge>
             </div>
-            <Badge variant="outline" className="text-xs">{row.status}</Badge>
+            {row.description ? <p className="mt-3 text-sm text-muted-foreground">{row.description}</p> : null}
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              <DetailBlock label="Preconditions" value={row.preconditions} />
+              <DetailBlock label="Steps" value={row.steps} />
+              <DetailBlock label="Test data / expected result" value={[row.testData, row.expectedResult].filter(Boolean).join('\n')} />
+            </div>
+            {row.failureReason ? <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700">{row.failureReason}</div> : null}
           </div>
         ))}
       </div>
+      <PaginationControls page={page} totalPages={totalPages} onPageChange={setPage} totalItems={rows.length} />
     </section>
   );
 }
 
-function TraceabilityTab({ rows, run, reports }) {
+function BddScenariosTab({ rows, run, reports }) {
   const downloads = findReports(reports, [/traceability-validation-matrix\.json$/i, /requirement-traceability\.json$/i, /qa-test-case-report\.xlsx$/i]);
+  const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
-        title="BDD traceability"
+        title="Normalized BDD scenarios"
         eyebrow="Requirement coverage"
-        description="Scenario rows are isolated here, with coverage status, execution result, script ID, and source file from traceability reports."
+        description="Normalized BDD scenarios with requirement IDs, feature names, source files, execution status, traceability, and linked scripts."
         downloads={downloads}
       />
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
@@ -495,19 +513,75 @@ function TraceabilityTab({ rows, run, reports }) {
         <MetricCard label="Uncovered" value={rows.filter((item) => item.status !== 'covered').length} tone="bg-amber-50/70" />
       </div>
       <div className="mt-4 space-y-2">
-        {rows.map((row) => (
-          <div key={`${row.id || row.feature}-${row.name}`} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3">
-            <div>
-              <div className="font-semibold">{row.name}</div>
-              <div className="text-xs text-muted-foreground">{row.feature}</div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                {[row.feature, row.testCaseId, row.scriptId, row.executionResult || row.status].filter(Boolean).join(' - ')}
+        {pageRows.map((row) => (
+          <div key={`${row.id || row.feature}-${row.name}`} className="rounded-2xl border border-border bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold">{row.name}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{row.feature}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  {[row.requirementId, row.testCaseId, row.scriptId, row.executionResult || row.status].filter(Boolean).map((item) => (
+                    <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5">{item}</span>
+                  ))}
+                </div>
               </div>
+              <Badge variant="outline" className="text-xs">{row.status}</Badge>
             </div>
-            <Badge variant="outline" className="text-xs">{row.status}</Badge>
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              <DetailBlock label="Source BDD" value={row.sourceBddFile || row.file} />
+              <DetailBlock label="Steps" value={row.steps} />
+              <DetailBlock label="Expected result / source" value={[row.expectedResult, row.coverageSource].filter(Boolean).join('\n')} />
+            </div>
           </div>
         ))}
       </div>
+      <PaginationControls page={page} totalPages={totalPages} onPageChange={setPage} totalItems={rows.length} />
+    </section>
+  );
+}
+
+function TestScriptsTab({ rows, reports }) {
+  const downloads = findReports(reports, [/test-script-manifest\.json$/i, /^generated-tests\//i, /^test-scripts\//i, /^rejected-ai-tests\//i]).slice(0, 8);
+  const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
+  const accepted = rows.filter((row) => /pass|accepted|success/i.test(row.status || row.result || '')).length;
+  const rejected = rows.filter((row) => /reject|fail|error/i.test(row.status || row.result || '')).length;
+  return (
+    <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
+      <TabHeader
+        title="Generated test scripts"
+        eyebrow="Script manifest"
+        description="Script-level details from the manifest: file, Java class, method, linked scenario, status, duration, and failure reason."
+        downloads={downloads}
+      />
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <MetricCard label="Scripts" value={rows.length} tone="bg-violet-50/70" />
+        <MetricCard label="Accepted / passed" value={accepted} tone="bg-emerald-50/70" />
+        <MetricCard label="Rejected / failed" value={rejected} tone="bg-rose-50/70" />
+      </div>
+      <div className="mt-4 space-y-2">
+        {pageRows.map((row) => (
+          <div key={`${row.id}-${row.file}`} className="rounded-2xl border border-border bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-semibold">{row.className || row.file || row.scriptId}</div>
+                <div className="mt-1 break-words text-xs text-muted-foreground">{row.file}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                  {[row.scriptId, row.testCaseId, row.scenarioId, row.scriptType].filter(Boolean).map((item) => (
+                    <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5">{item}</span>
+                  ))}
+                </div>
+              </div>
+              <Badge variant="outline" className="text-xs">{row.status}</Badge>
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              <DetailBlock label="Feature / scenario" value={[row.feature, row.scenario].filter(Boolean).join('\n')} />
+              <DetailBlock label="Java method" value={[row.packageName, row.methodName, row.qualifiedName].filter(Boolean).join('\n')} />
+              <DetailBlock label="Execution" value={[row.result, row.duration, row.failureReason].filter(Boolean).join('\n')} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <PaginationControls page={page} totalPages={totalPages} onPageChange={setPage} totalItems={rows.length} />
     </section>
   );
 }
@@ -631,31 +705,51 @@ function QualityTab({ codeQuality, reports }) {
 }
 
 function ReportsTab({ reports }) {
+  const groups = groupReports(reports);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
         title="Reports and downloads"
         eyebrow="Published artifact bundle"
-        description="Every listed item is a real file from the selected GitHub Actions quality-report artifact."
-        downloads={reports.filter((report) => /qa-test-case-report\.xlsx$|final-test-report\.html$/i.test(report.name || '')).slice(0, 2)}
+        description="Reports are grouped by purpose. Use the complete quality bundle for handoff, or download focused report groups/files as needed."
+        downloads={reports.filter((report) => report.bundle || /qa-test-case-report\.xlsx$|final-test-report\.html$/i.test(report.name || '')).slice(0, 3)}
       />
-      <div className="mt-4 space-y-3">
-        {reports.map((report) => (
-          <div key={report.name} className="rounded-2xl border border-border bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {groups.map((group) => (
+          <div key={group.title} className="rounded-2xl border border-border bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="font-semibold text-foreground">{report.name}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{report.desc}</p>
+                <h4 className="font-heading text-sm font-bold text-foreground">{group.title}</h4>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{group.description}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <ReportDownloadButton report={report} compact />
-                <FileBarChart className="h-5 w-5 text-primary" />
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                {group.files.length} file{group.files.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {group.files.slice(0, 8).map((report) => (
+                <div key={report.name} className="flex items-start justify-between gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-border">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{report.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{report.desc}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{report.type} - {report.size}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <ReportDownloadButton report={report} compact />
+                    <FileBarChart className="h-5 w-5 text-primary" />
+                  </div>
+                </div>
+              ))}
+              {group.files.length > 8 ? (
+                <p className="text-xs text-muted-foreground">Showing 8 of {group.files.length} files. Download the complete bundle for all files.</p>
+              ) : null}
+              {!group.files.length ? (
+                <div className="rounded-xl border border-dashed border-border bg-slate-50 px-3 py-3 text-xs text-muted-foreground">
+                  No files published for this group.
+                </div>
+              ) : null}
               </div>
             </div>
-            <div className="mt-3 text-[11px] text-muted-foreground">
-              {report.type} - {report.size}
-            </div>
-          </div>
         ))}
       </div>
     </section>
@@ -774,50 +868,41 @@ function EvidenceActionButtons({ item }) {
   );
 }
 
-function WorkflowEvidencePanel({ evidence }) {
+function DetailBlock({ label, value }) {
+  const display = Array.isArray(value) ? value.filter(Boolean).join('\n') : value;
   return (
-    <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-      <TabHeader
-        title="Related workflow evidence"
-        eyebrow="BRD, BDDs, quality reports"
-        description="Open source requirement files in GitHub, or download the exact report files published with this workflow."
-      />
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        {evidence.map((item) => (
-          <div key={`${item.type}-${item.name}`} className="rounded-2xl border border-border bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase text-primary">{item.type}</span>
-                  <span className="text-[11px] text-muted-foreground">{item.size || 'available'}</span>
-                </div>
-                <p className="mt-2 truncate text-sm font-semibold text-foreground">{item.name}</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.desc || item.path}</p>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                {item.viewHref ? (
-                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg px-2">
-                    <a href={item.viewHref} target="_blank" rel="noreferrer">
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      <span className="sr-only">View {item.name}</span>
-                    </a>
-                  </Button>
-                ) : null}
-                {item.downloadHref ? (
-                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg px-2">
-                    <a href={item.downloadHref} download={item.downloadName || item.name}>
-                      <Download className="h-3.5 w-3.5" />
-                      <span className="sr-only">Download {item.name}</span>
-                    </a>
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="rounded-xl bg-slate-50 px-3 py-3 ring-1 ring-border">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <p className="mt-2 whitespace-pre-line break-words text-xs leading-5 text-foreground">{display || 'Not recorded'}</p>
+    </div>
   );
+}
+
+function PaginationControls({ page, totalPages, onPageChange, totalItems }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-sm">
+      <span className="text-xs text-muted-foreground">
+        Page {page} of {totalPages} · {totalItems} total
+      </span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" className="h-8 rounded-lg" disabled={page <= 1} onClick={() => onPageChange((value) => Math.max(1, value - 1))}>
+          Prev
+        </Button>
+        <Button variant="outline" size="sm" className="h-8 rounded-lg" disabled={page >= totalPages} onClick={() => onPageChange((value) => Math.min(totalPages, value + 1))}>
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function usePagination(rows, pageSize) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil((rows?.length || 0) / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = (rows || []).slice((safePage - 1) * pageSize, safePage * pageSize);
+  return { pageRows, page: safePage, totalPages, setPage };
 }
 
 function TabHeader({ title, eyebrow, description, downloads = [] }) {
@@ -866,29 +951,60 @@ function buildRequirementEvidence(workspace) {
   };
 }
 
-function buildWorkflowEvidence(workspace, reports) {
-  const artifacts = Array.isArray(workspace?.artifacts) ? workspace.artifacts : [];
-  const sourceFiles = artifacts
-    .filter((artifact) => ['BRD', 'BDD', 'Gap analysis'].includes(artifact.type))
-    .slice(0, 8)
-    .map((artifact) => ({
-      ...artifact,
-      desc: artifact.path || artifact.size,
-    }));
-  const qualityFiles = (Array.isArray(reports) ? reports : [])
-    .filter((report) => /qa-test-case-report\.xlsx$|final-test-report\.html$|coverage-gap-analysis\.json$|code-improvement-suggestions\.json$|traceability-validation-matrix\.json$/i.test(report.name || ''))
-    .slice(0, 8)
-    .map((report) => ({
-      ...report,
-      type: 'Quality report',
-      viewHref: isPreviewableReport(report.name) ? report.downloadHref : '',
-      desc: report.desc,
-    }));
-  return [...sourceFiles, ...qualityFiles].slice(0, 12);
-}
+function groupReports(reports) {
+  const list = Array.isArray(reports) ? reports : [];
+  const groups = [
+    {
+      title: 'Complete quality bundle',
+      description: 'Full GitHub Actions artifact bundle for offline handoff.',
+      test: (name, report) => report.bundle || /quality-reports.*\.zip$/i.test(name),
+    },
+    {
+      title: 'Executive and QA reports',
+      description: 'Human-readable QA workbook and final HTML summary.',
+      test: (name) => /qa-test-case-report\.xlsx$|final-test-report\.html$/i.test(name),
+    },
+    {
+      title: 'Traceability reports',
+      description: 'Requirement, BDD, scenario, test case, and script mapping files.',
+      test: (name) => /traceability|requirement-traceability/i.test(name),
+    },
+    {
+      title: 'AI generation reports',
+      description: 'AI generation metadata, capability maps, normalized requirements, and rejected attempts.',
+      test: (name) => /^ai-generation\//i.test(name) || /GeneratedTest|NormalizedRequirements|CodeCapabilityMap|ScriptGenerationFailures/i.test(name),
+    },
+    {
+      title: 'Quality analysis reports',
+      description: 'Coverage gaps, improvement suggestions, build logs, and quality signals.',
+      test: (name) => /coverage-gap-analysis|code-improvement-suggestions|maven-test-output/i.test(name),
+    },
+    {
+      title: 'Generated and copied scripts',
+      description: 'Accepted, rejected, and copied Java test scripts from the artifact bundle.',
+      test: (name) => /^(generated-tests|test-scripts|rejected-ai-tests)\//i.test(name),
+    },
+    {
+      title: 'Frontend evidence',
+      description: 'Browser smoke reports, screenshots, and frontend journey evidence.',
+      test: (name) => /^frontend\//i.test(name) || /frontend-smoke|browser-smoke/i.test(name),
+    },
+  ];
 
-function isPreviewableReport(name) {
-  return /\.(html|json|txt|md|log)$/i.test(String(name || ''));
+  const grouped = groups.map((group) => ({
+    ...group,
+    files: list.filter((report) => group.test(String(report.name || ''), report)),
+  }));
+  const groupedNames = new Set(grouped.flatMap((group) => group.files.map((file) => file.name)));
+  const other = list.filter((report) => !groupedNames.has(report.name));
+  if (other.length) {
+    grouped.push({
+      title: 'Other published files',
+      description: 'Additional raw files available in the artifact bundle.',
+      files: other,
+    });
+  }
+  return grouped.filter((group) => group.files.length);
 }
 
 function shortReportLabel(name) {

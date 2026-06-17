@@ -7,7 +7,6 @@ import {
   Brain,
   CheckCircle2,
   Clock,
-  Download,
   ExternalLink,
   Filter,
   FlaskConical,
@@ -98,74 +97,14 @@ function KpiTile({ icon: Icon, label, value, sub, tone }) {
   );
 }
 
-function EvidenceCard({ item }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase text-primary">
-              {item.type}
-            </span>
-            <span className="text-[11px] text-muted-foreground">{item.size || 'available'}</span>
-          </div>
-          <p className="mt-2 truncate text-sm font-semibold text-foreground">{item.name}</p>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.desc || item.path}</p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {item.viewHref ? (
-            <Button asChild variant="outline" size="sm" className="h-8 rounded-lg px-2">
-              <a href={item.viewHref} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span className="sr-only">View {item.name}</span>
-              </a>
-            </Button>
-          ) : null}
-          {item.downloadHref ? (
-            <Button asChild variant="outline" size="sm" className="h-8 rounded-lg px-2">
-              <a href={item.downloadHref} download={item.downloadName || item.name}>
-                <Download className="h-3.5 w-3.5" />
-                <span className="sr-only">Download {item.name}</span>
-              </a>
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function buildWorkflowEvidence(workspace, reports) {
-  const artifacts = Array.isArray(workspace?.artifacts) ? workspace.artifacts : [];
-  const sourceFiles = artifacts
-    .filter((artifact) => ['BRD', 'BDD', 'Gap analysis'].includes(artifact.type))
-    .slice(0, 6)
-    .map((artifact) => ({
-      ...artifact,
-      desc: artifact.path || artifact.size,
-    }));
-  const qualityFiles = (Array.isArray(reports) ? reports : [])
-    .filter((report) => /qa-test-case-report\.xlsx$|final-test-report\.html$|coverage-gap-analysis\.json$|code-improvement-suggestions\.json$|traceability-validation-matrix\.json$/i.test(report.name || ''))
-    .slice(0, 6)
-    .map((report) => ({
-      ...report,
-      type: 'Quality report',
-      viewHref: isPreviewableReport(report.name) ? report.downloadHref : '',
-      desc: report.desc,
-    }));
-  return [...sourceFiles, ...qualityFiles].slice(0, 10);
-}
-
-function isPreviewableReport(name) {
-  return /\.(html|json|txt|md|log)$/i.test(String(name || ''));
-}
-
 export default function DashboardPage() {
   const { data: snapshot = loadLocalDashboardSnapshot(), isFetching, refetch } = useQuery({
     queryKey: ['dashboard-snapshot'],
     queryFn: loadDashboardSnapshot,
     initialData: loadLocalDashboardSnapshot(),
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   const overview = snapshot.overview;
@@ -196,7 +135,6 @@ export default function DashboardPage() {
   }, [runs, selectedId, snapshot.selectedRun]);
 
   const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot.selectedRun ?? runs[0] ?? null;
-  const workspace = snapshot.workspace || {};
   const frontendJourneys = snapshot.frontend?.totalJourneys || 0;
   const frontendPassed = snapshot.frontend?.passedJourneys || 0;
   const aiExecuted = snapshot.aiDetails?.executed || 0;
@@ -214,11 +152,6 @@ export default function DashboardPage() {
   const currentPage = Math.min(page, totalPages);
   const pagedRuns = filtered.slice((currentPage - 1) * RUNS_PER_PAGE, currentPage * RUNS_PER_PAGE);
   const selectedBddCoverage = Math.round((selectedRun?.bddCovered || 0) / Math.max(selectedRun?.bddTotal || 1, 1) * 100);
-  const relatedEvidence = useMemo(
-    () => buildWorkflowEvidence(workspace, snapshot.reports || []),
-    [workspace, snapshot.reports]
-  );
-
   const heroMetrics = [
     { icon: TrendingUp, label: 'Success Rate', value: `${overview.successRate}%` },
     { icon: AlertCircle, label: 'Active Issues', value: String(overview.activeIssues) },
@@ -340,6 +273,7 @@ export default function DashboardPage() {
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                             <GitBranch className="h-3 w-3" /> {run.branch}
                             <Clock className="h-3 w-3" /> {run.duration}
+                            <span>{run.workflowName || 'Main CI'}</span>
                             <span>{run.age}</span>
                           </div>
                         </div>
@@ -441,28 +375,6 @@ export default function DashboardPage() {
                   <p className="mt-1 text-xs text-muted-foreground">{frontendPassed}/{frontendJourneys} frontend journeys passed</p>
                 </div>
               </div>
-
-              {relatedEvidence.length ? (
-                <div className="mt-5 rounded-2xl border border-border bg-background p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <SectionLabel inline>Related Evidence</SectionLabel>
-                      <h3 className="mt-1 text-sm font-bold text-foreground">BRD, BDDs, and quality reports</h3>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        View source files in GitHub or download the exact artifact-backed files for this workflow.
-                      </p>
-                    </div>
-                    <Link to={`/summary/${selectedRun?.runNumber || 1}?tab=reports`} className="text-sm font-semibold text-primary hover:underline">
-                      Open all reports <ArrowRight className="ml-1 inline-block h-4 w-4" />
-                    </Link>
-                  </div>
-                  <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                    {relatedEvidence.map((item) => (
-                      <EvidenceCard key={`${item.type}-${item.name}`} item={item} />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
 
               <div className="mt-5 rounded-2xl border border-border bg-background p-4">
                 <div className="flex items-center justify-between">
