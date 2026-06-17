@@ -544,10 +544,11 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   const traceSummary = reports?.traceability?.summary || {};
   const aiMeta = reports?.generatedTestMeta || {};
   const frontend = reports?.browserSmoke || {};
-  const testsTotal = numberFrom(qaSummary.total_test_cases, qaSummary.plannedTestCases, qaSummary.total_unique_test_methods, run.testsTotal);
-  const testsPassed = numberFrom(qaSummary.passed, qaSummary.scripts_passed, run.testsPassed);
-  const testsFailed = numberFrom(qaSummary.failed, qaSummary.scripts_failed, qaSummary.errors, run.testsFailed);
-  const testsSkipped = numberFrom(qaSummary.not_run, qaSummary.scripts_not_run, qaSummary.skipped, qaSummary.rejectedGeneratedScripts, run.testsSkipped);
+  const rowSummary = summarizeQaRows(reports?.qaReport);
+  const testsTotal = numberFrom(rowSummary.total, qaSummary.total_test_cases, qaSummary.plannedTestCases, qaSummary.total_unique_test_methods, run.testsTotal);
+  const testsPassed = numberFrom(rowSummary.passed, qaSummary.passed, qaSummary.scripts_passed, run.testsPassed);
+  const testsFailed = numberFrom(rowSummary.failed, qaSummary.failed, qaSummary.scripts_failed, qaSummary.errors, run.testsFailed);
+  const testsSkipped = numberFrom(rowSummary.notRun, qaSummary.not_run, qaSummary.scripts_not_run, qaSummary.skipped, Math.max(0, testsTotal - testsPassed - testsFailed), run.testsSkipped);
   const bddTotal = numberFrom(traceSummary.scenarios, traceSummary.rows, traceSummary.scenarios_found, testsTotal, run.bddTotal);
   const bddCovered = numberFrom(traceSummary.covered_rows, traceSummary.covered_scenarios, qaSummary.covered_scenarios, testsPassed, run.bddCovered);
   const bddUncovered = numberFrom(traceSummary.uncovered_rows, traceSummary.uncovered_scenarios, qaSummary.uncovered_scenarios, Math.max(0, bddTotal - bddCovered), run.bddUncovered);
@@ -578,6 +579,41 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
     aiAccepted: numberFrom(qaSummary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests, qaSummary.generatedScripts),
     aiRejected: numberFrom(qaSummary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests),
   };
+}
+
+function summarizeQaRows(qaReport) {
+  const rows = Array.isArray(qaReport?.trusted_test_cases)
+    ? qaReport.trusted_test_cases
+    : Array.isArray(qaReport?.test_cases)
+      ? qaReport.test_cases
+      : Array.isArray(qaReport?.tests)
+        ? qaReport.tests
+        : [];
+
+  if (!rows.length) {
+    return { total: 0, passed: 0, failed: 0, notRun: 0 };
+  }
+
+  return rows.reduce((summary, row) => {
+    const status = normalizeExecutionStatus(row?.result || row?.executionStatus || row?.status);
+    summary.total += 1;
+    if (status === 'passed') {
+      summary.passed += 1;
+    } else if (status === 'failed') {
+      summary.failed += 1;
+    } else {
+      summary.notRun += 1;
+    }
+    return summary;
+  }, { total: 0, passed: 0, failed: 0, notRun: 0 });
+}
+
+function normalizeExecutionStatus(value) {
+  const normalized = String(value || '').toLowerCase().replace(/\s+/g, '_');
+  if (normalized === 'passed' || normalized === 'success') return 'passed';
+  if (normalized === 'failed' || normalized === 'failure' || normalized === 'error') return 'failed';
+  if (normalized === 'skipped') return 'not_run';
+  return 'not_run';
 }
 
 function isSamePipelineRun(left, right) {
@@ -1379,8 +1415,8 @@ async function loadQualityReportsFromArtifacts(artifacts, options = {}) {
         }))),
       ]
     : [{ name: `${qualityArtifact.name || 'quality-reports'}.zip`, size: archiveBuffer.byteLength, bundle: true }];
-  const readJson = async (patterns) => {
-    const entryName = findZipEntry(zip, patterns);
+  const readJson = async (patterns, options = {}) => {
+    const entryName = findZipEntry(zip, patterns, options);
     if (!entryName) return null;
     try {
       return JSON.parse(await zip.files[entryName].async('string'));
@@ -1393,7 +1429,7 @@ async function loadQualityReportsFromArtifacts(artifacts, options = {}) {
     artifactName: qualityArtifact.name,
     artifactSize: qualityArtifact.size_in_bytes,
     reportFiles,
-    qaReport: await readJson([/qa-test-case-report\.json$/i]),
+    qaReport: await readJson([/qa-test-case-report\.json$/i], { preferRoot: true }),
     traceability: await readJson([/traceability-validation-matrix\.json$/i, /requirement-traceability\.json$/i]),
     requirementTraceability: await readJson([/requirement-traceability\.json$/i]),
     generatedTestMeta: await readJson([/ai-generation\/GeneratedTestMeta\.json$/i, /GeneratedTestMeta\.json$/i]),
@@ -1444,8 +1480,24 @@ function repoRawUrl(path) {
   return `https://raw.githubusercontent.com/${portalConfig.owner}/${portalConfig.repo}/${portalConfig.branch}/${encodeURI(String(path || ''))}`;
 }
 
-function findZipEntry(zip, patterns) {
-  return Object.keys(zip.files).find((name) => !zip.files[name].dir && patterns.some((pattern) => pattern.test(stripFinalReportPrefix(name))));
+function findZipEntry(zip, patterns, options = {}) {
+  const matches = Object.keys(zip.files)
+    .filter((name) => !zip.files[name].dir && patterns.some((pattern) => pattern.test(stripFinalReportPrefix(name))))
+    .sort((left, right) => scoreZipEntry(left, options) - scoreZipEntry(right, options));
+  return matches[0];
+}
+
+function scoreZipEntry(name, options = {}) {
+  const normalized = stripFinalReportPrefix(name);
+  const depth = normalized.split('/').length;
+  const isAiGeneration = normalized.startsWith('ai-generation/');
+  const isRoot = depth === 1;
+  let score = depth * 10;
+  if (options.preferRoot) {
+    if (isRoot) score -= 50;
+    if (isAiGeneration) score += 50;
+  }
+  return score;
 }
 
 function stripFinalReportPrefix(path) {

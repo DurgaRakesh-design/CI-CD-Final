@@ -122,12 +122,12 @@ function formatRunExecutionSummary(run) {
   const notRun = Number(run.testsSkipped || 0);
   const total = Number(run.testsTotal || 0);
   if (total > 0) {
-    return `${total} test cases | ${passed} passed | ${failed} failed | ${notRun} not run`;
+    return `${run.projectName || 'Selected package'} on ${run.branch || 'develop'} via ${run.workflowName || 'CI Pipeline'}. ${total} test cases | ${passed} passed | ${failed} failed | ${notRun} not run.`;
   }
   const covered = Number(run.bddCovered || 0);
   const scenarios = Number(run.bddTotal || 0);
   if (scenarios > 0) {
-    return `${covered}/${scenarios} scenarios covered`;
+    return `${run.projectName || 'Selected package'} on ${run.branch || 'develop'} via ${run.workflowName || 'CI Pipeline'}. ${covered}/${scenarios} scenarios covered.`;
   }
   return 'Waiting for published execution evidence';
 }
@@ -220,12 +220,10 @@ export default function DashboardPage() {
                   ? `Run #${heroRun.runNumber} is currently executing`
                   : `Run #${heroRun?.runNumber || '0'} is the latest completed pipeline`}
               </h1>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-white/85">
-                {(heroRun?.projectName || 'Selected package')} on {heroRun?.branch || 'develop'} via {heroRun?.workflowName || 'CI workflow'}.
-                {' '}
-                {formatRunExecutionSummary(heroRun)}.
+              <p className="mt-1 max-w-none text-sm leading-6 text-white/85 lg:whitespace-nowrap">
+                {formatRunExecutionSummary(heroRun)}
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium">
                   <Play className="h-3 w-3" /> {heroStageSummary}
                 </span>
@@ -338,6 +336,8 @@ export default function DashboardPage() {
                           <span className="font-semibold text-foreground">{run.testsPassed || 0} passed</span>
                           {' | '}
                           <span>{run.testsFailed || 0} failed</span>
+                          {' | '}
+                          <span>{run.testsSkipped || 0} not run</span>
                         </div>
                         <div className="text-[11px] text-muted-foreground">
                           {run.bddCovered || 0}/{run.bddTotal || 0} covered
