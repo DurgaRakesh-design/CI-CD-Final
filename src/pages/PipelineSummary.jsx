@@ -12,13 +12,10 @@ import {
   FileBarChart,
   GitBranch,
   Layers,
-  Monitor,
   Package,
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  TestTube2,
-  WandSparkles,
   Zap,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -31,15 +28,15 @@ const topTabs = [
 ];
 
 const pipelineTabs = [
-  { id: 'workflow', label: 'Workflow' },
-  { id: 'stages', label: 'Stages' },
-  { id: 'test-cases', label: 'Test Cases' },
+  { id: 'overview', label: 'Overview' },
   { id: 'bdd', label: 'BDD Scenarios' },
+  { id: 'test-cases', label: 'Test Cases' },
   { id: 'test-scripts', label: 'Test Scripts' },
   { id: 'ai', label: 'AI' },
   { id: 'quality', label: 'Quality' },
   { id: 'frontend', label: 'Frontend' },
   { id: 'reports', label: 'Reports' },
+  { id: 'stages', label: 'Stages' },
 ];
 
 const PAGE_SIZE = 12;
@@ -75,7 +72,7 @@ export default function PipelineSummary() {
     refetchOnWindowFocus: true,
   });
   const [topTab, setTopTab] = useState('pipeline');
-  const [pipelineTab, setPipelineTab] = useState('workflow');
+  const [pipelineTab, setPipelineTab] = useState('overview');
 
   const run = useMemo(() => {
     const matched = (snapshot?.runs || []).find((item) => String(item.runNumber) === String(runNumber));
@@ -83,7 +80,6 @@ export default function PipelineSummary() {
   }, [runNumber, snapshot?.runs, snapshot?.selectedRun]);
 
   const workspace = snapshot?.workspace || {};
-  const pipelineJobs = snapshot?.pipelineJobs || [];
   const testRows = snapshot?.testRows || [];
   const bddScenarios = snapshot?.bddScenarios || [];
   const testScripts = snapshot?.testScripts || [];
@@ -91,18 +87,7 @@ export default function PipelineSummary() {
   const codeQuality = snapshot?.codeQuality || {};
   const frontend = snapshot?.frontend || {};
   const reports = snapshot?.reports || [];
-  const hasRemoteRuns = Boolean(snapshot?.remoteAvailable);
-  const hasLocalRuns = Boolean(snapshot?.selectedRun || (snapshot?.runs || []).length);
-  const sourceLabel = hasRemoteRuns
-    ? 'GitHub workflow runs'
-    : hasLocalRuns
-      ? 'Local workspace snapshot'
-      : 'No pipeline data yet';
-  const sourceBody = hasRemoteRuns
-    ? 'This summary is populated from the latest GitHub workflow run data.'
-    : hasLocalRuns
-      ? 'GitHub workflow data is not reachable right now, so this summary is using the local workspace snapshot.'
-      : 'Trigger a run from Workspace to generate a populated summary.';
+  const pipelineJobs = run?.pipelineJobs || snapshot?.pipelineJobs || [];
 
   const readiness = typeof run?.readinessScore === 'number'
     ? run.readinessScore
@@ -147,57 +132,48 @@ export default function PipelineSummary() {
         </Button>
 
         <section className="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-[0_24px_90px_-50px_rgba(79,70,229,.55)] backdrop-blur-2xl md:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="rounded-full bg-violet-50 px-3 py-1 text-violet-700 hover:bg-violet-50">
-                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                  Pipeline Summary
-                </Badge>
-                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase ${statusTone[run.status] || statusTone.running}`}>
-                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                  {run.status === 'failure' ? 'Needs Review' : run.status === 'running' ? 'Running' : 'Success'}
-                </span>
-                <Badge variant="outline" className="rounded-full text-[11px]">
-                  Run #{run.runNumber} - {run.mode || 'workspace'}
-                </Badge>
+          <div className="rounded-[28px] bg-[linear-gradient(135deg,rgba(79,70,229,.12),rgba(168,85,247,.08),rgba(16,185,129,.08))] p-5 md:p-6">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 max-w-4xl flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="rounded-full bg-violet-100 px-3 py-1 text-violet-700 hover:bg-violet-100">
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      Pipeline Summary
+                    </Badge>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase ${statusTone[run.status] || statusTone.running}`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {run.status === 'failure' ? 'Needs Review' : run.status === 'running' ? 'Running' : 'Success'}
+                    </span>
+                    <Badge variant="outline" className="rounded-full text-[11px]">
+                      Run #{run.runNumber} - {run.mode || 'workspace'}
+                    </Badge>
+                  </div>
+                  <Button variant="outline" className="rounded-full bg-white/90 shadow-sm" onClick={() => refetch()} disabled={isFetching}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {isFetching ? 'Refreshing' : 'Refresh'}
+                  </Button>
+                </div>
+                <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">{run.projectName || 'Workspace'}</h1>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                  Live CI summary backed by the selected workflow run and published evidence bundle.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500 md:text-sm">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5"><GitBranch className="h-4 w-4" />{run.branch || 'develop'}</span>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5"><Clock className="h-4 w-4" />{run.duration || 'pending'}</span>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5"><BarChart3 className="h-4 w-4" />{isFetching ? 'Refreshing...' : 'Live snapshot'}</span>
+                </div>
               </div>
-              <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight md:text-3xl">{run.projectName || 'Workspace'}</h1>
-              <p className="mt-3 max-w-2xl text-xs leading-6 text-muted-foreground md:text-sm">
-                This summary only shows data that is backed by the active CI workflow and the published report bundle.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground md:text-sm">
-                <span className="inline-flex items-center gap-2"><GitBranch className="h-4 w-4" />{run.branch || 'develop'}</span>
-                <span className="inline-flex items-center gap-2"><Clock className="h-4 w-4" />{run.duration || 'pending'}</span>
-                <span className="inline-flex items-center gap-2"><BarChart3 className="h-4 w-4" />{isFetching ? 'Refreshing...' : 'Live snapshot'}</span>
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button variant="outline" className="rounded-full bg-white" onClick={() => refetch()} disabled={isFetching}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {isFetching ? 'Refreshing' : 'Refresh'}
-                </Button>
-              </div>
-            </div>
-            <ReadinessGauge value={readiness} status={run.status} />
-          </div>
-          <div className="mt-6 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Data source</p>
-                <h3 className="mt-1 font-heading text-base font-bold">{sourceLabel}</h3>
-                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{sourceBody}</p>
-              </div>
-              <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${hasRemoteRuns ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'}`}>
-                {hasRemoteRuns ? 'Connected' : hasLocalRuns ? 'Fallback active' : 'Waiting for run'}
-              </span>
+              <ReadinessGauge value={readiness} status={run.status} covered={run.bddCovered || 0} total={run.bddTotal || 0} />
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-            <MetricCard label="Executed Tests" value={`${run.testsPassed || 0}/${run.testsTotal || 0}`} sub={`${run.testsSkipped || 0} scenarios not run`} tone="bg-violet-50/70" />
-            <MetricCard label="Traceability" value={`${run.bddCovered || 0}/${run.bddTotal || 0}`} sub={`${run.bddUncovered || 0} uncovered scenarios`} tone="bg-indigo-50/70" />
-            <MetricCard label="AI Scripts" value={`${aiDetails.executed || 0}/${aiDetails.generated || 0}`} sub={`${aiDetails.rejected || 0} rejected`} tone="bg-amber-50/70" />
-            <MetricCard label="Frontend Journeys" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub={frontend.visual || 'No evidence'} tone="bg-emerald-50/70" />
+          <div className="mt-6 grid gap-4 md:grid-cols-5">
+            <MetricCard label="Test Cases" value={run.testsTotal || 0} sub={`${run.testsPassed || 0} passed | ${run.testsFailed || 0} failed | ${run.testsSkipped || 0} not run`} tone="bg-[linear-gradient(135deg,rgba(139,92,246,.12),rgba(99,102,241,.06))]" />
+            <MetricCard label="Scenario Coverage" value={`${run.bddCovered || 0}/${run.bddTotal || 0}`} sub={`${run.bddUncovered || 0} uncovered`} tone="bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.06))]" />
+            <MetricCard label="AI Test Scripts" value={`${aiDetails.executed || 0}/${aiDetails.generated || 0}`} sub="accepted / generated" tone="bg-[linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,191,36,.06))]" />
+            <MetricCard label="Frontend Journeys" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub={frontend.visual || 'Not detected'} tone="bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(45,212,191,.06))]" />
+            <MetricCard label="Published Reports" value={reports.length} sub="artifact files available" tone="bg-[linear-gradient(135deg,rgba(236,72,153,.12),rgba(217,70,239,.06))]" />
           </div>
         </section>
 
@@ -249,17 +225,15 @@ export default function PipelineSummary() {
                 </div>
               </section>
 
-              {pipelineTab === 'workflow' && (
-                <WorkflowTab run={run} pipelineJobs={pipelineJobs} aiDetails={aiDetails} frontend={frontend} workspace={workspace} reports={reports} />
-              )}
-              {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
-              {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
+              {pipelineTab === 'overview' && <OverviewTab workspace={workspace} />}
               {pipelineTab === 'bdd' && <BddScenariosTab rows={bddScenarios} run={run} reports={reports} />}
+              {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
               {pipelineTab === 'test-scripts' && <TestScriptsTab rows={testScripts} reports={reports} />}
               {pipelineTab === 'ai' && <AiTab aiDetails={aiDetails} reports={reports} />}
               {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} reports={reports} />}
               {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} reports={reports} />}
               {pipelineTab === 'reports' && <ReportsTab reports={reports} />}
+              {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
             </div>
           )}
         </section>
@@ -287,45 +261,10 @@ export default function PipelineSummary() {
   );
 }
 
-function WorkflowTab({ run, pipelineJobs, aiDetails, frontend, workspace, reports }) {
+function OverviewTab({ workspace }) {
   const requirementEvidence = buildRequirementEvidence(workspace);
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-          <h3 className="font-heading text-base font-bold">Primary CI workflow</h3>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Stages" value={pipelineJobs.length} sub="Main workflow stages" tone="bg-violet-50/70" />
-            <MetricCard label="Reports" value={reports.length} sub="Published report artifacts" tone="bg-emerald-50/70" />
-            <MetricCard label="AI accepted" value={aiDetails.executed || 0} sub={`${aiDetails.rejected || 0} rejected`} tone="bg-amber-50/70" />
-            <MetricCard label="Frontend" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub="Browser journeys passed" tone="bg-indigo-50/70" />
-          </div>
-        </section>
-        <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Run focus</p>
-          <div className="mt-4 grid gap-3">
-            {[
-              [Zap, 'Workflow', 'CI Pipeline', 'Only the main CI workflow is shown'],
-              [TestTube2, 'Backend tests', `${run.testsPassed || 0}/${run.testsTotal || 0}`, `${run.testsSkipped || 0} scenarios not run`],
-              [WandSparkles, 'Traceability', `${run.bddCovered || 0}/${run.bddTotal || 0}`, `${run.bddUncovered || 0} uncovered scenarios`],
-              [Monitor, 'Frontend', frontend.visual || 'Pending', `${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0} journeys passed`],
-            ].map(([Icon, label, value, sub]) => (
-              <div key={label} className="flex items-center gap-3 rounded-2xl border border-border bg-white p-3">
-                <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-                  <p className="font-heading text-base font-bold">{value}</p>
-                  <p className="text-[11px] text-muted-foreground">{sub}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-      <WorkflowPackagePanel workspace={workspace} evidence={requirementEvidence} />
-    </div>
+    <WorkflowPackagePanel workspace={workspace} evidence={requirementEvidence} />
   );
 }
 
@@ -776,6 +715,7 @@ function ReportsTab({ reports }) {
 
 function WorkflowPackagePanel({ workspace, evidence }) {
   const packageArtifact = evidence.packageArtifact;
+  const manifestArtifact = evidence.manifestArtifact;
   const detailRows = [
     ['Upload mode', workspace.uploadSource || 'Not recorded'],
     ['Package', workspace.packageName || 'Not recorded'],
@@ -786,14 +726,14 @@ function WorkflowPackagePanel({ workspace, evidence }) {
   ];
 
   return (
-    <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
+    <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-[0_24px_80px_-54px_rgba(79,70,229,.45)] backdrop-blur-xl md:p-6">
       <TabHeader
         title="Workflow package and requirements"
         eyebrow="Manifest-backed input files"
         description="This is the selected workflow input context: package details plus BRD, BDD, and gap analysis files when the manifest published them."
       />
       <div className="mt-5 grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-border bg-slate-50/80 p-4">
+        <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(180deg,rgba(245,243,255,.95),rgba(255,255,255,.95))] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Package details</p>
@@ -809,26 +749,42 @@ function WorkflowPackagePanel({ workspace, evidence }) {
               </div>
             ))}
           </div>
-          {packageArtifact ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <EvidenceActionButtons item={packageArtifact} />
-            </div>
-          ) : null}
+          <div className="mt-4 space-y-3">
+            {manifestArtifact ? (
+              <div className="rounded-xl bg-white px-3 py-3 ring-1 ring-border">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Manifest file</p>
+                <p className="mt-1 break-words text-xs font-medium text-foreground">{manifestArtifact.path || manifestArtifact.name}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <EvidenceActionButtons item={manifestArtifact} />
+                </div>
+              </div>
+            ) : null}
+            {packageArtifact ? (
+              <div className="rounded-xl bg-white px-3 py-3 ring-1 ring-border">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Package file</p>
+                <p className="mt-1 break-words text-xs font-medium text-foreground">{packageArtifact.path || packageArtifact.name}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <EvidenceActionButtons item={packageArtifact} />
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-4">
-          <RequirementFileGroup title="BRD" description="Business requirement document selected for this workflow." items={evidence.brd} empty="No BRD file was recorded in the manifest." />
-          <RequirementFileGroup title="BDD feature files" description="Feature files generated or selected for the workflow." items={evidence.bdds} empty="No BDD feature files were recorded in the manifest." />
-          <RequirementFileGroup title="Gap analysis" description="Requirement gap analysis attached to the selected workflow." items={evidence.gaps} empty="No gap analysis report was attached to this workflow." />
+          <RequirementFileGroup title="BRD" description="Business requirement document selected for this workflow." items={evidence.brd} empty="No BRD file was recorded in the manifest." tone="border-emerald-100 bg-[linear-gradient(180deg,rgba(236,253,245,.8),rgba(255,255,255,.96))]" />
+          <RequirementFileGroup title="BDD feature files" description="Feature files generated or selected for the workflow." items={evidence.bdds} empty="No BDD feature files were recorded in the manifest." pageSize={5} tone="border-indigo-100 bg-[linear-gradient(180deg,rgba(238,242,255,.84),rgba(255,255,255,.96))]" />
+          <RequirementFileGroup title="Gap analysis" description="Requirement gap analysis attached to the selected workflow." items={evidence.gaps} empty="No gap analysis report was attached to this workflow." tone="border-amber-100 bg-[linear-gradient(180deg,rgba(255,251,235,.84),rgba(255,255,255,.96))]" />
         </div>
       </div>
     </section>
   );
 }
 
-function RequirementFileGroup({ title, description, items, empty }) {
+function RequirementFileGroup({ title, description, items, empty, tone = 'border-border bg-white', pageSize = PAGE_SIZE }) {
+  const { pageRows, page, totalPages, setPage } = usePagination(items, pageSize);
   return (
-    <div className="rounded-2xl border border-border bg-white p-4">
+    <div className={`rounded-2xl border p-4 ${tone}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h4 className="font-heading text-sm font-bold text-foreground">{title}</h4>
@@ -839,12 +795,13 @@ function RequirementFileGroup({ title, description, items, empty }) {
         </span>
       </div>
       <div className="mt-3 space-y-2">
-        {items.length ? items.map((item) => <RequirementFileRow key={`${item.type}-${item.name}-${item.path}`} item={item} />) : (
+        {items.length ? pageRows.map((item) => <RequirementFileRow key={`${item.type}-${item.name}-${item.path}`} item={item} />) : (
           <div className="rounded-xl border border-dashed border-border bg-slate-50 px-3 py-3 text-xs text-muted-foreground">
             {empty}
           </div>
         )}
       </div>
+      {items.length > pageSize ? <PaginationControls page={page} totalPages={totalPages} onPageChange={setPage} totalItems={items.length} /> : null}
     </div>
   );
 }
@@ -962,6 +919,7 @@ function findReports(reports, patterns) {
 function buildRequirementEvidence(workspace) {
   const artifacts = Array.isArray(workspace?.artifacts) ? workspace.artifacts : [];
   return {
+    manifestArtifact: artifacts.find((artifact) => artifact.type === 'Manifest') || null,
     packageArtifact: artifacts.find((artifact) => artifact.type === 'Package') || null,
     brd: artifacts.filter((artifact) => artifact.type === 'BRD'),
     bdds: artifacts.filter((artifact) => artifact.type === 'BDD'),
@@ -1031,10 +989,11 @@ function shortReportLabel(name) {
   return `${value.slice(0, 18)}...${value.split('.').pop() || ''}`;
 }
 
-function ReadinessGauge({ value, status }) {
+function ReadinessGauge({ value, status, covered = 0, total = 0 }) {
   const color = status === 'failure' ? '#f59e0b' : status === 'running' ? '#6366f1' : '#10b981';
   return (
-    <div className="flex items-center gap-4">
+    <div className="rounded-3xl bg-white/80 p-4 shadow-sm">
+      <div className="flex items-center gap-4">
       <div
         className="grid h-24 w-24 place-items-center rounded-full md:h-28 md:w-28"
         style={{ background: `conic-gradient(${color} ${value * 3.6}deg, hsl(220 16% 92%) 0deg)` }}
@@ -1048,6 +1007,10 @@ function ReadinessGauge({ value, status }) {
         <p className="mt-1 font-heading text-lg font-bold md:text-xl">
           {status === 'failure' ? 'Needs Review' : 'Production Ready'}
         </p>
+        <p className="mt-2 max-w-[220px] text-xs leading-5 text-muted-foreground">
+          Calculated from scenario coverage: {covered} covered of {total || 0} total scenarios.
+        </p>
+      </div>
       </div>
     </div>
   );

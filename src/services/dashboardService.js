@@ -2,6 +2,7 @@ import { portalConfig } from '@/config/portalConfig';
 import {
   downloadArtifactArchive,
   getRepoFile,
+  githubFetchBlob,
   getRepoTreeRecursive,
   listWorkflowRunArtifacts,
   listWorkflowRunJobs,
@@ -283,7 +284,13 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
       }),
     },
     workspace: liveManifest
-      ? buildLiveWorkspace({ manifest: liveManifest, artifacts: liveArtifacts, reports, selectedRun: hydratedRun })
+      ? buildLiveWorkspace({
+          manifest: liveManifest,
+          artifacts: liveArtifacts,
+          reports,
+          selectedRun: hydratedRun,
+          workspaceArtifacts: Array.isArray(livePipeline?.workspaceArtifacts) ? livePipeline.workspaceArtifacts : [],
+        })
       : buildWorkspace({
           workspaceState: normalizedWorkspace,
           documents: docList,
@@ -447,7 +454,7 @@ function buildWorkspaceArtifacts({ workspaceState, documents, gapResults, select
   return artifacts;
 }
 
-function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun }) {
+function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun, workspaceArtifacts = [] }) {
   const metadata = manifest?.metadata || {};
   const gap = manifest?.gapAnalysis || null;
   const bdds = Array.isArray(manifest?.bdds) ? manifest.bdds : [];
@@ -505,23 +512,20 @@ function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun }) {
         note: `${reports.length} report file${reports.length === 1 ? '' : 's'} available from GitHub Actions artifacts`,
       },
     ],
-    artifacts: [
-      manifest?.manifestPath && buildRepoArtifact({ name: 'manifest.json', path: manifest.manifestPath, type: 'Manifest', size: manifest.runId || 'live repo file' }),
-      manifest?.packagePath && buildRepoArtifact({ name: manifest.packageName || 'package', path: manifest.packagePath, type: 'Package', size: manifest.packagePath }),
-      manifest?.brd?.path && buildRepoArtifact({ name: manifest.brd.name || 'BRD', path: manifest.brd.path, type: 'BRD', size: manifest.brd.path }),
-      ...bdds.map((bdd, index) => buildRepoArtifact({
-        name: bdd.name || `BDD feature ${index + 1}`,
-        path: bdd.path,
-        type: 'BDD',
-        size: bdd.path || 'feature file',
-      })),
-      gap?.path && buildRepoArtifact({ name: gap.name || 'gap-analysis-report.md', path: gap.path, type: 'Gap analysis', size: `${gap.openFindings || 0} open findings` }),
-      ...artifacts.slice(0, 4).map((artifact) => ({
-        name: artifact.name,
-        size: formatBytes(artifact.size_in_bytes || 0),
-        type: 'Actions artifact',
-      })),
-    ].filter(Boolean),
+    artifacts: workspaceArtifacts.length
+      ? workspaceArtifacts
+      : [
+          manifest?.manifestPath && buildRepoArtifact({ name: 'manifest.json', path: manifest.manifestPath, type: 'Manifest', size: manifest.runId || 'live repo file' }),
+          manifest?.packagePath && buildRepoArtifact({ name: manifest.packageName || 'package', path: manifest.packagePath, type: 'Package', size: manifest.packagePath }),
+          manifest?.brd?.path && buildRepoArtifact({ name: manifest.brd.name || 'BRD', path: manifest.brd.path, type: 'BRD', size: manifest.brd.path }),
+          ...bdds.map((bdd, index) => buildRepoArtifact({
+            name: bdd.name || `BDD feature ${index + 1}`,
+            path: bdd.path,
+            type: 'BDD',
+            size: bdd.path || 'feature file',
+          })),
+          gap?.path && buildRepoArtifact({ name: gap.name || 'gap-analysis-report.md', path: gap.path, type: 'Gap analysis', size: `${gap.openFindings || 0} open findings` }),
+        ].filter(Boolean),
   };
 }
 
@@ -532,8 +536,8 @@ function buildRepoArtifact({ name, path, type, size }) {
     path: filePath,
     size,
     type,
-    viewHref: filePath ? repoBlobUrl(filePath) : '',
-    downloadHref: filePath ? repoRawUrl(filePath) : '',
+    viewHref: '',
+    downloadHref: '',
     downloadName: filePath.split('/').pop() || name,
   };
 }
@@ -1330,7 +1334,9 @@ async function loadLivePipelineSnapshot() {
       artifacts: [],
       reports: {},
       manifest: null,
+      jobs: [],
     };
+    const workspaceArtifacts = await loadWorkspaceArtifactsForManifest(selectedBundle.manifest).catch(() => []);
 
     return {
       runs: primaryRuns,
@@ -1339,10 +1345,63 @@ async function loadLivePipelineSnapshot() {
       artifacts: selectedBundle.artifacts,
       reports: selectedBundle.reports,
       manifest: selectedBundle.manifest,
+      workspaceArtifacts,
       runBundles,
     };
   } catch (_) {
-    return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, runBundles: [] };
+    return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, workspaceArtifacts: [], runBundles: [] };
+  }
+}
+
+async function loadWorkspaceArtifactsForManifest(manifest) {
+  if (!manifest) return [];
+  const bdds = Array.isArray(manifest?.bdds) ? manifest.bdds : [];
+  const gap = manifest?.gapAnalysis || null;
+  const candidates = [
+    manifest?.manifestPath && { name: 'manifest.json', path: manifest.manifestPath, type: 'Manifest', size: manifest.runId || 'live repo file' },
+    manifest?.packagePath && { name: manifest.packageName || 'package', path: manifest.packagePath, type: 'Package', size: manifest.packagePath },
+    manifest?.brd?.path && { name: manifest.brd.name || 'BRD', path: manifest.brd.path, type: 'BRD', size: manifest.brd.path },
+    ...bdds.map((bdd, index) => ({
+      name: bdd.name || `BDD feature ${index + 1}`,
+      path: bdd.path,
+      type: 'BDD',
+      size: bdd.path || 'feature file',
+    })),
+    gap?.path && { name: gap.name || 'gap-analysis-report.md', path: gap.path, type: 'Gap analysis', size: `${gap.openFindings || 0} open findings` },
+  ].filter(Boolean);
+
+  return await Promise.all(candidates.map((candidate) => loadRepoArtifactContent(candidate)));
+}
+
+async function loadRepoArtifactContent({ name, path, type, size }) {
+  const fallback = buildRepoArtifact({ name, path, type, size });
+  try {
+    const file = await getRepoFile(path, portalConfig.branch);
+    const content = String(file?.content || '').replace(/\s/g, '');
+    const mimeType = mimeTypeForFile(path || name);
+    if (content) {
+      const dataHref = `data:${mimeType};base64,${content}`;
+      return {
+        ...fallback,
+        size: size || formatBytes(file?.size || 0),
+        downloadHref: dataHref,
+        viewHref: isViewableMimeType(mimeType) ? dataHref : '',
+      };
+    }
+    if (file?.download_url) {
+      const blob = await githubFetchBlob(file.download_url);
+      const buffer = await blob.arrayBuffer();
+      const dataHref = `data:${mimeType};base64,${arrayBufferToBase64(buffer)}`;
+      return {
+        ...fallback,
+        size: size || formatBytes(blob.size || 0),
+        downloadHref: dataHref,
+        viewHref: isViewableMimeType(mimeType) ? dataHref : '',
+      };
+    }
+    return fallback;
+  } catch (_) {
+    return fallback;
   }
 }
 
@@ -1466,10 +1525,22 @@ function mimeTypeForFile(name) {
   if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   if (lower.endsWith('.html')) return 'text/html';
   if (lower.endsWith('.md')) return 'text/markdown';
+  if (lower.endsWith('.feature')) return 'text/plain';
   if (lower.endsWith('.txt') || lower.endsWith('.log')) return 'text/plain';
   if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.pdf')) return 'application/pdf';
   if (lower.endsWith('.java')) return 'text/plain';
+  if (lower.endsWith('.zip')) return 'application/zip';
   return 'application/octet-stream';
+}
+
+function isViewableMimeType(mimeType) {
+  return /^text\//.test(mimeType)
+    || /^image\//.test(mimeType)
+    || mimeType === 'application/json'
+    || mimeType === 'text/markdown'
+    || mimeType === 'application/pdf';
 }
 
 function repoBlobUrl(path) {
