@@ -32,6 +32,23 @@ export async function githubFetch(target, options = {}) {
   return body;
 }
 
+export async function githubFetchBlob(target, options = {}) {
+  const url = `${portalConfig.proxyPath}?target=${encodeURIComponent(target)}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    const body = await parseResponse(response);
+    const message = formatGitHubError(body, response.statusText);
+    throw new Error(`GitHub ${response.status}: ${message}`);
+  }
+  return await response.blob();
+}
+
 export function repoApi(path) {
   return `${githubRepoApi}${path}`;
 }
@@ -115,6 +132,25 @@ export async function dispatchRepositoryEvent(eventType, clientPayload) {
 
 export async function listWorkflowRuns(limit = 20) {
   return await githubFetch(repoApi(`/actions/runs?per_page=${limit}`));
+}
+
+export async function listWorkflowRunJobs(runId) {
+  if (!runId) return { jobs: [] };
+  return await githubFetch(repoApi(`/actions/runs/${encodeURIComponent(runId)}/jobs?per_page=100`));
+}
+
+export async function listWorkflowRunArtifacts(runId) {
+  if (!runId) return { artifacts: [] };
+  return await githubFetch(repoApi(`/actions/runs/${encodeURIComponent(runId)}/artifacts?per_page=100`));
+}
+
+export async function downloadArtifactArchive(archiveDownloadUrl) {
+  if (!archiveDownloadUrl) throw new Error('Artifact archive URL is missing.');
+  return await githubFetchBlob(archiveDownloadUrl);
+}
+
+export async function getRepoTreeRecursive(branch = portalConfig.branch) {
+  return await githubFetch(repoApi(`/git/trees/${encodeURIComponent(branch)}?recursive=1`));
 }
 
 export async function createUploadRelease({ tagName, name, branch = portalConfig.branch }) {

@@ -1,5 +1,13 @@
 import { portalConfig } from '@/config/portalConfig';
-import { listWorkflowRuns } from '@/services/githubApi';
+import {
+  downloadArtifactArchive,
+  getRepoFile,
+  getRepoTreeRecursive,
+  listWorkflowRunArtifacts,
+  listWorkflowRunJobs,
+  listWorkflowRuns,
+} from '@/services/githubApi';
+import JSZip from 'jszip';
 
 const STORAGE_KEYS = {
   workspace: 'qa-workspace-state',
@@ -23,12 +31,14 @@ export function loadLocalDashboardSnapshot() {
     history: local.history,
     remoteRuns: [],
     remoteAvailable: false,
+    livePipeline: null,
   });
 }
 
 export async function loadDashboardSnapshot() {
   const local = readLocalState();
-  const remoteRuns = await loadRemoteWorkflowRuns();
+  const livePipeline = await loadLivePipelineSnapshot();
+  const remoteRuns = livePipeline?.runs || [];
 
   return buildDashboardSnapshot({
     workspaceState: local.workspaceState,
@@ -38,6 +48,7 @@ export async function loadDashboardSnapshot() {
     history: local.history,
     remoteRuns,
     remoteAvailable: remoteRuns.length > 0,
+    livePipeline,
   });
 }
 
@@ -101,7 +112,7 @@ export function recordPipelineRunSnapshot({ result, workspaceData, documents = [
   return run;
 }
 
-function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestRun, history, remoteRuns, remoteAvailable }) {
+function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestRun, history, remoteRuns, remoteAvailable, livePipeline }) {
   const normalizedWorkspace = sanitizeWorkspaceData(workspaceState);
   const docList = Array.isArray(documents) ? documents : [];
   const gapState = gapResults || null;
@@ -152,8 +163,13 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const selectedRun = remoteSelectedRun
     ? mergeRunDetails(remoteSelectedRun, localRun || runs[0] || null)
     : (localRun || runs[0] || null);
+  const liveReports = livePipeline?.reports || {};
+  const liveManifest = livePipeline?.manifest || null;
+  const liveJobs = Array.isArray(livePipeline?.jobs) ? livePipeline.jobs : [];
+  const liveArtifacts = Array.isArray(livePipeline?.artifacts) ? livePipeline.artifacts : [];
+  const hydratedRun = hydrateRunFromLiveReports(selectedRun, liveReports, liveManifest);
   const statusSummary = buildStatusSummary({
-    selectedRun,
+    selectedRun: hydratedRun,
     approvedDocs,
     totalDocs,
     openFindings,
@@ -161,35 +177,49 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
     runHistory: runs,
     gapResults: gapState,
   });
-  const pipelineJobs = buildPipelineJobs({
-    selectedRun,
-    gapResults: gapState,
-    documents: docList,
-  });
-  const testRows = buildTestRows({ documents: docList, gapResults: gapState, workspaceState: normalizedWorkspace });
-  const bddScenarios = buildBddScenarios({ documents: docList, gapResults: gapState });
-  const reports = buildReports({ selectedRun, documents: docList, gapResults: gapState });
-  const aiDetails = buildAiDetails({
-    documents: docList,
-    gapResults: gapState,
-    latestRun: selectedRun,
-  });
-  const codeQuality = buildCodeQuality({
-    workspaceState: normalizedWorkspace,
-    documents: docList,
-    gapResults: gapState,
-  });
-  const frontend = buildFrontend({
-    workspaceState: normalizedWorkspace,
-    documents: docList,
-  });
+  const pipelineJobs = liveJobs.length
+    ? buildLivePipelineJobs(liveJobs)
+    : buildPipelineJobs({
+        selectedRun: hydratedRun,
+        gapResults: gapState,
+        documents: docList,
+      });
+  const testRows = liveReports.qaReport
+    ? buildLiveTestRows(liveReports.qaReport)
+    : buildTestRows({ documents: docList, gapResults: gapState, workspaceState: normalizedWorkspace });
+  const bddScenarios = liveReports.traceability
+    ? buildLiveTraceabilityRows(liveReports.traceability)
+    : buildBddScenarios({ documents: docList, gapResults: gapState });
+  const reports = liveReports.reportFiles?.length
+    ? buildLiveReports(liveReports.reportFiles, liveArtifacts)
+    : buildReports({ selectedRun: hydratedRun, documents: docList, gapResults: gapState });
+  const aiDetails = liveReports.qaReport || liveReports.progressStatus || liveReports.codeSuggestions
+    ? buildLiveAiDetails(liveReports)
+    : buildAiDetails({
+        documents: docList,
+        gapResults: gapState,
+        latestRun: hydratedRun,
+      });
+  const codeQuality = liveReports.coverageGap || liveReports.codeSuggestions
+    ? buildLiveCodeQuality(liveReports)
+    : buildCodeQuality({
+        workspaceState: normalizedWorkspace,
+        documents: docList,
+        gapResults: gapState,
+      });
+  const frontend = liveReports.browserSmoke || liveReports.frontendSmoke
+    ? buildLiveFrontend(liveReports)
+    : buildFrontend({
+        workspaceState: normalizedWorkspace,
+        documents: docList,
+      });
 
   return {
     remoteAvailable,
     repo: {
       owner: portalConfig.owner,
       name: portalConfig.repo,
-      updatedAt: formatRelativeTime(selectedRun?.updatedAt || selectedRun?.createdAt || new Date().toISOString()),
+      updatedAt: formatRelativeTime(hydratedRun?.updatedAt || hydratedRun?.createdAt || new Date().toISOString()),
       refreshIntervalSeconds: remoteAvailable ? 30 : 0,
     },
     overview: {
@@ -204,7 +234,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
         workspaceState: normalizedWorkspace,
         documents: docList,
         gapResults: gapState,
-        selectedRun,
+        selectedRun: hydratedRun,
         approvedDocs,
         totalDocs,
         openFindings,
@@ -220,14 +250,16 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
         gapResults: gapState,
       }),
     },
-    workspace: buildWorkspace({
-      workspaceState: normalizedWorkspace,
-      documents: docList,
-      gapResults: gapState,
-      selectedRun,
-    }),
+    workspace: liveManifest
+      ? buildLiveWorkspace({ manifest: liveManifest, artifacts: liveArtifacts, reports, selectedRun: hydratedRun })
+      : buildWorkspace({
+          workspaceState: normalizedWorkspace,
+          documents: docList,
+          gapResults: gapState,
+          selectedRun: hydratedRun,
+        }),
     runs,
-    selectedRun,
+    selectedRun: hydratedRun,
     pipelineJobs,
     testRows,
     bddScenarios,
@@ -377,7 +409,292 @@ function buildWorkspaceArtifacts({ workspaceState, documents, gapResults, select
   return artifacts;
 }
 
+function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun }) {
+  const metadata = manifest?.metadata || {};
+  const gap = manifest?.gapAnalysis || null;
+  const bdds = Array.isArray(manifest?.bdds) ? manifest.bdds : [];
+  const source = formatRequirementSource(metadata.requirementSource);
+  const uploadMode = inferUploadMode(manifest);
+
+  return {
+    uploadSource: uploadMode,
+    packageName: manifest?.packageName || selectedRun?.packageName || 'GitHub package',
+    platform: metadata.platform || 'Unknown',
+    brdCount: Number(manifest?.brdCount || (manifest?.brd ? 1 : 0)),
+    bddCount: Number(manifest?.bddCount || bdds.length),
+    traceabilityStatus: selectedRun?.bddTotal ? `${selectedRun.bddCovered}/${selectedRun.bddTotal} scenarios covered` : 'Waiting for report evidence',
+    gapCount: Number(gap?.openFindings || selectedRun?.openFindings || 0),
+    approvalStatus: source,
+    generatedAt: selectedRun?.updatedAt || selectedRun?.createdAt || manifest?.runId || 'Not available',
+    requirementRoot: manifest?.requirementRoot || '',
+    packagePath: manifest?.packagePath || '',
+    manifestPath: manifest?.manifestPath || '',
+    gapAnalysisPath: gap?.path || '',
+    stages: [
+      {
+        label: 'Trigger',
+        status: 'done',
+        note: `${manifest?.triggeredBy || 'GitHub'} triggered ${selectedRun?.trigger || 'workflow'} for ${manifest?.packageName || 'the selected package'}`,
+      },
+      {
+        label: 'Upload',
+        status: manifest?.packagePath ? 'done' : 'warn',
+        note: `${uploadMode}${manifest?.packagePath ? ` from ${manifest.packagePath}` : ''}`,
+      },
+      {
+        label: 'Requirement selection',
+        status: metadata.requirementSource ? 'done' : 'warn',
+        note: `${source}${manifest?.requirementRoot ? ` under ${manifest.requirementRoot}` : ''}`,
+      },
+      {
+        label: 'BRD',
+        status: manifest?.brd ? 'done' : 'warn',
+        note: manifest?.brd?.path || 'No BRD file recorded in the manifest',
+      },
+      {
+        label: 'BDD',
+        status: bdds.length ? 'done' : 'warn',
+        note: `${bdds.length} BDD feature file${bdds.length === 1 ? '' : 's'} recorded`,
+      },
+      {
+        label: 'Gap analysis',
+        status: gap?.path ? 'done' : 'warn',
+        note: gap?.path || 'No gap analysis file attached to this trigger',
+      },
+      {
+        label: 'CI evidence',
+        status: reports.length ? 'done' : 'warn',
+        note: `${reports.length} report file${reports.length === 1 ? '' : 's'} available from GitHub Actions artifacts`,
+      },
+    ],
+    artifacts: [
+      manifest?.manifestPath && { name: 'manifest.json', size: manifest.runId || 'live repo file', type: 'Manifest' },
+      manifest?.packagePath && { name: manifest.packageName || 'package', size: manifest.packagePath, type: 'Package' },
+      manifest?.brd?.path && { name: manifest.brd.name || 'BRD', size: manifest.brd.path, type: 'BRD' },
+      bdds.length && { name: 'BDD feature files', size: `${bdds.length} files`, type: 'BDD' },
+      gap?.path && { name: gap.name || 'gap-analysis-report.md', size: `${gap.openFindings || 0} open findings`, type: 'Gap analysis' },
+      ...artifacts.slice(0, 4).map((artifact) => ({
+        name: artifact.name,
+        size: formatBytes(artifact.size_in_bytes || 0),
+        type: 'Actions artifact',
+      })),
+    ].filter(Boolean),
+  };
+}
+
+function hydrateRunFromLiveReports(run, reports, manifest) {
+  if (!run) return null;
+  const qaSummary = reports?.qaReport?.summary || {};
+  const traceSummary = reports?.traceability?.summary || {};
+  const frontend = reports?.browserSmoke || {};
+  const testsTotal = numberFrom(qaSummary.total_test_cases, qaSummary.plannedTestCases, qaSummary.total_unique_test_methods, run.testsTotal);
+  const testsPassed = numberFrom(qaSummary.passed, qaSummary.scripts_passed, run.testsPassed);
+  const testsFailed = numberFrom(qaSummary.failed, qaSummary.errors, run.testsFailed);
+  const testsSkipped = numberFrom(qaSummary.not_run, qaSummary.skipped, run.testsSkipped);
+  const bddTotal = numberFrom(traceSummary.scenarios, traceSummary.rows, testsTotal, run.bddTotal);
+  const bddCovered = numberFrom(traceSummary.covered_rows, qaSummary.covered_scenarios, testsPassed, run.bddCovered);
+  const bddUncovered = numberFrom(traceSummary.uncovered_rows, qaSummary.uncovered_scenarios, Math.max(0, bddTotal - bddCovered), run.bddUncovered);
+  const coverageAi = numberFrom(qaSummary.coverage_percent, bddTotal ? Math.round((bddCovered / bddTotal) * 100) : 0, run.coverageAi);
+  return {
+    ...run,
+    projectName: manifest?.runId || cleanPackageName(manifest?.packageName) || run.projectName,
+    packageName: manifest?.packageName || run.packageName,
+    packagePath: manifest?.packagePath || run.packagePath,
+    manifestPath: manifest?.manifestPath || run.manifestPath,
+    gapAnalysisPath: manifest?.gapAnalysis?.path || run.gapAnalysisPath,
+    bddPaths: Array.isArray(manifest?.bdds) ? manifest.bdds.map((bdd) => bdd.path).filter(Boolean) : run.bddPaths,
+    testsTotal,
+    testsPassed,
+    testsFailed,
+    testsSkipped,
+    bddTotal,
+    bddCovered,
+    bddUncovered,
+    codeCoverage: numberFrom(reports?.coverageGap?.line_coverage, run.codeCoverage),
+    coverageAi,
+    openFindings: bddUncovered,
+    coveredFindings: bddCovered,
+    readinessScore: bddTotal ? clamp(Math.round((bddCovered / bddTotal) * 100), 0, 100) : run.readinessScore,
+    frontendTotal: numberFrom(frontend.total_journeys),
+    frontendPassed: numberFrom(frontend.passed_journeys),
+  };
+}
+
+function buildLivePipelineJobs(jobs) {
+  return jobs
+    .filter((job) => /detect|build|quality|publish|test|analysis/i.test(job.name || ''))
+    .map((job) => {
+      const conclusion = String(job.conclusion || '').toLowerCase();
+      const status = String(job.status || '').toLowerCase();
+      const normalizedStatus = status === 'completed'
+        ? conclusion === 'success' || conclusion === 'skipped'
+          ? 'success'
+          : 'failure'
+        : 'running';
+      return {
+        name: job.name || 'Pipeline job',
+        status: normalizedStatus,
+        duration: formatDurationBetween(job.started_at || job.created_at, job.completed_at || job.updated_at),
+        summary: buildJobSummary(job),
+        details: Array.isArray(job.steps)
+          ? job.steps.slice(0, 5).map((step) => `${step.name}: ${step.conclusion || step.status || 'pending'}`)
+          : [],
+        artifacts: [],
+      };
+    });
+}
+
+function buildLiveTestRows(qaReport) {
+  const rows = Array.isArray(qaReport?.test_cases)
+    ? qaReport.test_cases
+    : Array.isArray(qaReport?.tests)
+      ? qaReport.tests
+      : [];
+  return rows.slice(0, 20).map((row) => ({
+    suite: row.feature || row.class_name || row.testType || 'Test case',
+    name: row.title || row.test_name || row.scenario || row.testCaseId || 'Recorded test',
+    status: String(row.result || row.status || row.executionStatus || 'not_run').toLowerCase().replace(/\s+/g, '_'),
+    type: row.testType || row.test_type || row.variantLabel || 'report-backed',
+    source: row.source || row.automationStatus || 'GitHub artifact',
+    linkedScenarios: Array.isArray(row.linked_bdd_scenarios) ? row.linked_bdd_scenarios.length : undefined,
+  }));
+}
+
+function buildLiveTraceabilityRows(traceability) {
+  const rows = Array.isArray(traceability?.rows)
+    ? traceability.rows
+    : Array.isArray(traceability?.scenario_records)
+      ? traceability.scenario_records
+      : Array.isArray(traceability?.records)
+        ? traceability.records
+        : [];
+  return rows.slice(0, 24).map((row) => ({
+    feature: row.feature || row.featureId || 'Feature',
+    name: row.scenario || row.name || row.scenarioId || 'Scenario',
+    status: isCoveredGap(row) || String(row.coverageStatus || '').toLowerCase() === 'covered' ? 'covered' : 'uncovered',
+    executionResult: row.executionResult || row.status || row.coverageStatus || 'Not recorded',
+    scriptType: row.scriptType || row.test_type || row.type || 'traceability',
+  }));
+}
+
+function buildLiveReports(reportFiles, artifacts) {
+  const artifactMap = new Map((artifacts || []).map((artifact) => [artifact.name, artifact]));
+  return reportFiles
+    .filter((name) => /\.(json|html|xlsx|txt|xml|md|png)$/i.test(name))
+    .slice(0, 30)
+    .map((name) => ({
+      name,
+      desc: describeReportFile(name),
+      size: artifactMap.get(name)?.size_in_bytes ? formatBytes(artifactMap.get(name).size_in_bytes) : 'GitHub Actions artifact',
+      type: name.split('.').pop()?.toUpperCase() || 'FILE',
+    }));
+}
+
+function buildLiveAiDetails(reports) {
+  const summary = reports?.qaReport?.summary || {};
+  const progress = reports?.progressStatus || {};
+  const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
+  const generated = numberFrom(summary.generatedScriptCandidates, summary.generatedScripts, progress.details?.generatedScripts);
+  const executed = numberFrom(summary.acceptedGeneratedScripts, summary.scripts_passed, summary.automationReadyTestCases);
+  const rejected = numberFrom(summary.rejectedGeneratedScripts, summary.automationRejectedTestCases, Math.max(0, generated - executed));
+  return {
+    generated,
+    executed,
+    rejected,
+    accuracy: generated ? Math.round((executed / generated) * 100) : 0,
+    progress: progress.status ? `${progress.phase || 'AI generation'} ${progress.status}` : 'No progress status artifact found',
+    generationMode: reports?.codeSuggestions?.generation_mode || 'artifact-driven',
+    fallbackReason: reports?.codeSuggestions?.fallback_reason || '',
+    recommendations: suggestions.slice(0, 6).map((item) => ({
+      severity: item.priority || 'medium',
+      title: item.type || 'Quality recommendation',
+      reason: item.message || String(item),
+    })),
+  };
+}
+
+function buildLiveCodeQuality(reports) {
+  const coverage = reports?.coverageGap || {};
+  const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
+  const classes = Array.isArray(coverage.classes_with_gaps) ? coverage.classes_with_gaps : [];
+  return {
+    coverageScope: coverage.coverage_scope || 'GitHub artifact',
+    aiTests: numberFrom(coverage.ai_tests),
+    existingTests: numberFrom(coverage.existing_tests),
+    hotspotCount: classes.length,
+    improvementCount: suggestions.length,
+    verdict: classes.length ? 'Coverage gaps remain' : 'No coverage gap artifact findings',
+    hotspots: classes.slice(0, 8).map((item) => ({
+      name: item.class || item.name || 'Class',
+      lineCoverage: numberFrom(item.line_coverage),
+      branchCoverage: item.branch_coverage,
+    })),
+    findings: suggestions.slice(0, 8).map((item) => item.message || String(item)),
+  };
+}
+
+function buildLiveFrontend(reports) {
+  const smoke = reports?.browserSmoke || {};
+  const detection = reports?.frontendSmoke || {};
+  return {
+    visual: smoke.status === 'pass' || detection.status === 'pass' ? 'Pass' : smoke.status || detection.status || 'No frontend artifact',
+    detectionStatus: Array.isArray(detection.details) ? detection.details.join(', ') : detection.status || 'Not recorded',
+    launchMode: smoke.launch_mode || 'Not recorded',
+    url: smoke.url || '',
+    title: smoke.title || '',
+    totalJourneys: numberFrom(smoke.total_journeys),
+    passedJourneys: numberFrom(smoke.passed_journeys),
+    failedJourneys: numberFrom(smoke.failed_journeys),
+    skippedJourneys: numberFrom(smoke.skipped_journeys),
+    loadTime: smoke.summary || 'GitHub artifact',
+    evidence: Array.isArray(smoke.journeys)
+      ? smoke.journeys.flatMap((journey) => (journey.steps || []).map((step) => step.screenshot).filter(Boolean)).slice(0, 12)
+      : [],
+  };
+}
+
 function buildKeyMetrics({ workspaceState, documents, gapResults, selectedRun, approvedDocs, totalDocs, openFindings, coveredFindings }) {
+  if (selectedRun?.source === 'github' && (selectedRun.testsTotal || selectedRun.bddTotal)) {
+    const readiness = Number(selectedRun.readinessScore || 0);
+    return [
+      {
+        icon: 'flask',
+        label: 'Executed Tests',
+        value: `${selectedRun.testsPassed || 0}/${selectedRun.testsTotal || 0}`,
+        sub: `${selectedRun.testsSkipped || 0} not run from GitHub artifact evidence`,
+        tone: 'violet',
+      },
+      {
+        icon: 'trend',
+        label: 'Traceability',
+        value: `${selectedRun.bddCovered || 0}/${selectedRun.bddTotal || 0}`,
+        sub: `${selectedRun.bddUncovered || 0} uncovered scenarios`,
+        tone: 'emerald',
+      },
+      {
+        icon: 'branch',
+        label: 'Workflow',
+        value: 'Main CI',
+        sub: selectedRun.trigger || 'GitHub Actions',
+        tone: 'indigo',
+      },
+      {
+        icon: 'bot',
+        label: 'Open Gaps',
+        value: String(selectedRun.openFindings || 0),
+        sub: readiness >= 80 ? 'Artifact evidence is healthy' : 'Review required',
+        tone: 'fuchsia',
+      },
+      {
+        icon: 'shield',
+        label: 'Readiness',
+        value: `${readiness}%`,
+        sub: selectedRun.manifestPath || 'Live GitHub run',
+        tone: 'teal',
+      },
+    ];
+  }
+
   const packageSignals = workspaceState.package_signals || {};
   const sourceFileCount = Number(packageSignals.sourceFileCount || 0);
   const testFileCount = Number(packageSignals.testFileCount || 0);
@@ -646,7 +963,12 @@ function buildFrontend({ workspaceState, documents }) {
 }
 
 function buildStatusSummary({ selectedRun, approvedDocs, totalDocs, openFindings, coveredFindings, runHistory, gapResults }) {
-  const readyScore = getReadinessScore({ gapResults, documents: [] });
+  const liveRun = selectedRun?.source === 'github';
+  const readyScore = liveRun
+    ? Number(selectedRun?.readinessScore || selectedRun?.coverageAi || 0)
+    : getReadinessScore({ gapResults, documents: [] });
+  const activeOpenFindings = liveRun ? Number(selectedRun?.openFindings || 0) : openFindings;
+  const activeCoveredFindings = liveRun ? Number(selectedRun?.coveredFindings || 0) : coveredFindings;
   const completedRuns = runHistory.filter((run) => ['success', 'failure'].includes(String(run?.status || '').toLowerCase()));
   const successRate = completedRuns.length
     ? Math.round((completedRuns.filter((run) => String(run.status).toLowerCase() === 'success').length / completedRuns.length) * 100)
@@ -656,7 +978,7 @@ function buildStatusSummary({ selectedRun, approvedDocs, totalDocs, openFindings
   const avgDuration = getAverageDuration(runHistory);
   const readinessLabel = readyScore >= 85
     ? 'Healthy'
-    : openFindings > 0
+    : activeOpenFindings > 0
       ? 'Needs Review'
       : approvedDocs > 0
         ? 'In Progress'
@@ -666,19 +988,23 @@ function buildStatusSummary({ selectedRun, approvedDocs, totalDocs, openFindings
     readiness: readyScore,
     readinessLabel,
     successRate,
-    activeIssues: openFindings || Math.max(0, runHistory.filter((run) => String(run.status || '').toLowerCase() === 'failure').length),
+    activeIssues: activeOpenFindings || Math.max(0, runHistory.filter((run) => String(run.status || '').toLowerCase() === 'failure').length),
     avgDuration,
-    statusHeadline: readinessLabel === 'Healthy'
-      ? 'Release readiness is healthy'
-      : readinessLabel === 'Needs Review'
-        ? 'Release readiness needs attention'
-        : 'Workspace is still being prepared',
+    statusHeadline: liveRun
+      ? readinessLabel === 'Healthy'
+        ? 'Latest GitHub CI evidence is healthy'
+        : 'Latest GitHub CI evidence needs review'
+      : readinessLabel === 'Healthy'
+        ? 'Release readiness is healthy'
+        : readinessLabel === 'Needs Review'
+          ? 'Release readiness needs attention'
+          : 'Workspace is still being prepared',
     statusBody: buildStatusBody({
       selectedRun,
       approvedDocs,
       totalDocs,
-      openFindings,
-      coveredFindings,
+      openFindings: activeOpenFindings,
+      coveredFindings: activeCoveredFindings,
       readinessLabel,
     }),
   };
@@ -686,6 +1012,9 @@ function buildStatusSummary({ selectedRun, approvedDocs, totalDocs, openFindings
 
 function buildStatusBody({ selectedRun, approvedDocs, totalDocs, openFindings, coveredFindings, readinessLabel }) {
   const packageName = selectedRun?.packageName || selectedRun?.projectName || 'the active workspace';
+  if (selectedRun?.source === 'github') {
+    return `${packageName} is populated from the latest main GitHub Actions run, including workflow jobs, repository manifest files, and published quality-report artifacts.`;
+  }
   if (readinessLabel === 'Healthy') {
     return `${packageName} has ${approvedDocs}/${totalDocs || 1} approved documents, ${coveredFindings} covered findings, and a clean release signal.`;
   }
@@ -784,13 +1113,203 @@ function normalizeRemoteRun(run, workspaceState) {
   };
 }
 
-async function loadRemoteWorkflowRuns() {
+async function loadLivePipelineSnapshot() {
   try {
     const payload = await listWorkflowRuns(8);
-    return Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : [];
+    const runs = Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : [];
+    const primaryRuns = runs.filter((run) => isPrimaryCiWorkflowRun(run));
+    const latestRun = primaryRuns[0] || null;
+    if (!latestRun) {
+      return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null };
+    }
+
+    const [jobsPayload, artifactsPayload, manifests] = await Promise.all([
+      listWorkflowRunJobs(latestRun.id).catch(() => ({ jobs: [] })),
+      listWorkflowRunArtifacts(latestRun.id).catch(() => ({ artifacts: [] })),
+      loadRequirementManifests().catch(() => []),
+    ]);
+    const artifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
+    const reports = await loadQualityReportsFromArtifacts(artifacts).catch(() => ({}));
+    const manifest = pickManifestForRun({
+      manifests,
+      run: latestRun,
+      reportBundle: reports,
+    });
+
+    return {
+      runs: primaryRuns,
+      selectedRun: latestRun,
+      jobs: Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : [],
+      artifacts,
+      reports,
+      manifest,
+    };
   } catch (_) {
-    return [];
+    return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null };
   }
+}
+
+function isPrimaryCiWorkflowRun(run) {
+  const workflowName = String(run?.name || '').toLowerCase();
+  const workflowPath = String(run?.path || '').toLowerCase();
+  return workflowName === 'ci pipeline' || workflowPath.endsWith('/ci.yml') || workflowPath.includes('.github/workflows/ci.yml');
+}
+
+async function loadRequirementManifests() {
+  const treePayload = await getRepoTreeRecursive(portalConfig.branch);
+  const tree = Array.isArray(treePayload?.tree) ? treePayload.tree : [];
+  const manifestPaths = tree
+    .filter((item) => item.type === 'blob' && new RegExp(`^${escapeRegExp(portalConfig.requirementDir)}/[^/]+/manifest\\.json$`).test(item.path || ''))
+    .map((item) => item.path)
+    .sort()
+    .reverse()
+    .slice(0, 20);
+
+  const manifests = await Promise.all(
+    manifestPaths.map(async (path) => {
+      try {
+        const file = await getRepoFile(path, portalConfig.branch);
+        const parsed = parseRepoJsonFile(file);
+        return parsed ? { ...parsed, manifestPath: path } : null;
+      } catch (_) {
+        return null;
+      }
+    })
+  );
+  return manifests.filter(Boolean);
+}
+
+async function loadQualityReportsFromArtifacts(artifacts) {
+  const qualityArtifact = [...artifacts]
+    .filter((artifact) => /quality|report/i.test(artifact.name || ''))
+    .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
+  if (!qualityArtifact?.archive_download_url) {
+    return { reportFiles: [] };
+  }
+
+  const blob = await downloadArtifactArchive(qualityArtifact.archive_download_url);
+  const zip = await JSZip.loadAsync(blob);
+  const reportFiles = Object.keys(zip.files)
+    .filter((name) => !zip.files[name].dir)
+    .map((name) => stripFinalReportPrefix(name))
+    .sort();
+  const readJson = async (patterns) => {
+    const entryName = findZipEntry(zip, patterns);
+    if (!entryName) return null;
+    try {
+      return JSON.parse(await zip.files[entryName].async('string'));
+    } catch (_) {
+      return null;
+    }
+  };
+
+  return {
+    artifactName: qualityArtifact.name,
+    artifactSize: qualityArtifact.size_in_bytes,
+    reportFiles,
+    qaReport: await readJson([/qa-test-case-report\.json$/i]),
+    traceability: await readJson([/traceability-validation-matrix\.json$/i, /requirement-traceability\.json$/i]),
+    coverageGap: await readJson([/coverage-gap-analysis\.json$/i]),
+    codeSuggestions: await readJson([/code-improvement-suggestions\.json$/i]),
+    progressStatus: await readJson([/ai-generation\/progress-status\.json$/i, /progress-status\.json$/i]),
+    browserSmoke: await readJson([/frontend\/browser-smoke-report\.json$/i, /browser-smoke-report\.json$/i]),
+    frontendSmoke: await readJson([/frontend\/frontend-smoke-report\.json$/i, /frontend-smoke-report\.json$/i]),
+  };
+}
+
+function findZipEntry(zip, patterns) {
+  return Object.keys(zip.files).find((name) => !zip.files[name].dir && patterns.some((pattern) => pattern.test(stripFinalReportPrefix(name))));
+}
+
+function stripFinalReportPrefix(path) {
+  return String(path || '').replace(/^final-quality-reports\//, '');
+}
+
+function pickManifestForRun({ manifests, run, reportBundle }) {
+  if (!Array.isArray(manifests) || !manifests.length) return null;
+  const runTitle = String(run?.display_title || '').toLowerCase();
+  const titleMatch = manifests.find((manifest) => runTitle && runTitle.includes(String(manifest.runId || manifest.packageName || '').toLowerCase()));
+  if (titleMatch) return titleMatch;
+
+  const qaReportText = JSON.stringify(reportBundle?.qaReport || {});
+  const reportMatch = manifests.find((manifest) => manifest.runId && qaReportText.includes(manifest.runId));
+  if (reportMatch) return reportMatch;
+
+  return manifests[0];
+}
+
+function parseRepoJsonFile(file) {
+  try {
+    const content = String(file?.content || '').replace(/\s/g, '');
+    if (!content) return null;
+    return JSON.parse(decodeBase64Utf8(content));
+  } catch (_) {
+    return null;
+  }
+}
+
+function decodeBase64Utf8(value) {
+  if (typeof atob === 'function') {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+  return '';
+}
+
+function numberFrom(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+}
+
+function cleanPackageName(value) {
+  return String(value || '').replace(/\.(zip|jar|war|ear)$/i, '').trim();
+}
+
+function formatRequirementSource(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'uploaded') return 'Manual/uploaded requirements';
+  if (normalized === 'generated') return 'AI-generated requirements';
+  if (normalized === 'manual') return 'Manual requirement selection';
+  return value ? String(value) : 'Requirement source not recorded';
+}
+
+function inferUploadMode(manifest) {
+  const packagePath = String(manifest?.packagePath || '');
+  if (packagePath.includes('/_chunks/')) return 'Fresh upload via chunked package upload';
+  if (packagePath.startsWith(portalConfig.uploadDir)) return 'Fresh upload or selected uploaded package';
+  if (manifest?.triggeredBy === 'react-portal') return 'VeriSpace portal trigger';
+  return 'GitHub repository package';
+}
+
+function buildJobSummary(job) {
+  const name = String(job?.name || '').toLowerCase();
+  if (name.includes('detect')) return 'Resolves the package, BRD, BDD, gap-analysis inputs, and platform signals.';
+  if (name.includes('backend')) return 'Generates backend test evidence, traceability, AI metadata, and quality reports.';
+  if (name.includes('frontend')) return 'Runs frontend smoke and browser journey checks when UI signals are present.';
+  if (name.includes('publish')) return 'Consolidates published quality reports into the GitHub Actions artifact bundle.';
+  if (name.includes('build')) return 'Builds the detected Java/Maven project before quality evidence is published.';
+  return 'Main CI workflow job from GitHub Actions.';
+}
+
+function describeReportFile(name) {
+  const value = String(name || '');
+  if (/qa-test-case-report\.json$/i.test(value)) return 'Test case execution and AI script acceptance evidence.';
+  if (/qa-test-case-report\.xlsx$/i.test(value)) return 'Excel handoff version of the QA test report.';
+  if (/traceability|requirement-traceability/i.test(value)) return 'Requirement, BDD scenario, script, and execution traceability evidence.';
+  if (/coverage-gap-analysis/i.test(value)) return 'Class and method coverage gaps found after CI execution.';
+  if (/code-improvement-suggestions/i.test(value)) return 'Generated quality recommendations for uncovered or weak areas.';
+  if (/browser-smoke-report/i.test(value)) return 'Browser journey execution evidence and screenshots.';
+  if (/frontend-smoke-report/i.test(value)) return 'Frontend detection and smoke readiness report.';
+  if (/final-test-report\.html$/i.test(value)) return 'Published HTML summary report from the pipeline.';
+  return 'Published file from the GitHub Actions quality-report artifact.';
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function readLocalState() {

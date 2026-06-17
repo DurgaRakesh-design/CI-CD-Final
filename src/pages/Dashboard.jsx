@@ -7,7 +7,6 @@ import {
   Brain,
   CheckCircle2,
   Clock,
-  Download,
   ExternalLink,
   Filter,
   FlaskConical,
@@ -134,6 +133,10 @@ export default function DashboardPage() {
   }, [runs, selectedId, snapshot.selectedRun]);
 
   const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot.selectedRun ?? runs[0] ?? null;
+  const frontendJourneys = snapshot.frontend?.totalJourneys || 0;
+  const frontendPassed = snapshot.frontend?.passedJourneys || 0;
+  const aiExecuted = snapshot.aiDetails?.executed || 0;
+  const aiGenerated = snapshot.aiDetails?.generated || 0;
 
   const filtered = useMemo(
     () =>
@@ -146,7 +149,6 @@ export default function DashboardPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / RUNS_PER_PAGE));
   const currentPage = Math.min(page, totalPages);
   const pagedRuns = filtered.slice((currentPage - 1) * RUNS_PER_PAGE, currentPage * RUNS_PER_PAGE);
-  const runPassRate = Math.round((selectedRun?.testsPassed || 0) / Math.max(selectedRun?.testsTotal || 1, 1) * 100);
   const selectedBddCoverage = Math.round((selectedRun?.bddCovered || 0) / Math.max(selectedRun?.bddTotal || 1, 1) * 100);
 
   const heroMetrics = [
@@ -246,7 +248,7 @@ export default function DashboardPage() {
                   />
                 </div>
                 <button className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-secondary">
-                  <Filter className="h-3.5 w-3.5" /> All
+                  <Filter className="h-3.5 w-3.5" /> Main CI
                 </button>
               </div>
 
@@ -336,9 +338,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" className="rounded-xl">
-                    <Download className="mr-2 h-4 w-4" /> Artifacts
-                  </Button>
                   <Button asChild className="rounded-xl shadow-[var(--shadow-glow)]">
                     <Link to={`/summary/${selectedRun?.runNumber || 1}`}>
                       <ExternalLink className="mr-2 h-4 w-4" /> Open Summary
@@ -353,29 +352,25 @@ export default function DashboardPage() {
                   <div className="mt-2 font-heading text-2xl font-bold text-rose-700">
                     {selectedRun?.status === 'failure' ? 'Failed' : selectedRun?.status === 'success' ? 'Success' : 'Running'}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">Packaged release status</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Primary CI workflow only</p>
                 </div>
 
                 <div className="rounded-xl bg-violet-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Detected Tests</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun?.testsTotal || 0}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedRun?.testsPassed || 0} passed · {selectedRun?.testsFailed || 0} failed
-                  </p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Backend Quality</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun?.testsPassed || 0}/{selectedRun?.testsTotal || 0}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.testsSkipped || 0} scenarios remained not run</p>
                 </div>
 
                 <div className="rounded-xl bg-indigo-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">BDD Coverage</div>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Traceability</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-indigo-700">{selectedBddCoverage}%</div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0} scenarios
-                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0} scenarios covered</p>
                 </div>
 
                 <div className="rounded-xl bg-amber-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Coverage / AI</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{selectedRun?.coverageAi || 0}%</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{runPassRate}% success rate</p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">AI / Frontend</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{aiExecuted}/{aiGenerated}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">{frontendPassed}/{frontendJourneys} frontend journeys passed</p>
                 </div>
               </div>
 
@@ -386,21 +381,35 @@ export default function DashboardPage() {
                     Open full pipeline summary <ArrowRight className="ml-1 inline-block h-4 w-4" />
                   </Link>
                 </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="mt-3 grid gap-3 xl:grid-cols-2">
                   {(snapshot.pipelineJobs || []).map((job) => {
                     const success = job.status !== 'failure';
                     return (
                       <div
                         key={job.name}
-                        className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
+                        className={`rounded-xl border px-4 py-4 ${
                           success ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className={`h-4 w-4 ${success ? 'text-emerald-600' : 'text-rose-600'}`} />
-                          <span className="text-sm font-semibold">{job.name}</span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2">
+                            <CheckCircle2 className={`mt-0.5 h-4 w-4 ${success ? 'text-emerald-600' : 'text-rose-600'}`} />
+                            <div>
+                              <span className="text-sm font-semibold">{job.name}</span>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">{job.summary || 'Primary CI stage'}</p>
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">{job.duration}</span>
                         </div>
-                        <span className="text-[11px] font-semibold text-muted-foreground">{job.duration}</span>
+                        {job.artifacts?.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {job.artifacts.slice(0, 3).map((artifact) => (
+                              <span key={artifact} className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] text-muted-foreground ring-1 ring-black/5">
+                                {artifact}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -416,7 +425,7 @@ export default function DashboardPage() {
                     <div>
                       <div className="text-sm font-bold">Full pipeline insights live in the Summary</div>
                       <p className="text-sm text-muted-foreground">
-                        Test rows, BDD traceability, AI details, code quality, frontend evidence and report bundles.
+                        Test rows, traceability outcomes, AI execution details, frontend evidence, and the published report bundle.
                       </p>
                     </div>
                   </div>
