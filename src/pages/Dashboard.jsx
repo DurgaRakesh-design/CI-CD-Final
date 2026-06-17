@@ -19,7 +19,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { loadDashboardSnapshot, loadLocalDashboardSnapshot } from '@/services/dashboardService';
+import { loadDashboardSnapshot } from '@/services/dashboardService';
 
 const metricIcons = {
   flask: FlaskConical,
@@ -54,22 +54,6 @@ function SectionLabel({ children, inline = false }) {
   );
 }
 
-function ReadinessRing({ value, label }) {
-  return (
-    <div
-      className="grid h-24 w-24 shrink-0 place-items-center rounded-full p-2"
-      style={{ background: `conic-gradient(rgba(255,255,255,.95) ${value * 3.6}deg, rgba(255,255,255,.22) 0deg)` }}
-    >
-      <div className="grid h-[72px] w-[72px] place-items-center rounded-full bg-white/15 text-center shadow-inner backdrop-blur">
-        <div>
-          <div className="font-heading text-xl font-bold leading-none">{value}%</div>
-          <div className="mt-1 text-[9px] font-semibold uppercase text-white/75">{label}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function HeroMetric({ icon: Icon, label, value }) {
   return (
     <div className="min-w-[126px] rounded-xl bg-white/10 p-3 text-left backdrop-blur">
@@ -97,20 +81,71 @@ function KpiTile({ icon: Icon, label, value, sub, tone }) {
   );
 }
 
+function DashboardLoading() {
+  return (
+    <div className="min-h-screen bg-[image:var(--gradient-soft)]">
+      <main className="mx-auto max-w-7xl px-4 pb-20 pt-8 sm:px-6 lg:px-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-72 rounded-2xl bg-white/70 shadow-[var(--shadow-soft)]" />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="h-28 rounded-xl bg-white/70 shadow-[var(--shadow-soft)]" />
+            ))}
+          </div>
+          <div className="grid gap-5 lg:grid-cols-[400px_1fr]">
+            <div className="h-[760px] rounded-2xl bg-white/70 shadow-[var(--shadow-soft)]" />
+            <div className="h-[760px] rounded-2xl bg-white/70 shadow-[var(--shadow-soft)]" />
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function formatAbsoluteTimestamp(value) {
+  if (!value) return 'Not refreshed yet';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not refreshed yet';
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatRunExecutionSummary(run) {
+  if (!run) return 'Execution details not available yet';
+  const passed = Number(run.testsPassed || 0);
+  const failed = Number(run.testsFailed || 0);
+  const notRun = Number(run.testsSkipped || 0);
+  const total = Number(run.testsTotal || 0);
+  if (total > 0) {
+    return `${total} test cases | ${passed} passed | ${failed} failed | ${notRun} not run`;
+  }
+  const covered = Number(run.bddCovered || 0);
+  const scenarios = Number(run.bddTotal || 0);
+  if (scenarios > 0) {
+    return `${covered}/${scenarios} scenarios covered`;
+  }
+  return 'Waiting for published execution evidence';
+}
+
 export default function DashboardPage() {
-  const { data: snapshot = loadLocalDashboardSnapshot(), isFetching, refetch } = useQuery({
+  const { data: snapshot, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['dashboard-snapshot'],
     queryFn: loadDashboardSnapshot,
-    initialData: loadLocalDashboardSnapshot(),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    refetchInterval: (query) => (query.state.data?.runs?.some((run) => run.status === 'running') ? 15000 : false),
   });
 
-  const overview = snapshot.overview;
-  const runs = snapshot.runs || [];
-  const repo = snapshot.repo || {};
-  const hasRemoteRuns = Boolean(snapshot.remoteAvailable);
+  const overview = snapshot?.overview;
+  const runs = snapshot?.runs || [];
+  const repo = snapshot?.repo || {};
+  const hasRemoteRuns = Boolean(snapshot?.remoteAvailable);
   const hasLocalRuns = runs.length > 0;
   const sourceLabel = hasRemoteRuns
     ? 'GitHub workflow runs'
@@ -135,6 +170,7 @@ export default function DashboardPage() {
   }, [runs, selectedId, snapshot.selectedRun]);
 
   const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot.selectedRun ?? runs[0] ?? null;
+  const selectedPipelineJobs = selectedRun?.pipelineJobs || snapshot.pipelineJobs || [];
   const aiExecuted = snapshot.aiDetails?.executed || 0;
   const aiGenerated = snapshot.aiDetails?.generated || 0;
 
@@ -149,20 +185,16 @@ export default function DashboardPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / RUNS_PER_PAGE));
   const currentPage = Math.min(page, totalPages);
   const pagedRuns = filtered.slice((currentPage - 1) * RUNS_PER_PAGE, currentPage * RUNS_PER_PAGE);
-  const selectedBddCoverage = Math.round((selectedRun?.bddCovered || 0) / Math.max(selectedRun?.bddTotal || 1, 1) * 100);
-  const combined = useMemo(() => {
-    const totalRuns = runs.length;
-    const successCount = runs.filter((run) => run.status === 'success').length;
-    const covered = runs.reduce((sum, run) => sum + Number(run.bddCovered || 0), 0);
-    const total = runs.reduce((sum, run) => sum + Number(run.bddTotal || 0), 0);
-    const acceptedScripts = runs.reduce((sum, run) => sum + Number(run.aiAccepted || 0), 0);
-    const generatedScripts = runs.reduce((sum, run) => sum + Number(run.aiGenerated || 0), 0);
-    return { totalRuns, successCount, covered, total, acceptedScripts, generatedScripts };
-  }, [runs]);
+  const selectedBddCoverage = Math.round(((selectedRun?.bddCovered || 0) / Math.max(selectedRun?.bddTotal || 1, 1)) * 100);
+  const heroRun = runs.find((run) => run.status === 'running') ?? runs[0] ?? null;
+  const heroStageSummary = heroRun?.pipelineJobs?.length
+    ? `${heroRun.pipelineJobs.filter((job) => job.status === 'success').length}/${heroRun.pipelineJobs.length} stages completed`
+    : 'Stage tracker available in the selected pipeline';
   const heroMetrics = [
-    { icon: TrendingUp, label: 'Successful Runs', value: `${combined.successCount}/${combined.totalRuns || 0}` },
-    { icon: AlertCircle, label: 'Scenario Coverage', value: `${combined.covered}/${combined.total || 0}` },
-    { icon: Clock, label: 'AI Scripts', value: `${combined.acceptedScripts}/${combined.generatedScripts || 0}` },
+    { icon: Workflow, label: 'Run Status', value: heroRun?.status === 'failure' ? 'Failed' : heroRun?.status === 'success' ? 'Success' : 'Running' },
+    { icon: FlaskConical, label: 'Test Cases', value: `${heroRun?.testsTotal || 0}` },
+    { icon: TrendingUp, label: 'Scenario Coverage', value: `${heroRun?.bddCovered || 0}/${heroRun?.bddTotal || 0}` },
+    { icon: Brain, label: 'AI Scripts', value: `${heroRun?.aiAccepted || 0}/${heroRun?.aiGenerated || 0}` },
   ];
 
   const handleQueryChange = (event) => {
@@ -170,24 +202,38 @@ export default function DashboardPage() {
     setPage(1);
   };
 
+  if (isLoading || !snapshot || !overview) {
+    return <DashboardLoading />;
+  }
+
   return (
     <div className="min-h-screen bg-[image:var(--gradient-soft)] text-foreground antialiased">
       <main className="mx-auto max-w-7xl px-4 pb-20 pt-8 sm:px-6 lg:px-8">
         <section className="overflow-hidden rounded-2xl bg-[image:var(--gradient-hero)] p-6 text-white shadow-[var(--shadow-glow)] md:p-7">
-          <div className="flex flex-wrap items-center gap-6">
-            <ReadinessRing value={overview.readiness} label={overview.readinessLabel} />
+          <div className="flex flex-wrap items-start gap-6">
             <div className="min-w-[260px] flex-1">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-[11px] font-semibold backdrop-blur">
-                <CheckCircle2 className="h-3 w-3" /> Overall Run Status
+                <CheckCircle2 className="h-3 w-3" /> Latest Pipeline Status
               </span>
-              <h1 className="mt-3 font-heading text-2xl font-bold leading-tight md:text-3xl">{overview.statusHeadline}</h1>
-              <p className="mt-1 max-w-xl text-sm leading-6 text-white/85">{overview.statusBody}</p>
+              <h1 className="mt-3 font-heading text-2xl font-bold leading-tight md:text-3xl">
+                {heroRun?.status === 'running'
+                  ? `Run #${heroRun.runNumber} is currently executing`
+                  : `Run #${heroRun?.runNumber || '0'} is the latest completed pipeline`}
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-white/85">
+                {(heroRun?.projectName || 'Selected package')} on {heroRun?.branch || 'develop'} via {heroRun?.workflowName || 'CI workflow'}.
+                {' '}
+                {formatRunExecutionSummary(heroRun)}.
+              </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/20 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-50 ring-1 ring-emerald-300/40">
-                  <CheckCircle2 className="h-3 w-3" /> {overview.readinessLabel}
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium">
+                  <Play className="h-3 w-3" /> {heroStageSummary}
                 </span>
                 <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium">
-                  {repo.owner || 'Repo'}/{repo.name || 'workspace'} - refreshed {repo.updatedAt || 'just now'}
+                  {repo.owner || 'Repo'}/{repo.name || 'workspace'}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium">
+                  Last refreshed {formatAbsoluteTimestamp(snapshot.lastRefreshedAt || heroRun?.updatedAt)}
                 </span>
               </div>
             </div>
@@ -288,12 +334,14 @@ export default function DashboardPage() {
                       </div>
 
                       <div className="mt-3 flex items-end justify-between border-t border-border pt-3">
-                        <div className="flex gap-2 text-[11px] font-semibold">
-                          <span className="text-emerald-600">{run.testsPassed}P</span>
-                          <span className="text-rose-600">{run.testsFailed}F</span>
-                          <span className="text-orange-500">{run.testsSkipped}S</span>
+                        <div className="min-w-0 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground">{run.testsPassed || 0} passed</span>
+                          {' | '}
+                          <span>{run.testsFailed || 0} failed</span>
                         </div>
-                        <div className="text-[11px] text-muted-foreground">{run.testsTotal} total</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {run.bddCovered || 0}/{run.bddTotal || 0} covered
+                        </div>
                       </div>
                     </button>
                   );
@@ -367,13 +415,15 @@ export default function DashboardPage() {
                 <div className="rounded-xl bg-violet-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Test Cases</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun?.testsTotal || 0}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.testsPassed || 0} passed · {selectedRun?.testsSkipped || 0} not run</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedRun?.testsPassed || 0} passed | {selectedRun?.testsFailed || 0} failed | {selectedRun?.testsSkipped || 0} not run
+                  </p>
                 </div>
 
                 <div className="rounded-xl bg-indigo-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Scenario Coverage</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-indigo-700">{selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{selectedBddCoverage}% covered · {selectedRun?.bddUncovered || 0} uncovered</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedBddCoverage}% covered | {selectedRun?.bddUncovered || 0} uncovered</p>
                 </div>
 
                 <div className="rounded-xl bg-amber-50 p-4">
@@ -386,25 +436,40 @@ export default function DashboardPage() {
               <div className="mt-5 rounded-2xl border border-border bg-background p-4">
                 <div className="flex items-center justify-between">
                   <SectionLabel inline>Pipeline Stages</SectionLabel>
-                  <Link to={`/summary/${selectedRun?.runNumber || 1}`} className="text-sm font-semibold text-primary hover:underline">
-                    Open full pipeline summary <ArrowRight className="ml-1 inline-block h-4 w-4" />
-                  </Link>
+                  <div className="text-xs text-muted-foreground">
+                    {selectedRun?.status === 'running' ? 'Live execution tracker' : 'Final stage status from GitHub'}
+                  </div>
                 </div>
                 <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                  {(snapshot.pipelineJobs || []).map((job) => {
-                    const success = job.status !== 'failure';
+                  {selectedPipelineJobs.length ? selectedPipelineJobs.map((job) => {
+                    const isSuccess = job.status === 'success';
+                    const isFailure = job.status === 'failure';
+                    const isRunning = job.status === 'running';
                     return (
                       <div
                         key={job.name}
                         className={`rounded-xl border px-4 py-4 ${
-                          success ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'
+                          isSuccess
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : isFailure
+                              ? 'border-rose-200 bg-rose-50'
+                              : 'border-indigo-200 bg-indigo-50'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2">
-                            <CheckCircle2 className={`mt-0.5 h-4 w-4 ${success ? 'text-emerald-600' : 'text-rose-600'}`} />
+                            {isFailure ? (
+                              <AlertCircle className="mt-0.5 h-4 w-4 text-rose-600" />
+                            ) : isRunning ? (
+                              <RefreshCw className="mt-0.5 h-4 w-4 text-indigo-600" />
+                            ) : (
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+                            )}
                             <div>
-                              <span className="text-sm font-semibold">{job.name}</span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold">{job.name}</span>
+                                <StatusPill status={job.status} />
+                              </div>
                               <p className="mt-1 text-xs leading-5 text-muted-foreground">{job.summary || 'Primary CI stage'}</p>
                             </div>
                           </div>
@@ -421,7 +486,11 @@ export default function DashboardPage() {
                         ) : null}
                       </div>
                     );
-                  })}
+                  }) : (
+                    <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground xl:col-span-2">
+                      Stage details are not available for this run yet.
+                    </div>
+                  )}
                 </div>
               </div>
 

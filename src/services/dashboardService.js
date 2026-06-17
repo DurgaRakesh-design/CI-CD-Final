@@ -180,13 +180,26 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const liveJobs = Array.isArray(livePipeline?.jobs) ? livePipeline.jobs : [];
   const liveArtifacts = Array.isArray(livePipeline?.artifacts) ? livePipeline.artifacts : [];
   const hydratedRun = hydrateRunFromLiveReports(selectedRun, liveReports, liveManifest);
+  const pipelineJobs = liveJobs.length
+    ? buildLivePipelineJobs(liveJobs)
+    : buildPipelineJobs({
+        selectedRun: hydratedRun,
+        gapResults: gapState,
+        documents: docList,
+      });
   const hydratedRuns = runs.map((run) => {
     const bundle = bundleByRunId.get(String(run.id || ''));
-    if (bundle) {
-      return hydrateRunFromLiveReports(run, bundle.reports, bundle.manifest);
+    if (bundle?.reports || bundle?.manifest) {
+      return {
+        ...hydrateRunFromLiveReports(run, bundle.reports, bundle.manifest),
+        pipelineJobs: buildLivePipelineJobs(bundle.jobs || []),
+      };
     }
     return hydratedRun && isSamePipelineRun(run, hydratedRun)
-      ? mergeRunDetails(run, hydratedRun)
+      ? {
+          ...mergeRunDetails(run, hydratedRun),
+          pipelineJobs,
+        }
       : run;
   });
   const statusSummary = buildStatusSummary({
@@ -198,13 +211,6 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
     runHistory: hydratedRuns,
     gapResults: gapState,
   });
-  const pipelineJobs = liveJobs.length
-    ? buildLivePipelineJobs(liveJobs)
-    : buildPipelineJobs({
-        selectedRun: hydratedRun,
-        gapResults: gapState,
-        documents: docList,
-      });
   const testRows = liveReports.qaReport
     ? buildLiveTestRows(liveReports.qaReport)
     : buildTestRows({ documents: docList, gapResults: gapState, workspaceState: normalizedWorkspace });
@@ -240,6 +246,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
 
   return {
     remoteAvailable,
+    lastRefreshedAt: new Date().toISOString(),
     repo: {
       owner: portalConfig.owner,
       name: portalConfig.repo,
@@ -284,7 +291,12 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
           selectedRun: hydratedRun,
         }),
     runs: hydratedRuns,
-    selectedRun: hydratedRun,
+    selectedRun: hydratedRun
+      ? {
+          ...hydratedRun,
+          pipelineJobs: hydratedRuns.find((run) => isSamePipelineRun(run, hydratedRun))?.pipelineJobs || pipelineJobs,
+        }
+      : null,
     pipelineJobs,
     testRows,
     bddScenarios,
@@ -1253,13 +1265,14 @@ async function loadLivePipelineSnapshot() {
       return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, runBundles: [] };
     }
 
-    const [jobsPayload, manifests] = await Promise.all([
-      listWorkflowRunJobs(latestRun.id).catch(() => ({ jobs: [] })),
-      loadRequirementManifests().catch(() => []),
-    ]);
+    const manifests = await loadRequirementManifests().catch(() => []);
     const runBundles = await Promise.all(
       primaryRuns.map(async (run) => {
-        const artifactsPayload = await listWorkflowRunArtifacts(run.id).catch(() => ({ artifacts: [] }));
+        const [jobsPayload, artifactsPayload] = await Promise.all([
+          listWorkflowRunJobs(run.id).catch(() => ({ jobs: [] })),
+          listWorkflowRunArtifacts(run.id).catch(() => ({ artifacts: [] })),
+        ]);
+        const jobs = Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : [];
         const artifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
         const includeDownloads = run.id === latestRun.id;
         const reports = await loadQualityReportsFromArtifacts(artifacts, { includeDownloads }).catch(() => ({}));
@@ -1270,6 +1283,7 @@ async function loadLivePipelineSnapshot() {
         });
         return {
           runId: run.id,
+          jobs,
           artifacts,
           reports,
           manifest,
@@ -1285,7 +1299,7 @@ async function loadLivePipelineSnapshot() {
     return {
       runs: primaryRuns,
       selectedRun: latestRun,
-      jobs: Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : [],
+      jobs: selectedBundle.jobs || [],
       artifacts: selectedBundle.artifacts,
       reports: selectedBundle.reports,
       manifest: selectedBundle.manifest,
