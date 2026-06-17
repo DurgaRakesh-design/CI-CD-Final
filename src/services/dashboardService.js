@@ -477,17 +477,35 @@ function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun }) {
       },
     ],
     artifacts: [
-      manifest?.manifestPath && { name: 'manifest.json', size: manifest.runId || 'live repo file', type: 'Manifest' },
-      manifest?.packagePath && { name: manifest.packageName || 'package', size: manifest.packagePath, type: 'Package' },
-      manifest?.brd?.path && { name: manifest.brd.name || 'BRD', size: manifest.brd.path, type: 'BRD' },
-      bdds.length && { name: 'BDD feature files', size: `${bdds.length} files`, type: 'BDD' },
-      gap?.path && { name: gap.name || 'gap-analysis-report.md', size: `${gap.openFindings || 0} open findings`, type: 'Gap analysis' },
+      manifest?.manifestPath && buildRepoArtifact({ name: 'manifest.json', path: manifest.manifestPath, type: 'Manifest', size: manifest.runId || 'live repo file' }),
+      manifest?.packagePath && buildRepoArtifact({ name: manifest.packageName || 'package', path: manifest.packagePath, type: 'Package', size: manifest.packagePath }),
+      manifest?.brd?.path && buildRepoArtifact({ name: manifest.brd.name || 'BRD', path: manifest.brd.path, type: 'BRD', size: manifest.brd.path }),
+      ...bdds.map((bdd, index) => buildRepoArtifact({
+        name: bdd.name || `BDD feature ${index + 1}`,
+        path: bdd.path,
+        type: 'BDD',
+        size: bdd.path || 'feature file',
+      })),
+      gap?.path && buildRepoArtifact({ name: gap.name || 'gap-analysis-report.md', path: gap.path, type: 'Gap analysis', size: `${gap.openFindings || 0} open findings` }),
       ...artifacts.slice(0, 4).map((artifact) => ({
         name: artifact.name,
         size: formatBytes(artifact.size_in_bytes || 0),
         type: 'Actions artifact',
       })),
     ].filter(Boolean),
+  };
+}
+
+function buildRepoArtifact({ name, path, type, size }) {
+  const filePath = String(path || '');
+  return {
+    name,
+    path: filePath,
+    size,
+    type,
+    viewHref: filePath ? repoBlobUrl(filePath) : '',
+    downloadHref: filePath ? repoRawUrl(filePath) : '',
+    downloadName: filePath.split('/').pop() || name,
   };
 }
 
@@ -1290,6 +1308,14 @@ function mimeTypeForFile(name) {
   if (lower.endsWith('.png')) return 'image/png';
   if (lower.endsWith('.java')) return 'text/plain';
   return 'application/octet-stream';
+}
+
+function repoBlobUrl(path) {
+  return `https://github.com/${portalConfig.owner}/${portalConfig.repo}/blob/${portalConfig.branch}/${encodeURI(String(path || ''))}`;
+}
+
+function repoRawUrl(path) {
+  return `https://raw.githubusercontent.com/${portalConfig.owner}/${portalConfig.repo}/${portalConfig.branch}/${encodeURI(String(path || ''))}`;
 }
 
 function findZipEntry(zip, patterns) {

@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  ExternalLink,
   FileBarChart,
   GitBranch,
   Layers,
@@ -225,7 +226,7 @@ export default function PipelineSummary() {
               </section>
 
               {pipelineTab === 'overview' && (
-                <OverviewTab run={run} pipelineJobs={pipelineJobs} reports={reports} aiDetails={aiDetails} frontend={frontend} />
+                <OverviewTab run={run} pipelineJobs={pipelineJobs} reports={reports} aiDetails={aiDetails} frontend={frontend} workspace={workspace} />
               )}
               {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
               {pipelineTab === 'tests' && <TestResultsTab rows={testRows} run={run} reports={reports} />}
@@ -261,40 +262,44 @@ export default function PipelineSummary() {
   );
 }
 
-function OverviewTab({ run, pipelineJobs, reports, aiDetails, frontend }) {
+function OverviewTab({ run, pipelineJobs, reports, aiDetails, frontend, workspace }) {
+  const relatedEvidence = buildWorkflowEvidence(workspace, reports);
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-        <h3 className="font-heading text-base font-bold">Primary CI workflow</h3>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Stages" value={pipelineJobs.length} sub="Main workflow stages" tone="bg-violet-50/70" />
-          <MetricCard label="Reports" value={reports.length} sub="Published report artifacts" tone="bg-emerald-50/70" />
-          <MetricCard label="AI accepted" value={aiDetails.executed || 0} sub={`${aiDetails.rejected || 0} rejected`} tone="bg-amber-50/70" />
-          <MetricCard label="Frontend" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub="Browser journeys passed" tone="bg-indigo-50/70" />
-        </div>
-      </section>
-      <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Run focus</p>
-        <div className="mt-4 grid gap-3">
-          {[
-            [Zap, 'Workflow', 'CI Pipeline', 'Only the main CI workflow is shown'],
-            [TestTube2, 'Backend tests', `${run.testsPassed || 0}/${run.testsTotal || 0}`, `${run.testsSkipped || 0} scenarios not run`],
-            [WandSparkles, 'Traceability', `${run.bddCovered || 0}/${run.bddTotal || 0}`, `${run.bddUncovered || 0} uncovered scenarios`],
-            [Monitor, 'Frontend', frontend.visual || 'Pending', `${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0} journeys passed`],
-          ].map(([Icon, label, value, sub]) => (
-            <div key={label} className="flex items-center gap-3 rounded-2xl border border-border bg-white p-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
-                <Icon className="h-4 w-4" />
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
+          <h3 className="font-heading text-base font-bold">Primary CI workflow</h3>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Stages" value={pipelineJobs.length} sub="Main workflow stages" tone="bg-violet-50/70" />
+            <MetricCard label="Reports" value={reports.length} sub="Published report artifacts" tone="bg-emerald-50/70" />
+            <MetricCard label="AI accepted" value={aiDetails.executed || 0} sub={`${aiDetails.rejected || 0} rejected`} tone="bg-amber-50/70" />
+            <MetricCard label="Frontend" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub="Browser journeys passed" tone="bg-indigo-50/70" />
+          </div>
+        </section>
+        <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Run focus</p>
+          <div className="mt-4 grid gap-3">
+            {[
+              [Zap, 'Workflow', 'CI Pipeline', 'Only the main CI workflow is shown'],
+              [TestTube2, 'Backend tests', `${run.testsPassed || 0}/${run.testsTotal || 0}`, `${run.testsSkipped || 0} scenarios not run`],
+              [WandSparkles, 'Traceability', `${run.bddCovered || 0}/${run.bddTotal || 0}`, `${run.bddUncovered || 0} uncovered scenarios`],
+              [Monitor, 'Frontend', frontend.visual || 'Pending', `${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0} journeys passed`],
+            ].map(([Icon, label, value, sub]) => (
+              <div key={label} className="flex items-center gap-3 rounded-2xl border border-border bg-white p-3">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+                  <p className="font-heading text-base font-bold">{value}</p>
+                  <p className="text-[11px] text-muted-foreground">{sub}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-                <p className="font-heading text-base font-bold">{value}</p>
-                <p className="text-[11px] text-muted-foreground">{sub}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      </div>
+      {relatedEvidence.length ? <WorkflowEvidencePanel evidence={relatedEvidence} /> : null}
     </div>
   );
 }
@@ -655,6 +660,52 @@ function ReportsTab({ reports }) {
   );
 }
 
+function WorkflowEvidencePanel({ evidence }) {
+  return (
+    <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
+      <TabHeader
+        title="Related workflow evidence"
+        eyebrow="BRD, BDDs, quality reports"
+        description="Open source requirement files in GitHub, or download the exact report files published with this workflow."
+      />
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {evidence.map((item) => (
+          <div key={`${item.type}-${item.name}`} className="rounded-2xl border border-border bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase text-primary">{item.type}</span>
+                  <span className="text-[11px] text-muted-foreground">{item.size || 'available'}</span>
+                </div>
+                <p className="mt-2 truncate text-sm font-semibold text-foreground">{item.name}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.desc || item.path}</p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                {item.viewHref ? (
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg px-2">
+                    <a href={item.viewHref} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span className="sr-only">View {item.name}</span>
+                    </a>
+                  </Button>
+                ) : null}
+                {item.downloadHref ? (
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg px-2">
+                    <a href={item.downloadHref} download={item.downloadName || item.name}>
+                      <Download className="h-3.5 w-3.5" />
+                      <span className="sr-only">Download {item.name}</span>
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TabHeader({ title, eyebrow, description, downloads = [] }) {
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -689,6 +740,31 @@ function ReportDownloadButton({ report, compact = false }) {
 function findReports(reports, patterns) {
   const list = Array.isArray(reports) ? reports : [];
   return list.filter((report) => patterns.some((pattern) => pattern.test(String(report?.name || ''))));
+}
+
+function buildWorkflowEvidence(workspace, reports) {
+  const artifacts = Array.isArray(workspace?.artifacts) ? workspace.artifacts : [];
+  const sourceFiles = artifacts
+    .filter((artifact) => ['BRD', 'BDD', 'Gap analysis'].includes(artifact.type))
+    .slice(0, 8)
+    .map((artifact) => ({
+      ...artifact,
+      desc: artifact.path || artifact.size,
+    }));
+  const qualityFiles = (Array.isArray(reports) ? reports : [])
+    .filter((report) => /qa-test-case-report\.xlsx$|final-test-report\.html$|coverage-gap-analysis\.json$|code-improvement-suggestions\.json$|traceability-validation-matrix\.json$/i.test(report.name || ''))
+    .slice(0, 8)
+    .map((report) => ({
+      ...report,
+      type: 'Quality report',
+      viewHref: isPreviewableReport(report.name) ? report.downloadHref : '',
+      desc: report.desc,
+    }));
+  return [...sourceFiles, ...qualityFiles].slice(0, 12);
+}
+
+function isPreviewableReport(name) {
+  return /\.(html|json|txt|md|log)$/i.test(String(name || ''));
 }
 
 function shortReportLabel(name) {
