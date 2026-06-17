@@ -209,7 +209,7 @@ export default function PipelineSummary() {
 
         <section className="mt-7">
           {topTab === 'workspace' ? (
-            <WorkspaceTab workspace={workspace} reports={reports} />
+            <WorkspaceTab workspace={workspace} />
           ) : (
             <div className="space-y-6">
               <section className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-xl md:p-5">
@@ -232,7 +232,7 @@ export default function PipelineSummary() {
               </section>
 
               {pipelineTab === 'workflow' && (
-                <WorkflowTab run={run} pipelineJobs={pipelineJobs} reports={reports} aiDetails={aiDetails} frontend={frontend} workspace={workspace} />
+                <WorkflowTab run={run} pipelineJobs={pipelineJobs} aiDetails={aiDetails} frontend={frontend} workspace={workspace} />
               )}
               {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
               {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
@@ -269,7 +269,7 @@ export default function PipelineSummary() {
   );
 }
 
-function WorkflowTab({ run, pipelineJobs, reports, aiDetails, frontend, workspace }) {
+function WorkflowTab({ run, pipelineJobs, aiDetails, frontend, workspace }) {
   const requirementEvidence = buildRequirementEvidence(workspace);
   return (
     <div className="space-y-6">
@@ -311,7 +311,7 @@ function WorkflowTab({ run, pipelineJobs, reports, aiDetails, frontend, workspac
   );
 }
 
-function WorkspaceTab({ workspace, reports }) {
+function WorkspaceTab({ workspace }) {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">

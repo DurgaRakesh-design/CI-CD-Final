@@ -142,8 +142,16 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
       })
     : null);
 
+  const runBundles = Array.isArray(livePipeline?.runBundles) ? livePipeline.runBundles : [];
+  const bundleByRunId = new Map(runBundles.map((bundle) => [String(bundle.runId), bundle]));
   const remoteHistory = remoteRuns
-    .map((run) => normalizeRemoteRun(run, normalizedWorkspace))
+    .map((run) => {
+      const normalizedRun = normalizeRemoteRun(run, normalizedWorkspace);
+      const bundle = bundleByRunId.get(String(run.id));
+      return bundle
+        ? hydrateRunFromLiveReports(normalizedRun, bundle.reports, bundle.manifest)
+        : normalizedRun;
+    })
     .filter(Boolean);
   const remoteSelectedRun = remoteHistory[0] || null;
 
@@ -172,11 +180,15 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const liveJobs = Array.isArray(livePipeline?.jobs) ? livePipeline.jobs : [];
   const liveArtifacts = Array.isArray(livePipeline?.artifacts) ? livePipeline.artifacts : [];
   const hydratedRun = hydrateRunFromLiveReports(selectedRun, liveReports, liveManifest);
-  const hydratedRuns = runs.map((run) => (
-    hydratedRun && isSamePipelineRun(run, hydratedRun)
+  const hydratedRuns = runs.map((run) => {
+    const bundle = bundleByRunId.get(String(run.id || ''));
+    if (bundle) {
+      return hydrateRunFromLiveReports(run, bundle.reports, bundle.manifest);
+    }
+    return hydratedRun && isSamePipelineRun(run, hydratedRun)
       ? mergeRunDetails(run, hydratedRun)
-      : run
-  ));
+      : run;
+  });
   const statusSummary = buildStatusSummary({
     selectedRun: hydratedRun,
     approvedDocs,
@@ -247,6 +259,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
         documents: docList,
         gapResults: gapState,
         selectedRun: hydratedRun,
+        runHistory: hydratedRuns,
         approvedDocs,
         totalDocs,
         openFindings,
@@ -753,43 +766,53 @@ function buildLiveFrontend(reports) {
   };
 }
 
-function buildKeyMetrics({ workspaceState, documents, gapResults, selectedRun, approvedDocs, totalDocs, openFindings, coveredFindings }) {
-  if (selectedRun?.source === 'github' && (selectedRun.testsTotal || selectedRun.bddTotal)) {
-    const readiness = Number(selectedRun.readinessScore || 0);
+function buildKeyMetrics({ workspaceState, documents, gapResults, selectedRun, runHistory, approvedDocs, totalDocs, openFindings, coveredFindings }) {
+  if (Array.isArray(runHistory) && runHistory.some((run) => run?.source === 'github')) {
+    const trustedRuns = runHistory.filter((run) => run?.source === 'github');
+    const totalRuns = trustedRuns.length;
+    const successCount = trustedRuns.filter((run) => run.status === 'success').length;
+    const failureCount = trustedRuns.filter((run) => run.status === 'failure').length;
+    const coveredScenarios = trustedRuns.reduce((sum, run) => sum + Number(run.bddCovered || 0), 0);
+    const totalScenarios = trustedRuns.reduce((sum, run) => sum + Number(run.bddTotal || 0), 0);
+    const totalTestCases = trustedRuns.reduce((sum, run) => sum + Number(run.testsTotal || 0), 0);
+    const passedTestCases = trustedRuns.reduce((sum, run) => sum + Number(run.testsPassed || 0), 0);
+    const notRunTestCases = trustedRuns.reduce((sum, run) => sum + Number(run.testsSkipped || 0), 0);
+    const acceptedScripts = trustedRuns.reduce((sum, run) => sum + Number(run.aiAccepted || 0), 0);
+    const generatedScripts = trustedRuns.reduce((sum, run) => sum + Number(run.aiGenerated || 0), 0);
     return [
       {
         icon: 'flask',
-        label: 'Executed Tests',
-        value: `${selectedRun.testsPassed || 0}/${selectedRun.testsTotal || 0}`,
-        sub: `${selectedRun.testsSkipped || 0} not run from GitHub artifact evidence`,
+        label: 'Pipeline Runs',
+        value: String(totalRuns),
+        sub: `${successCount} successful · ${failureCount} failed`,
         tone: 'violet',
       },
       {
         icon: 'trend',
-        label: 'Traceability',
-        value: `${selectedRun.bddCovered || 0}/${selectedRun.bddTotal || 0}`,
-        sub: `${selectedRun.bddUncovered || 0} uncovered scenarios`,
+        label: 'Successful Runs',
+        value: `${successCount}/${totalRuns || 1}`,
+        sub: `${totalRuns ? Math.round((successCount / totalRuns) * 100) : 0}% success rate`,
         tone: 'emerald',
       },
       {
         icon: 'branch',
-        label: 'Workflow',
-        value: 'Main CI',
-        sub: selectedRun.trigger || 'GitHub Actions',
+        label: 'Scenario Coverage',
+        value: `${coveredScenarios}/${totalScenarios || 0}`,
+        sub: `${Math.max(0, totalScenarios - coveredScenarios)} uncovered scenarios`,
         tone: 'indigo',
       },
       {
         icon: 'bot',
-        label: 'Open Gaps',
-        value: String(selectedRun.openFindings || 0),
-        sub: readiness >= 80 ? 'Artifact evidence is healthy' : 'Review required',
+        label: 'Total Test Cases',
+        value: String(totalTestCases),
+        sub: `${passedTestCases} passed · ${notRunTestCases} not run`,
         tone: 'fuchsia',
       },
       {
         icon: 'shield',
-        label: 'Readiness',
-        value: `${readiness}%`,
-        sub: selectedRun.manifestPath || 'Live GitHub run',
+        label: 'AI Generated Test Scripts',
+        value: `${acceptedScripts}/${generatedScripts || 0}`,
+        sub: 'accepted / generated',
         tone: 'teal',
       },
     ];
@@ -1227,32 +1250,49 @@ async function loadLivePipelineSnapshot() {
     const primaryRuns = runs.filter((run) => isPrimaryCiWorkflowRun(run));
     const latestRun = primaryRuns[0] || null;
     if (!latestRun) {
-      return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null };
+      return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, runBundles: [] };
     }
 
-    const [jobsPayload, artifactsPayload, manifests] = await Promise.all([
+    const [jobsPayload, manifests] = await Promise.all([
       listWorkflowRunJobs(latestRun.id).catch(() => ({ jobs: [] })),
-      listWorkflowRunArtifacts(latestRun.id).catch(() => ({ artifacts: [] })),
       loadRequirementManifests().catch(() => []),
     ]);
-    const artifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
-    const reports = await loadQualityReportsFromArtifacts(artifacts).catch(() => ({}));
-    const manifest = pickManifestForRun({
-      manifests,
-      run: latestRun,
-      reportBundle: reports,
-    });
+    const runBundles = await Promise.all(
+      primaryRuns.map(async (run) => {
+        const artifactsPayload = await listWorkflowRunArtifacts(run.id).catch(() => ({ artifacts: [] }));
+        const artifacts = Array.isArray(artifactsPayload?.artifacts) ? artifactsPayload.artifacts : [];
+        const includeDownloads = run.id === latestRun.id;
+        const reports = await loadQualityReportsFromArtifacts(artifacts, { includeDownloads }).catch(() => ({}));
+        const manifest = pickManifestForRun({
+          manifests,
+          run,
+          reportBundle: reports,
+        });
+        return {
+          runId: run.id,
+          artifacts,
+          reports,
+          manifest,
+        };
+      })
+    );
+    const selectedBundle = runBundles.find((bundle) => String(bundle.runId) === String(latestRun.id)) || {
+      artifacts: [],
+      reports: {},
+      manifest: null,
+    };
 
     return {
       runs: primaryRuns,
       selectedRun: latestRun,
       jobs: Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : [],
-      artifacts,
-      reports,
-      manifest,
+      artifacts: selectedBundle.artifacts,
+      reports: selectedBundle.reports,
+      manifest: selectedBundle.manifest,
+      runBundles,
     };
   } catch (_) {
-    return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null };
+    return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, runBundles: [] };
   }
 }
 
@@ -1286,7 +1326,8 @@ async function loadRequirementManifests() {
   return manifests.filter(Boolean);
 }
 
-async function loadQualityReportsFromArtifacts(artifacts) {
+async function loadQualityReportsFromArtifacts(artifacts, options = {}) {
+  const { includeDownloads = true } = options;
   const qualityArtifact = [...artifacts]
     .filter((artifact) => /quality|report/i.test(artifact.name || ''))
     .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
@@ -1296,33 +1337,34 @@ async function loadQualityReportsFromArtifacts(artifacts) {
 
   const blob = await downloadArtifactArchive(qualityArtifact.archive_download_url);
   const archiveBuffer = await blob.arrayBuffer();
-  const archiveBase64 = arrayBufferToBase64(archiveBuffer);
   const zip = await JSZip.loadAsync(archiveBuffer);
   const reportEntryNames = Object.keys(zip.files)
     .filter((name) => !zip.files[name].dir)
     .sort();
-  const reportFiles = [
-    {
-      name: `${qualityArtifact.name || 'quality-reports'}.zip`,
-      size: archiveBuffer.byteLength,
-      mimeType: 'application/zip',
-      downloadName: `${qualityArtifact.name || 'quality-reports'}.zip`,
-      downloadHref: `data:application/zip;base64,${archiveBase64}`,
-      bundle: true,
-    },
-    ...(await Promise.all(reportEntryNames.map(async (entryName) => {
-      const name = stripFinalReportPrefix(entryName);
-      const entry = zip.files[entryName];
-      const base64 = await entry.async('base64');
-      return {
-        name,
-        size: base64ToByteLength(base64),
-        mimeType: mimeTypeForFile(name),
-        downloadName: name.split('/').pop() || name,
-        downloadHref: `data:${mimeTypeForFile(name)};base64,${base64}`,
-      };
-    }))),
-  ];
+  const reportFiles = includeDownloads
+    ? [
+        {
+          name: `${qualityArtifact.name || 'quality-reports'}.zip`,
+          size: archiveBuffer.byteLength,
+          mimeType: 'application/zip',
+          downloadName: `${qualityArtifact.name || 'quality-reports'}.zip`,
+          downloadHref: `data:application/zip;base64,${arrayBufferToBase64(archiveBuffer)}`,
+          bundle: true,
+        },
+        ...(await Promise.all(reportEntryNames.map(async (entryName) => {
+          const name = stripFinalReportPrefix(entryName);
+          const entry = zip.files[entryName];
+          const base64 = await entry.async('base64');
+          return {
+            name,
+            size: base64ToByteLength(base64),
+            mimeType: mimeTypeForFile(name),
+            downloadName: name.split('/').pop() || name,
+            downloadHref: `data:${mimeTypeForFile(name)};base64,${base64}`,
+          };
+        }))),
+      ]
+    : [{ name: `${qualityArtifact.name || 'quality-reports'}.zip`, size: archiveBuffer.byteLength, bundle: true }];
   const readJson = async (patterns) => {
     const entryName = findZipEntry(zip, patterns);
     if (!entryName) return null;

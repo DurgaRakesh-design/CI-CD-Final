@@ -135,8 +135,6 @@ export default function DashboardPage() {
   }, [runs, selectedId, snapshot.selectedRun]);
 
   const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot.selectedRun ?? runs[0] ?? null;
-  const frontendJourneys = snapshot.frontend?.totalJourneys || 0;
-  const frontendPassed = snapshot.frontend?.passedJourneys || 0;
   const aiExecuted = snapshot.aiDetails?.executed || 0;
   const aiGenerated = snapshot.aiDetails?.generated || 0;
 
@@ -152,10 +150,19 @@ export default function DashboardPage() {
   const currentPage = Math.min(page, totalPages);
   const pagedRuns = filtered.slice((currentPage - 1) * RUNS_PER_PAGE, currentPage * RUNS_PER_PAGE);
   const selectedBddCoverage = Math.round((selectedRun?.bddCovered || 0) / Math.max(selectedRun?.bddTotal || 1, 1) * 100);
+  const combined = useMemo(() => {
+    const totalRuns = runs.length;
+    const successCount = runs.filter((run) => run.status === 'success').length;
+    const covered = runs.reduce((sum, run) => sum + Number(run.bddCovered || 0), 0);
+    const total = runs.reduce((sum, run) => sum + Number(run.bddTotal || 0), 0);
+    const acceptedScripts = runs.reduce((sum, run) => sum + Number(run.aiAccepted || 0), 0);
+    const generatedScripts = runs.reduce((sum, run) => sum + Number(run.aiGenerated || 0), 0);
+    return { totalRuns, successCount, covered, total, acceptedScripts, generatedScripts };
+  }, [runs]);
   const heroMetrics = [
-    { icon: TrendingUp, label: 'Success Rate', value: `${overview.successRate}%` },
-    { icon: AlertCircle, label: 'Active Issues', value: String(overview.activeIssues) },
-    { icon: Clock, label: 'Avg Duration', value: overview.avgDuration },
+    { icon: TrendingUp, label: 'Successful Runs', value: `${combined.successCount}/${combined.totalRuns || 0}` },
+    { icon: AlertCircle, label: 'Scenario Coverage', value: `${combined.covered}/${combined.total || 0}` },
+    { icon: Clock, label: 'AI Scripts', value: `${combined.acceptedScripts}/${combined.generatedScripts || 0}` },
   ];
 
   const handleQueryChange = (event) => {
@@ -180,7 +187,7 @@ export default function DashboardPage() {
                   <CheckCircle2 className="h-3 w-3" /> {overview.readinessLabel}
                 </span>
                 <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-medium">
-                  {repo.owner || 'Repo'}/{repo.name || 'workspace'} · refreshed {repo.updatedAt || 'just now'}
+                  {repo.owner || 'Repo'}/{repo.name || 'workspace'} - refreshed {repo.updatedAt || 'just now'}
                 </span>
               </div>
             </div>
@@ -268,7 +275,7 @@ export default function DashboardPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="truncate text-sm font-bold">
-                            #{run.runNumber} · {run.projectName}
+                            #{run.runNumber} - {run.projectName}
                           </h3>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                             <GitBranch className="h-3 w-3" /> {run.branch}
@@ -325,7 +332,7 @@ export default function DashboardPage() {
                 <div>
                   <SectionLabel inline>Selected Pipeline</SectionLabel>
                   <h2 className="mt-1 font-heading text-2xl font-bold leading-tight">
-                    Run #{selectedRun?.runNumber || '0'} · {selectedRun?.projectName || 'Workspace'}
+                    Run #{selectedRun?.runNumber || '0'} - {selectedRun?.projectName || 'Workspace'}
                   </h2>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
@@ -335,7 +342,7 @@ export default function DashboardPage() {
                       <GitBranch className="h-3.5 w-3.5" /> {selectedRun?.branch || 'develop'}
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <Play className="h-3.5 w-3.5" /> {selectedRun?.trigger || 'dispatch'}
+                      <Play className="h-3.5 w-3.5" /> {selectedRun?.workflowName || selectedRun?.trigger || 'dispatch'}
                     </span>
                   </div>
                 </div>
@@ -354,25 +361,25 @@ export default function DashboardPage() {
                   <div className="mt-2 font-heading text-2xl font-bold text-rose-700">
                     {selectedRun?.status === 'failure' ? 'Failed' : selectedRun?.status === 'success' ? 'Success' : 'Running'}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">Primary CI workflow only</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.workflowName || 'Main CI workflow'}</p>
                 </div>
 
                 <div className="rounded-xl bg-violet-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Backend Quality</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun?.testsPassed || 0}/{selectedRun?.testsTotal || 0}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.testsSkipped || 0} scenarios remained not run</p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Test Cases</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-violet-700">{selectedRun?.testsTotal || 0}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.testsPassed || 0} passed · {selectedRun?.testsSkipped || 0} not run</p>
                 </div>
 
                 <div className="rounded-xl bg-indigo-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Traceability</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-indigo-700">{selectedBddCoverage}%</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0} scenarios covered</p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Scenario Coverage</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-indigo-700">{selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedBddCoverage}% covered · {selectedRun?.bddUncovered || 0} uncovered</p>
                 </div>
 
                 <div className="rounded-xl bg-amber-50 p-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">AI / Frontend</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{aiExecuted}/{aiGenerated}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{frontendPassed}/{frontendJourneys} frontend journeys passed</p>
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">AI Generated Test Scripts</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{selectedRun?.aiAccepted || aiExecuted}/{selectedRun?.aiGenerated || aiGenerated}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">accepted / generated</p>
                 </div>
               </div>
 
