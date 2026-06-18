@@ -130,8 +130,8 @@ export async function dispatchRepositoryEvent(eventType, clientPayload) {
   }
 }
 
-export async function listWorkflowRuns(limit = 20) {
-  return await githubFetch(repoApi(`/actions/runs?per_page=${limit}`));
+export async function listWorkflowRuns(limit = 20, page = 1) {
+  return await githubFetch(repoApi(`/actions/runs?per_page=${limit}&page=${page}`));
 }
 
 export async function listWorkflowRunJobs(runId) {

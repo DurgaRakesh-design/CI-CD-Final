@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -40,7 +40,6 @@ const pipelineTabs = [
   { id: 'bdd', label: 'BDD Scenarios' },
   { id: 'test-cases', label: 'Test Cases' },
   { id: 'test-scripts', label: 'Test Scripts' },
-  { id: 'ai', label: 'AI' },
   { id: 'quality', label: 'Quality' },
   { id: 'frontend', label: 'Frontend' },
   { id: 'reports', label: 'Reports' },
@@ -73,8 +72,8 @@ function SummaryLoading() {
 export default function PipelineSummary() {
   const { runNumber } = useParams();
   const { data: snapshot, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['dashboard-snapshot'],
-    queryFn: loadDashboardSnapshot,
+    queryKey: ['dashboard-snapshot', String(runNumber || 'latest')],
+    queryFn: () => loadDashboardSnapshot({ selectedRunNumber: runNumber }),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
@@ -96,6 +95,26 @@ export default function PipelineSummary() {
   const frontend = snapshot?.frontend || {};
   const reports = snapshot?.reports || [];
   const pipelineJobs = run?.pipelineJobs || snapshot?.pipelineJobs || [];
+  const visiblePipelineTabs = useMemo(
+    () => pipelineTabs.filter((tab) => {
+      if (tab.id === 'quality') {
+        return Boolean((codeQuality.hotspotCount || 0) || (codeQuality.improvementCount || 0) || (codeQuality.aiTests || 0) || (codeQuality.existingTests || 0));
+      }
+      if (tab.id === 'frontend') {
+        return Boolean((frontend.totalJourneys || 0) || (frontend.totalDesignCases || 0) || (frontend.totalTraceabilityRows || 0) || (frontend.screenshots || []).length);
+      }
+      if (tab.id === 'reports') {
+        return reports.length > 0;
+      }
+      return true;
+    }),
+    [codeQuality, frontend, reports]
+  );
+  useEffect(() => {
+    if (!visiblePipelineTabs.some((tab) => tab.id === pipelineTab)) {
+      setPipelineTab(visiblePipelineTabs[0]?.id || 'overview');
+    }
+  }, [pipelineTab, visiblePipelineTabs]);
 
   const readiness = typeof run?.readinessScore === 'number'
     ? run.readinessScore
@@ -211,12 +230,12 @@ export default function PipelineSummary() {
 
         <section className="mt-7">
           {topTab === 'workspace' ? (
-            <WorkspaceTab workspace={workspace} />
+            <WorkspaceTab workspace={workspace} reports={reports} />
           ) : (
             <div className="space-y-6">
               <section className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-xl md:p-5">
                 <div className="flex flex-wrap gap-2">
-                  {pipelineTabs.map((tab) => (
+                  {visiblePipelineTabs.map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
@@ -237,7 +256,6 @@ export default function PipelineSummary() {
               {pipelineTab === 'bdd' && <BddScenariosTab rows={bddScenarios} run={run} reports={reports} />}
               {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
               {pipelineTab === 'test-scripts' && <TestScriptsTab rows={testScripts} reports={reports} />}
-              {pipelineTab === 'ai' && <AiTab aiDetails={aiDetails} reports={reports} />}
               {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} reports={reports} />}
               {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} reports={reports} />}
               {pipelineTab === 'reports' && <ReportsTab reports={reports} />}
@@ -276,7 +294,8 @@ function OverviewTab({ workspace }) {
   );
 }
 
-function WorkspaceTab({ workspace }) {
+function WorkspaceTab({ workspace, reports }) {
+  const publishedReports = Array.isArray(reports) ? reports.slice(0, 4) : [];
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
@@ -346,18 +365,20 @@ function WorkspaceTab({ workspace }) {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm md:p-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-700">Published bundle</p>
-          <h3 className="mt-1 font-heading text-base font-bold md:text-lg">Report-backed artifacts</h3>
-          <div className="mt-4 space-y-3">
-            {reports.slice(0, 4).map((report) => (
-              <div key={report.name} className="rounded-2xl border border-amber-100 bg-white/85 p-4">
-                <p className="text-sm font-semibold text-foreground">{report.name}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{report.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        {publishedReports.length ? (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm md:p-6">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-amber-700">Published bundle</p>
+            <h3 className="mt-1 font-heading text-base font-bold md:text-lg">Report-backed artifacts</h3>
+            <div className="mt-4 space-y-3">
+              {publishedReports.map((report) => (
+                <div key={report.name} className="rounded-2xl border border-amber-100 bg-white/85 p-4">
+                  <p className="text-sm font-semibold text-foreground">{report.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{report.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </aside>
     </div>
   );

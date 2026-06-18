@@ -33,12 +33,14 @@ export function loadLocalDashboardSnapshot() {
     remoteRuns: [],
     remoteAvailable: false,
     livePipeline: null,
+    preferredRunNumber: null,
   });
 }
 
-export async function loadDashboardSnapshot() {
+export async function loadDashboardSnapshot(options = {}) {
+  const { selectedRunNumber = null } = options;
   const local = readLocalState();
-  const livePipeline = await loadLivePipelineSnapshot();
+  const livePipeline = await loadLivePipelineSnapshot({ selectedRunNumber });
   const remoteRuns = livePipeline?.runs || [];
 
   return buildDashboardSnapshot({
@@ -50,6 +52,7 @@ export async function loadDashboardSnapshot() {
     remoteRuns,
     remoteAvailable: remoteRuns.length > 0,
     livePipeline,
+    preferredRunNumber: selectedRunNumber,
   });
 }
 
@@ -113,7 +116,7 @@ export function recordPipelineRunSnapshot({ result, workspaceData, documents = [
   return run;
 }
 
-function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestRun, history, remoteRuns, remoteAvailable, livePipeline }) {
+function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestRun, history, remoteRuns, remoteAvailable, livePipeline, preferredRunNumber = null }) {
   const normalizedWorkspace = sanitizeWorkspaceData(workspaceState);
   const docList = Array.isArray(documents) ? documents : [];
   const gapState = gapResults || null;
@@ -154,7 +157,9 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
         : normalizedRun;
     })
     .filter(Boolean);
-  const remoteSelectedRun = remoteHistory[0] || null;
+  const remoteSelectedRun = remoteHistory.find((run) => String(run.runNumber) === String(preferredRunNumber))
+    || remoteHistory[0]
+    || null;
 
   const localHistory = Array.isArray(history) ? history.filter(Boolean) : [];
   const runMap = new Map();
@@ -173,13 +178,15 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
     });
 
   const runs = [...runMap.values()].sort((a, b) => compareRuns(a, b));
-  const selectedRun = remoteSelectedRun
-    ? mergeRunDetails(remoteSelectedRun, localRun || runs[0] || null)
-    : (localRun || runs[0] || null);
-  const liveReports = livePipeline?.reports || {};
-  const liveManifest = livePipeline?.manifest || null;
-  const liveJobs = Array.isArray(livePipeline?.jobs) ? livePipeline.jobs : [];
-  const liveArtifacts = Array.isArray(livePipeline?.artifacts) ? livePipeline.artifacts : [];
+  const selectedRun = remoteSelectedRun || localRun || runs[0] || null;
+  const selectedBundle = selectedRun?.id
+    ? bundleByRunId.get(String(selectedRun.id))
+    : null;
+  const liveReports = selectedBundle?.reports || {};
+  const liveManifest = selectedBundle?.manifest || null;
+  const liveJobs = Array.isArray(selectedBundle?.jobs) ? selectedBundle.jobs : [];
+  const liveArtifacts = Array.isArray(selectedBundle?.artifacts) ? selectedBundle.artifacts : [];
+  const workspaceArtifacts = Array.isArray(selectedBundle?.workspaceArtifacts) ? selectedBundle.workspaceArtifacts : [];
   const hydratedRun = hydrateRunFromLiveReports(selectedRun, liveReports, liveManifest);
   const pipelineJobs = liveJobs.length
     ? buildLivePipelineJobs(liveJobs)
@@ -289,7 +296,7 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
           artifacts: liveArtifacts,
           reports,
           selectedRun: hydratedRun,
-          workspaceArtifacts: Array.isArray(livePipeline?.workspaceArtifacts) ? livePipeline.workspaceArtifacts : [],
+          workspaceArtifacts,
         })
       : buildWorkspace({
           workspaceState: normalizedWorkspace,
@@ -1324,6 +1331,7 @@ function normalizeRemoteRun(run, workspaceState) {
     || (/^ci pipeline$/i.test(displayTitle) ? portalConfig.repo : displayTitle)
     || portalConfig.repo;
   return {
+    id: run.id,
     runNumber: Number(run.run_number || 0),
     projectName,
     workflowName,
@@ -1364,12 +1372,10 @@ function normalizeRemoteRun(run, workspaceState) {
   };
 }
 
-async function loadLivePipelineSnapshot() {
+async function loadLivePipelineSnapshot({ selectedRunNumber = null } = {}) {
   try {
-    const payload = await listWorkflowRuns(8);
-    const runs = Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : [];
-    const primaryRuns = runs.filter((run) => isPrimaryCiWorkflowRun(run));
-    const latestRun = primaryRuns[0] || null;
+    const primaryRuns = await listPrimaryWorkflowRunsSinceYesterday();
+    const latestRun = primaryRuns.find((run) => String(run.run_number) === String(selectedRunNumber)) || primaryRuns[0] || null;
     if (!latestRun) {
       return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, runBundles: [] };
     }
@@ -1390,12 +1396,16 @@ async function loadLivePipelineSnapshot() {
           run,
           reportBundle: reports,
         });
+        const workspaceArtifacts = includeDownloads
+          ? await loadWorkspaceArtifactsForManifest(manifest).catch(() => [])
+          : [];
         return {
           runId: run.id,
           jobs,
           artifacts,
           reports,
           manifest,
+          workspaceArtifacts,
         };
       })
     );
@@ -1404,8 +1414,8 @@ async function loadLivePipelineSnapshot() {
       reports: {},
       manifest: null,
       jobs: [],
+      workspaceArtifacts: [],
     };
-    const workspaceArtifacts = await loadWorkspaceArtifactsForManifest(selectedBundle.manifest).catch(() => []);
 
     return {
       runs: primaryRuns,
@@ -1414,12 +1424,46 @@ async function loadLivePipelineSnapshot() {
       artifacts: selectedBundle.artifacts,
       reports: selectedBundle.reports,
       manifest: selectedBundle.manifest,
-      workspaceArtifacts,
+      workspaceArtifacts: selectedBundle.workspaceArtifacts || [],
       runBundles,
     };
   } catch (_) {
     return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, workspaceArtifacts: [], runBundles: [] };
   }
+}
+
+async function listPrimaryWorkflowRunsSinceYesterday() {
+  const perPage = 50;
+  const maxPages = 6;
+  const cutoff = getYesterdayStart();
+  const collected = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const payload = await listWorkflowRuns(perPage, page);
+    const runs = Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : [];
+    if (!runs.length) break;
+
+    for (const run of runs) {
+      if (!isPrimaryCiWorkflowRun(run)) continue;
+      const runDate = new Date(run.created_at || run.run_started_at || run.updated_at || 0);
+      if (Number.isNaN(runDate.getTime())) continue;
+      if (runDate < cutoff) {
+        return collected;
+      }
+      collected.push(run);
+    }
+
+    if (runs.length < perPage) break;
+  }
+
+  return collected;
+}
+
+function getYesterdayStart(now = new Date()) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - 1);
+  return start;
 }
 
 async function loadWorkspaceArtifactsForManifest(manifest) {

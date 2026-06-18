@@ -171,9 +171,6 @@ export default function DashboardPage() {
 
   const selectedRun = runs.find((run) => run.runNumber === selectedId) ?? snapshot?.selectedRun ?? runs[0] ?? null;
   const selectedPipelineJobs = selectedRun?.pipelineJobs || snapshot?.pipelineJobs || [];
-  const aiExecuted = snapshot?.aiDetails?.executed || 0;
-  const aiGenerated = snapshot?.aiDetails?.generated || 0;
-
   const filtered = useMemo(
     () =>
       runs.filter((run) =>
@@ -428,7 +425,7 @@ export default function DashboardPage() {
 
                 <div className="rounded-xl bg-amber-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">AI Generated Test Scripts</div>
-                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{selectedRun?.aiAccepted || aiExecuted}/{selectedRun?.aiGenerated || aiGenerated}</div>
+                  <div className="mt-2 font-heading text-2xl font-bold text-orange-600">{selectedRun?.aiAccepted || 0}/{selectedRun?.aiGenerated || 0}</div>
                   <p className="mt-1 text-xs text-muted-foreground">accepted / generated</p>
                 </div>
               </div>
