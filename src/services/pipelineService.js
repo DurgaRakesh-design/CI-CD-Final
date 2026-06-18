@@ -7,7 +7,7 @@ const LARGE_PACKAGE_CHUNK_THRESHOLD_BYTES = 8 * 1024 * 1024;
 // GitHub's repository contents API is documented up to 100 MB, but we keep
 // chunks well below that ceiling to reduce request count without pushing the
 // portal close to large JSON/base64 payload edges.
-const LARGE_PACKAGE_CHUNK_BYTES = 16 * 1024 * 1024;
+const LARGE_PACKAGE_CHUNK_BYTES = 2 * 1024 * 1024;
 
 export async function listUploadedPackages() {
   const items = await listRepoContents(portalConfig.uploadDir, portalConfig.branch);
