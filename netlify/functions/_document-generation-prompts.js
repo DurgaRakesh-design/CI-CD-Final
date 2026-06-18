@@ -7,11 +7,10 @@ export function buildFileAnalysisSystemPrompt() {
     "MANDATORY ANALYSIS ORDER: First unzip and inventory the project. Then inspect build files, dependency manifests, Java source, resources, controllers, services, repositories, entities, DTOs, configuration, security, tests, existing feature/spec files, scripts, and documentation before drafting.",
     "FILE COVERAGE: Read all business-relevant files completely when practical. For generated/vendor/build artifacts, list them as excluded with reason. If any file cannot be read due to size/encoding/binary format, record that limitation in qualityNotes.",
     "TRACEABILITY: Every BRD section, functional requirement, business rule, BDD feature, and risk must include evidence anchors pointing to concrete file paths plus class/method/endpoint/resource names where available.",
-    "TOOL USE: You must use the python tool / Code Interpreter to unzip the attached package, list files, inspect project structure, and read relevant source files before producing JSON.",
     "BDD QUALITY: BDDs must be executable Gherkin, business-readable, tagged, and linked to requirement IDs/business rules in comments. Prefer Scenario Outline with Examples for data-driven logic.",
     "RISK QUALITY: Actively check for security, data integrity, error handling, performance, business logic, and compliance risks. Report only risks supported by code evidence.",
     "DEPTH BAR: The BRD must be a full enterprise analysis document, not a short summary. A small application still requires complete document control, application profile, FR catalogue, NFRs, data rules, gaps, risks, recommendations, and traceability.",
-    "BDD BAR: Produce separate BDD feature files for each meaningful source-evidenced business capability or workflow. Discover capabilities from controllers, routes, services, entities, validations, security rules, UI flows, tests, configuration, and documentation. Do not use app-name-specific templates, do not cap feature count, and do not force artificial modules when the source does not support them.",
+    "BDD BAR: Produce separate BDD feature files for each meaningful capability or workflow. For small apps, split by startup/configuration, user interaction/input flow, core business operation, validation/error behavior, or other evidenced capabilities instead of collapsing everything into one file.",
     "OUTPUT: Return only JSON matching the requested schema. Put the complete formal BRD inside brd.content and each separate Gherkin feature file inside bddFiles[].gherkin.",
   ].join(" ");
 }
@@ -73,9 +72,7 @@ export function buildFileAnalysisUserPayload({ context, evidenceDigest, required
     },
     bddScenarioCoverageRules: [
       "Create one Feature per real business module/capability/workflow. Do not collapse the entire app into one feature unless the project truly has only one evidenced workflow.",
-      "Derive feature-file boundaries from the actual code and package evidence: user journeys, controller/service boundaries, domain entities, validation branches, persistence operations, security/role rules, UI flows, integrations, batch jobs, configuration behavior, and documented requirements.",
-      "Do not use fixed sample modules or app-type templates. If a project is small, still include every distinct evidenced workflow; if the evidence supports only a few workflows, state that limitation in qualityNotes rather than inventing more.",
-      "If one capability contains many independent scenario groups, split it into multiple focused BDD feature files only when the split improves reviewability and traceability.",
+      "For a small calculator-style app, produce separate features for application startup/configuration, web form submission/user interaction, and arithmetic/business operation processing when evidenced.",
       "For every feature, include supported happy paths and the negative/boundary scenarios evidenced by validation and code branches.",
       "Include unauthorized/security scenarios only when roles/security evidence exists or when missing security is explicitly documented as a gap/BUG scenario.",
       "Include duplicate/conflict, not-found, and integration-failure scenarios only when the code/domain supports those outcomes or the absence is recorded as a gap.",
