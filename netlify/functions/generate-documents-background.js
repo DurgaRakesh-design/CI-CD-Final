@@ -727,18 +727,22 @@ function evaluateSuiteDepth(payload) {
     "Traceability",
   ];
   const missingSections = brdSections.filter((section) => !brdText.toLowerCase().includes(section.toLowerCase()));
-  if (brdText.length < 6500) advisoryIssues.push(`BRD is shorter than the enterprise target (${brdText.length} chars; target 6500+).`);
+  if (brdText.length < 2500) criticalIssues.push(`BRD is far too short (${brdText.length} chars; target 2500+ minimum before accepting).`);
+  else if (brdText.length < 6500) advisoryIssues.push(`BRD is shorter than the enterprise target (${brdText.length} chars; target 6500+).`);
   if (missingSections.length) criticalIssues.push(`BRD missing sections: ${missingSections.join(", ")}.`);
   if (!/FR-\d{3}/i.test(brdText)) criticalIssues.push("BRD does not include formal FR identifiers.");
   if (!/BR-\d{3}/i.test(brdText)) criticalIssues.push("BRD does not include formal BR identifiers.");
   if (!/Gap|GAP-\d{3}/i.test(brdText)) criticalIssues.push("BRD does not include a useful gaps catalogue.");
   if (!bdds.length) criticalIssues.push("No BDD feature files returned for fresh package generation.");
+  if (bdds.length > 0 && bdds.length < 3) criticalIssues.push(`Only ${bdds.length} BDD feature files returned; capability-rich packages should not collapse to fewer than 3 unless evidence is truly minimal.`);
   bdds.forEach((doc, index) => {
     const gherkin = String(doc?.gherkin || "");
     const scenarioCount = (gherkin.match(/^\s*Scenario(?: Outline)?:/gim) || []).length;
-    if (gherkin.length < 700) advisoryIssues.push(`BDD ${index + 1} is shorter than the target (${gherkin.length} chars).`);
+    if (gherkin.length < 350) criticalIssues.push(`BDD ${index + 1} is far too short (${gherkin.length} chars).`);
+    else if (gherkin.length < 700) advisoryIssues.push(`BDD ${index + 1} is shorter than the target (${gherkin.length} chars).`);
     if (scenarioCount < 2) criticalIssues.push(`BDD ${index + 1} has fewer than 2 scenarios.`);
     if (!/#\s*Covers:/i.test(gherkin)) criticalIssues.push(`BDD ${index + 1} is missing # Covers traceability comments.`);
+    if (/^\s*(get|post|put|delete|patch)\s+\//i.test(String(doc?.title || ""))) criticalIssues.push(`BDD ${index + 1} title is endpoint-shaped instead of business-capability-shaped.`);
   });
   return {
     passed: criticalIssues.length === 0,

@@ -7,7 +7,7 @@ import {
   setPackageUploadManifest,
 } from "./_shared.js";
 
-const MAX_CHUNK_BASE64_CHARS = 1_200_000;
+const MAX_CHUNK_BASE64_CHARS = 2_200_000;
 
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS_HEADERS, body: "" };

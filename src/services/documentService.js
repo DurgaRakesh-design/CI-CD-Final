@@ -1,6 +1,6 @@
 import { safeFileName } from './encoding';
 
-const PACKAGE_CHUNK_BYTES = 768 * 1024;
+const PACKAGE_CHUNK_BYTES = 1536 * 1024;
 const inFlightRequirementSuites = new Map();
 
 export async function generateRequirementSuite({

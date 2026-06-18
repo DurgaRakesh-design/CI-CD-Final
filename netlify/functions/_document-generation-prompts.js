@@ -10,7 +10,9 @@ export function buildFileAnalysisSystemPrompt() {
     "BDD QUALITY: BDDs must be executable Gherkin, business-readable, tagged, and linked to requirement IDs/business rules in comments. Prefer Scenario Outline with Examples for data-driven logic.",
     "RISK QUALITY: Actively check for security, data integrity, error handling, performance, business logic, and compliance risks. Report only risks supported by code evidence.",
     "DEPTH BAR: The BRD must be a full enterprise analysis document, not a short summary. A small application still requires complete document control, application profile, FR catalogue, NFRs, data rules, gaps, risks, recommendations, and traceability.",
-    "BDD BAR: Produce separate BDD feature files for each meaningful capability or workflow. For small apps, split by startup/configuration, user interaction/input flow, core business operation, validation/error behavior, or other evidenced capabilities instead of collapsing everything into one file.",
+    "BDD BAR: Produce separate BDD feature files for each meaningful capability or workflow. Group by business capability, not by raw endpoint name or HTTP verb. A medium-sized commerce application usually requires multiple capability-grouped features such as authentication/account, catalog/search, cart/wishlist, checkout/orders, administration, and support workflows when evidenced.",
+    "ANTI-COLLAPSE RULE: A one-paragraph BRD, a lightweight overview, or only one or two thin BDDs is unacceptable when the codebase evidences broader functionality. Expand before returning the JSON.",
+    "ANTI-FRAGMENTATION RULE: Do not create one BDD per endpoint or one BDD per controller method unless the business capability genuinely stands alone. Consolidate related endpoints into one business-readable feature file.",
     "OUTPUT: Return only JSON matching the requested schema. Put the complete formal BRD inside brd.content and each separate Gherkin feature file inside bddFiles[].gherkin.",
   ].join(" ");
 }
@@ -53,6 +55,7 @@ export function buildFileAnalysisUserPayload({ context, evidenceDigest, required
       "Include a Risk Register with severity, category, class/method, business impact, and fix.",
       "Include Prioritized Recommendations and a Traceability Matrix mapping FR/BR/GAP IDs to evidence anchors and BDD files.",
       "Target a detailed BRD suitable for sign-off. Avoid short overview-only output.",
+      "For non-trivial packages, the BRD should be several substantial sections long and normally exceed a few thousand characters.",
     ],
     functionalRequirementFormat: {
       id: "FR-001",
@@ -72,7 +75,9 @@ export function buildFileAnalysisUserPayload({ context, evidenceDigest, required
     },
     bddScenarioCoverageRules: [
       "Create one Feature per real business module/capability/workflow. Do not collapse the entire app into one feature unless the project truly has only one evidenced workflow.",
-      "For a small calculator-style app, produce separate features for application startup/configuration, web form submission/user interaction, and arithmetic/business operation processing when evidenced.",
+      "For capability-rich applications, prefer 4-8 business-grouped BDD feature files when the evidence supports that breadth.",
+      "Do not name features or titles as raw endpoints like GET /products or POST /orders. Use business capability names such as Product Catalog Management, Shopping Cart, Order Placement, Authentication, or Admin Product Operations.",
+      "Merge related read/write endpoints into the same business feature when they serve the same workflow.",
       "For every feature, include supported happy paths and the negative/boundary scenarios evidenced by validation and code branches.",
       "Include unauthorized/security scenarios only when roles/security evidence exists or when missing security is explicitly documented as a gap/BUG scenario.",
       "Include duplicate/conflict, not-found, and integration-failure scenarios only when the code/domain supports those outcomes or the absence is recorded as a gap.",
@@ -89,6 +94,7 @@ export function buildFileAnalysisUserPayload({ context, evidenceDigest, required
       "Answer the application profile factually: application type, architecture pattern, roles, database/ORM, external integrations, and security mechanism. Cite source files/classes.",
       "Generate one detailed BRD for the whole application. Do not return a lightweight overview.",
       "Generate BDD feature files grouped by real business capability, not by technical class names or package names.",
+      "For commerce-style or multi-module applications, identify the major user/admin workflows first, then map endpoints/classes into those workflow groups before writing BDD titles.",
       "Every BDD must include a concise businessView plus valid Gherkin with Feature, optional Background, Scenarios/Scenario Outlines, tags, and Covers comments.",
       "Ensure BRD FR/BR IDs align with BDD Covers comments and traceability evidence anchors.",
       "If evidence is partial or absent, state that in BRD quality notes instead of hallucinating.",
@@ -220,7 +226,8 @@ export function buildFinalSuiteUserPayload({ context, evidenceDigest, blueprint 
       "Use the blueprint's brdSections and primaryCapabilities as the source of truth.",
       "Keep BRD sections detailed enough for business review, traceability, and QA alignment, but do not repeat the same idea in multiple sections.",
       "For each BDD, include a concise businessView plus specific scenarios grounded in the evidence.",
-      "Do not create more BDDs than needed; aim for depth and accuracy.",
+      "Do not create more BDDs than needed; aim for depth and accuracy, but do not collapse a capability-rich application into only one or two BDDs.",
+      "Name BDDs by business capability, never by raw endpoint names or HTTP verbs.",
       "When regenerating, keep the identity, module focus, title, document type, and existing useful content of the target document whenever possible.",
       "Regeneration preservation rule: never shrink, summarize away, or remove unrelated existing targetDocument content. Return a complete replacement document that preserves unrelated sections/scenarios and changes only the parts needed to address the supplied findings.",
       "If the targetDocument is a BRD, keep document control, overview, stakeholder matrix, functional requirements, NFRs, data requirements, integration requirements, business rules, gaps, risks, recommendations, and traceability sections unless the finding specifically requires an edit there.",
