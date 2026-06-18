@@ -190,6 +190,7 @@ function buildGenerationContext(request, jobId) {
 }
 
 async function buildSuiteFromPackageFile(context, reportProgress) {
+  const startedAt = Date.now();
   await appendAiJobLog(JOB_TYPE, context.jobId, {
     stage: "file-upload",
     message: "Uploading source package to OpenAI Files API.",
@@ -200,7 +201,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       purpose: process.env.OPENAI_FILE_PURPOSE || "user_data",
     },
   });
-  const fileId = await uploadPackageToOpenAI(context.packageUpload);
+  const fileId = await uploadPackageToOpenAI(context.packageUpload, context.jobId);
   await appendAiJobLog(JOB_TYPE, context.jobId, {
     stage: "file-upload",
     message: "OpenAI file upload completed.",
@@ -230,6 +231,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       fileId,
       responseSchema: suiteResponseSchema(),
       temperature: 0.12,
+      jobId: context.jobId,
     });
     if (!result) throw new Error("File-based document generation returned no response.");
     let normalized = normalizeSuite(result, "ai_file_tool_generated");
@@ -256,26 +258,53 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
         fileId,
         responseSchema: suiteResponseSchema(),
         temperature: 0.1,
+        jobId: context.jobId,
       });
       normalized = normalizeSuite(result, "ai_file_tool_generated");
     }
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "drafting",
       message: "File-based generation response received from OpenAI.",
-      meta: { bddCount: normalized.bddFiles?.length || 0, brdChars: String(normalized.brd?.content || "").length },
+      meta: {
+        bddCount: normalized.bddFiles?.length || 0,
+        brdChars: String(normalized.brd?.content || "").length,
+        elapsedMs: Date.now() - startedAt,
+      },
     });
     return normalized;
   } finally {
-    await deleteOpenAIFile(fileId).catch(() => {});
+    await deleteOpenAIFile(fileId, context.jobId).catch(() => {});
   }
 }
 
-async function uploadPackageToOpenAI(packageUpload) {
+async function uploadPackageToOpenAI(packageUpload, jobId = "") {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based document generation.");
+  const startedAt = Date.now();
+  if (jobId) {
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "file-upload",
+      message: "Reassembling uploaded package from blob storage.",
+      meta: {
+        blobUploadId: packageUpload.blobUploadId || "",
+        expectedSize: packageUpload.size || 0,
+        chunkCount: packageUpload.chunkCount || 0,
+      },
+    });
+  }
   const storedPackage = packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null;
   const bytes = storedPackage?.bytes || Buffer.from(packageUpload.contentBase64 || "", "base64");
   if (!bytes.length) throw new Error("Package upload was empty.");
+  if (jobId) {
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "file-upload",
+      message: "Package reassembly completed. Starting OpenAI Files API upload.",
+      meta: {
+        bytes: bytes.length,
+        elapsedMs: Date.now() - startedAt,
+      },
+    });
+  }
   const form = new FormData();
   form.append("purpose", process.env.OPENAI_FILE_PURPOSE || "user_data");
   form.append("file", new Blob([bytes], { type: storedPackage?.type || packageUpload.type || "application/zip" }), storedPackage?.name || packageUpload.name || "source-package.zip");
@@ -290,16 +319,37 @@ async function uploadPackageToOpenAI(packageUpload) {
     throw new Error(payload?.error?.message || `OpenAI file upload failed with ${response.status}: ${raw.slice(0, 240)}`);
   }
   if (!payload?.id) throw new Error("OpenAI file upload did not return a file id.");
+  if (jobId) {
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "file-upload",
+      message: "OpenAI Files API upload completed.",
+      meta: {
+        fileId: payload.id,
+        bytes: bytes.length,
+        elapsedMs: Date.now() - startedAt,
+      },
+    });
+  }
   return payload.id;
 }
 
-async function deleteOpenAIFile(fileId) {
+async function deleteOpenAIFile(fileId, jobId = "") {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || !fileId) return;
-  await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(fileId)}`, {
+  const response = await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(fileId)}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${apiKey}` },
   });
+  if (jobId) {
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "cleanup",
+      message: "OpenAI file cleanup completed.",
+      meta: {
+        fileId,
+        status: response.status,
+      },
+    });
+  }
 }
 
 async function callOpenAIFileTool({
@@ -313,6 +363,7 @@ async function callOpenAIFileTool({
   finalizationTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_FINALIZATION_TIMEOUT_MS || 240000),
   pollIntervalMs = Number(process.env.OPENAI_FILE_TOOL_POLL_INTERVAL_MS || 3000),
   model = process.env.OPENAI_MODEL || "gpt-4.1",
+  jobId = "",
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
@@ -320,6 +371,20 @@ async function callOpenAIFileTool({
   const effectiveRequestTimeoutMs = Math.max(requestTimeoutMs, 120000);
   const effectiveFinalizationTimeoutMs = Math.max(finalizationTimeoutMs, 180000);
   const effectivePollIntervalMs = Math.max(pollIntervalMs, 1500);
+  if (jobId) {
+    await appendAiJobLog(JOB_TYPE, jobId, {
+      stage: "file-analysis",
+      message: "Creating OpenAI background response with Code Interpreter.",
+      meta: {
+        fileId,
+        model,
+        timeoutMs: effectiveTimeoutMs,
+        requestTimeoutMs: effectiveRequestTimeoutMs,
+        finalizationTimeoutMs: effectiveFinalizationTimeoutMs,
+        pollIntervalMs: effectivePollIntervalMs,
+      },
+    });
+  }
   const createPayload = await postOpenAIResponse({
     apiKey,
     timeoutMs: effectiveRequestTimeoutMs,
@@ -355,9 +420,17 @@ async function callOpenAIFileTool({
     initialPayload: createPayload,
     timeoutMs: effectiveTimeoutMs,
     pollIntervalMs: effectivePollIntervalMs,
+    jobId,
   });
   let outputText = extractResponseText(payload);
   if (!String(outputText || "").trim() && payload?.id) {
+    if (jobId) {
+      await appendAiJobLog(JOB_TYPE, jobId, {
+        stage: "file-analysis",
+        message: "Primary tool response had no final text. Requesting final JSON from previous response.",
+        meta: { responseId: payload.id },
+      });
+    }
     outputText = await requestFinalJsonFromResponse({
       apiKey,
       model,
@@ -365,6 +438,7 @@ async function callOpenAIFileTool({
       responseSchema,
       timeoutMs: effectiveFinalizationTimeoutMs,
       pollIntervalMs: effectivePollIntervalMs,
+      jobId,
     });
   }
   if (!String(outputText || "").trim()) {
@@ -377,7 +451,7 @@ async function callOpenAIFileTool({
   }
 }
 
-async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs, pollIntervalMs }) {
+async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs, pollIntervalMs, jobId = "" }) {
   const createPayload = await postOpenAIResponse({
     apiKey,
     timeoutMs,
@@ -410,6 +484,7 @@ async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId,
     initialPayload: createPayload,
     timeoutMs,
     pollIntervalMs,
+    jobId,
   });
   return extractResponseText(payload);
 }
@@ -444,13 +519,42 @@ async function postOpenAIResponse({ apiKey, body, timeoutMs, timeoutLabel }) {
   return payload;
 }
 
-async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIntervalMs }) {
+async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIntervalMs, jobId = "" }) {
   const startedAt = Date.now();
   let payload = initialPayload;
+  let pollCount = 0;
+  let lastLoggedStatus = "";
 
   while (Date.now() - startedAt < timeoutMs) {
     const status = String(payload?.status || "").toLowerCase();
+    pollCount += 1;
+    if (jobId && status && (status !== lastLoggedStatus || pollCount === 1 || pollCount % 10 === 0)) {
+      lastLoggedStatus = status;
+      await appendAiJobLog(JOB_TYPE, jobId, {
+        stage: "file-analysis",
+        message: "OpenAI background response poll update.",
+        meta: {
+          responseId: payload?.id || "",
+          status,
+          pollCount,
+          elapsedMs: Date.now() - startedAt,
+          incompleteReason: payload?.incomplete_details?.reason || "",
+          outputTextChars: String(payload?.output_text || "").length,
+        },
+      });
+    }
     if (!status || status === "completed") {
+      if (jobId) {
+        await appendAiJobLog(JOB_TYPE, jobId, {
+          stage: "file-analysis",
+          message: "OpenAI background response completed.",
+          meta: {
+            responseId: payload?.id || "",
+            pollCount,
+            elapsedMs: Date.now() - startedAt,
+          },
+        });
+      }
       return payload;
     }
     if (status === "failed" || status === "cancelled" || status === "incomplete" || status === "expired") {
