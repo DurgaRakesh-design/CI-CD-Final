@@ -55,7 +55,7 @@ async function generateRequirementSuiteRequest({
   const packageUpload = packageFile && generationMode === 'initial'
     ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
     : null;
-  const response = await fetch('/.netlify/functions/generate-documents', {
+  const response = await fetch('/.netlify/functions/generate-documents-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobId, packageSignals, packageUpload, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }),
@@ -149,7 +149,7 @@ export async function runGapAnalysis({ packageSignals, documents, packageFile = 
   const packageUpload = packageFile
     ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
     : null;
-  const response = await fetch('/.netlify/functions/gap-analysis', {
+  const response = await fetch('/.netlify/functions/gap-analysis-background', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobId, packageSignals, packageUpload, documents }),
