@@ -7,7 +7,7 @@ const LARGE_PACKAGE_CHUNK_THRESHOLD_BYTES = 8 * 1024 * 1024;
 // GitHub's repository contents API is documented up to 100 MB, but we keep
 // chunks well below that ceiling to reduce request count without pushing the
 // portal close to large JSON/base64 payload edges.
-const LARGE_PACKAGE_CHUNK_BYTES = 2 * 1024 * 1024;
+const LARGE_PACKAGE_CHUNK_BYTES = 4 * 1024 * 1024;
 
 export async function listUploadedPackages() {
   const items = await listRepoContents(portalConfig.uploadDir, portalConfig.branch);
@@ -95,9 +95,10 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   };
   const manifestPath = `${requirementRoot}/manifest.json`;
 
-  const uploads = [];
+  const upsertUploads = [];
+  const directUploads = [];
   if (packageFile && !useChunkedPackageUpload) {
-    uploads.push({
+    upsertUploads.push({
       label: 'source package',
       path: packagePath,
       contentBase64: packageContentBase64,
@@ -107,7 +108,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   }
 
   if (brdFile?.content) {
-    uploads.push({
+    directUploads.push({
       label: 'BRD artifact',
       path: brdPath,
       contentBase64: brdContentBase64,
@@ -120,7 +121,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     const path = bddPaths[index];
     const contentBase64 = bddContent[index];
     if (!path || !contentBase64) return;
-    uploads.push({
+    directUploads.push({
       label: `BDD artifact ${index + 1}`,
       path,
       contentBase64,
@@ -130,7 +131,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
   });
 
   if (gapAnalysisFile?.content) {
-    uploads.push({
+    directUploads.push({
       label: 'gap analysis artifact',
       path: gapAnalysisPath,
       contentBase64: gapAnalysisContentBase64,
@@ -139,7 +140,7 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     });
   }
 
-  uploads.push({
+  directUploads.push({
     label: 'requirements manifest',
     path: manifestPath,
     contentBase64: toBase64(JSON.stringify(manifest, null, 2)),
@@ -147,9 +148,17 @@ export async function uploadWorkspaceInputs({ packageFile, selectedPackage, docu
     branch: portalConfig.branch,
   });
 
-  for (const upload of uploads) {
+  for (const upload of upsertUploads) {
     try {
       await upsertRepoFile(upload);
+    } catch (error) {
+      throw new Error(`Unable to upload ${upload.label || 'artifact'} (${upload.path}): ${error.message}`);
+    }
+  }
+
+  for (const upload of directUploads) {
+    try {
+      await putRepoFile(upload);
     } catch (error) {
       throw new Error(`Unable to upload ${upload.label || 'artifact'} (${upload.path}): ${error.message}`);
     }
