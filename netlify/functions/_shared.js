@@ -282,17 +282,17 @@ export async function getPackageUploadBytes(uploadId) {
   const manifest = await getPackageUploadManifest(uploadId);
   if (!manifest) throw new Error("Uploaded package reference was not found.");
 
-  const chunks = [];
+  const chunkBuffers = [];
   const total = Number(manifest.chunkCount || manifest.total || 0);
   if (!total) throw new Error("Uploaded package reference has no chunks.");
 
   for (let index = 0; index < total; index += 1) {
     const chunk = await getPackageUploadChunkWithRetry(uploadId, index);
     if (!chunk) throw new Error(`Uploaded package chunk ${index + 1} of ${total} was not found.`);
-    chunks.push(String(chunk));
+    chunkBuffers.push(Buffer.from(String(chunk), "base64"));
   }
 
-  const bytes = Buffer.from(chunks.join(""), "base64");
+  const bytes = Buffer.concat(chunkBuffers);
   if (manifest.size && bytes.length !== Number(manifest.size)) {
     throw new Error(`Uploaded package size mismatch. Expected ${manifest.size} bytes but found ${bytes.length}.`);
   }
