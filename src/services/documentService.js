@@ -1,6 +1,7 @@
 import { safeFileName } from './encoding';
 
-const PACKAGE_CHUNK_BYTES = 1536 * 1024;
+const PACKAGE_CHUNK_BYTES = 1600 * 1024;
+const PACKAGE_UPLOAD_CONCURRENCY = 3;
 const inFlightRequirementSuites = new Map();
 
 export async function generateRequirementSuite({
@@ -92,35 +93,36 @@ async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatus
   const uploadId = `${jobId}-${Date.now()}`;
   const name = safeFileName(packageFile.name || packageSignals?.fileName || 'source-package.zip');
   const type = packageFile.type || 'application/zip';
-  const buffer = await packageFile.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  const total = Math.max(1, Math.ceil(bytes.length / PACKAGE_CHUNK_BYTES));
+  const fileSize = packageFile.size || 0;
+  const total = Math.max(1, Math.ceil(fileSize / PACKAGE_CHUNK_BYTES));
+  let uploadedCount = 0;
 
-  for (let index = 0; index < total; index += 1) {
+  await runConcurrentUploads(total, PACKAGE_UPLOAD_CONCURRENCY, async (index) => {
     const start = index * PACKAGE_CHUNK_BYTES;
-    const end = Math.min(start + PACKAGE_CHUNK_BYTES, bytes.length);
-    const contentBase64 = bytesToBase64(bytes.slice(start, end));
-    onStatusUpdate?.({
-      status: 'running',
-      stage: 'package-upload',
-      progress: Math.min(8, Math.round(((index + 1) / total) * 8)),
-      message: `Uploading source package chunk ${index + 1} of ${total}.`,
-    });
+    const end = Math.min(start + PACKAGE_CHUNK_BYTES, fileSize);
+    const contentBase64 = await readFileSliceAsBase64(packageFile, start, end);
     const response = await fetch('/.netlify/functions/ai-package-upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'chunk', uploadId, name, type, size: packageFile.size || bytes.length, index, total, contentBase64 }),
+      body: JSON.stringify({ action: 'chunk', uploadId, name, type, size: fileSize, index, total, contentBase64 }),
     });
     if (!response.ok) {
       const payload = await readJsonResponse(response, 'Package upload');
       throw new Error(payload?.message || 'Package upload failed.');
     }
-  }
+    uploadedCount += 1;
+    onStatusUpdate?.({
+      status: 'running',
+      stage: 'package-upload',
+      progress: Math.min(8, Math.round((uploadedCount / total) * 8)),
+      message: `Uploading source package chunk ${uploadedCount} of ${total}.`,
+    });
+  });
 
   const response = await fetch('/.netlify/functions/ai-package-upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'complete', uploadId, name, type, size: packageFile.size || bytes.length, chunkCount: total }),
+    body: JSON.stringify({ action: 'complete', uploadId, name, type, size: fileSize, chunkCount: total }),
   });
   if (!response.ok) {
     const payload = await readJsonResponse(response, 'Package upload');
@@ -130,18 +132,33 @@ async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatus
   return payload.packageUpload || {
     name,
     type,
-    size: packageFile.size || bytes.length,
+    size: fileSize,
     blobUploadId: uploadId,
     chunkCount: total,
   };
 }
 
-function bytesToBase64(bytes) {
+async function readFileSliceAsBase64(file, start, end) {
+  const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
   let binary = '';
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
+  const step = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += step) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + step));
+  }
   return btoa(binary);
+}
+
+async function runConcurrentUploads(total, concurrency, worker) {
+  let nextIndex = 0;
+  const limit = Math.max(1, Math.min(concurrency, total));
+  const runners = Array.from({ length: limit }, async () => {
+    while (nextIndex < total) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      await worker(currentIndex);
+    }
+  });
+  await Promise.all(runners);
 }
 
 export async function runGapAnalysis({ packageSignals, documents, packageFile = null, jobTimeoutMs = 900000, onStatusUpdate = null }) {

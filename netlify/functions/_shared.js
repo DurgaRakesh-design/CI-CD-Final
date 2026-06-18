@@ -139,10 +139,13 @@ export async function callOpenAI({
   temperature = 0.2,
   timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 120000),
   responseSchema = null,
-  model = process.env.OPENAI_MODEL || "gpt-4.1",
+  model = process.env.OPENAI_MODEL,
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
+  if (!model) {
+    throw new Error("No OpenAI model configured. Set OPENAI_MODEL.");
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;

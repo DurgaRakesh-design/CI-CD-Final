@@ -112,7 +112,7 @@ async function generateWithAI(context, reportProgress) {
         fileName: context.packageUpload.name,
         size: context.packageUpload.size,
         blobUploadId: context.packageUpload.blobUploadId || "",
-        model: process.env.OPENAI_MODEL || "gpt-4.1",
+        model: resolveDocumentGenerationModel(),
       },
     });
     const suite = await buildSuiteFromPackageFile(context, reportProgress);
@@ -130,8 +130,8 @@ async function generateWithAI(context, reportProgress) {
   await reportProgress({ stage: "planning", progress: 10, message: "Planning document structure." });
   await appendAiJobLog(JOB_TYPE, context.jobId, {
     stage: "planning",
-    message: "Planning BRD and BDD structure with GPT-4.1.",
-    meta: { model: process.env.OPENAI_MODEL || "gpt-4.1", temperature: 0.1 },
+    message: "Planning BRD and BDD structure with the configured document generation model.",
+    meta: { model: resolveDocumentGenerationModel(), temperature: 0.1 },
   });
   const plan = await buildDocumentPlan(context);
 
@@ -308,17 +308,17 @@ async function callOpenAIFileTool({
   fileId,
   responseSchema,
   temperature = 0.1,
-  timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 840000),
-  requestTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_REQUEST_TIMEOUT_MS || 120000),
-  finalizationTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_FINALIZATION_TIMEOUT_MS || 240000),
+  timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 1200000),
+  requestTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_REQUEST_TIMEOUT_MS || 180000),
+  finalizationTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_FINALIZATION_TIMEOUT_MS || 420000),
   pollIntervalMs = Number(process.env.OPENAI_FILE_TOOL_POLL_INTERVAL_MS || 3000),
-  model = process.env.OPENAI_MODEL || "gpt-4.1",
+  model = resolveDocumentGenerationModel(),
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
-  const effectiveTimeoutMs = Math.max(timeoutMs, 300000);
+  const effectiveTimeoutMs = Math.max(timeoutMs, 600000);
   const effectiveRequestTimeoutMs = Math.max(requestTimeoutMs, 120000);
-  const effectiveFinalizationTimeoutMs = Math.max(finalizationTimeoutMs, 180000);
+  const effectiveFinalizationTimeoutMs = Math.max(finalizationTimeoutMs, 240000);
   const effectivePollIntervalMs = Math.max(pollIntervalMs, 1500);
   const createPayload = await postOpenAIResponse({
     apiKey,
@@ -523,6 +523,7 @@ async function buildDocumentPlan(context) {
     user,
     temperature: 0.1,
     responseSchema: documentGenerationPlanSchema(),
+    model: resolveDocumentGenerationModel(),
   });
 
   if (!result) throw new Error("Document planning returned no response.");
@@ -546,6 +547,7 @@ async function buildFinalSuite(context, plan) {
     system,
     user,
     temperature: 0.15,
+    model: resolveDocumentGenerationModel(),
     responseSchema: {
       name: "document_generation_suite",
       schema: {
@@ -709,6 +711,17 @@ function normalizePackageUpload(value) {
 
 function hasPackageUploadPayload(value) {
   return Boolean(value?.contentBase64 || value?.blobUploadId);
+}
+
+function resolveDocumentGenerationModel() {
+  const model =
+    process.env.OPENAI_DOCUMENT_GENERATION_MODEL ||
+    process.env.OPENAI_DOCUMENT_MODEL ||
+    process.env.OPENAI_MODEL;
+  if (!model) {
+    throw new Error("No OpenAI model configured. Set OPENAI_DOCUMENT_GENERATION_MODEL, OPENAI_DOCUMENT_MODEL, or OPENAI_MODEL.");
+  }
+  return model;
 }
 
 function normalizeJobId(value) {
