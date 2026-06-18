@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -11,7 +11,6 @@ import {
   ExternalLink,
   FileBarChart,
   GitBranch,
-  Layers,
   Package,
   RefreshCw,
   ShieldCheck,
@@ -29,11 +28,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { loadDashboardSnapshot } from '@/services/dashboardService';
-
-const topTabs = [
-  { id: 'pipeline', label: 'Pipeline Details', icon: Zap },
-  { id: 'workspace', label: 'Workspace Details', icon: Layers },
-];
 
 const pipelineTabs = [
   { id: 'overview', label: 'Overview' },
@@ -69,6 +63,20 @@ function SummaryLoading() {
   );
 }
 
+function formatDetailedDateTime(value) {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 export default function PipelineSummary() {
   const { runNumber } = useParams();
   const { data: snapshot, isLoading, isFetching, refetch } = useQuery({
@@ -78,7 +86,6 @@ export default function PipelineSummary() {
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
   });
-  const [topTab, setTopTab] = useState('pipeline');
   const [pipelineTab, setPipelineTab] = useState('overview');
 
   const run = useMemo(() => {
@@ -204,64 +211,36 @@ export default function PipelineSummary() {
           </div>
         </section>
 
-        <section className="mt-7 rounded-2xl border border-white/80 bg-white/70 p-2 shadow-sm backdrop-blur-xl">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {topTabs.map((option) => {
-              const Icon = option.icon;
-              const active = topTab === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setTopTab(option.id)}
-                  className={`flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition-all ${
-                    active
-                      ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
-                      : 'text-muted-foreground hover:bg-white hover:text-foreground'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
         <section className="mt-7">
-          {topTab === 'workspace' ? (
-            <WorkspaceTab workspace={workspace} reports={reports} />
-          ) : (
-            <div className="space-y-6">
-              <section className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-xl md:p-5">
-                <div className="flex flex-wrap gap-2">
-                  {visiblePipelineTabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setPipelineTab(tab.id)}
-                      className={`rounded-full px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-all ${
-                        pipelineTab === tab.id
-                          ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
-                          : 'bg-white text-muted-foreground hover:bg-secondary hover:text-foreground'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
+          <div className="space-y-6">
+            <section className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-xl md:p-5">
+              <div className="flex flex-wrap gap-2">
+                {visiblePipelineTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setPipelineTab(tab.id)}
+                    className={`rounded-full px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-all ${
+                      pipelineTab === tab.id
+                        ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+                        : 'bg-white text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </section>
 
-              {pipelineTab === 'overview' && <OverviewTab workspace={workspace} />}
-              {pipelineTab === 'bdd' && <BddScenariosTab rows={bddScenarios} run={run} reports={reports} />}
-              {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
-              {pipelineTab === 'test-scripts' && <TestScriptsTab rows={testScripts} reports={reports} />}
-              {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} reports={reports} />}
-              {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} reports={reports} />}
-              {pipelineTab === 'reports' && <ReportsTab reports={reports} />}
-              {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
-            </div>
-          )}
+            {pipelineTab === 'overview' && <OverviewTab workspace={workspace} run={run} />}
+            {pipelineTab === 'bdd' && <BddScenariosTab rows={bddScenarios} run={run} reports={reports} />}
+            {pipelineTab === 'test-cases' && <TestCasesTab rows={testRows} run={run} reports={reports} />}
+            {pipelineTab === 'test-scripts' && <TestScriptsTab rows={testScripts} reports={reports} />}
+            {pipelineTab === 'frontend' && <FrontendTab frontend={frontend} reports={reports} />}
+            {pipelineTab === 'quality' && <QualityTab codeQuality={codeQuality} reports={reports} />}
+            {pipelineTab === 'reports' && <ReportsTab reports={reports} />}
+            {pipelineTab === 'stages' && <StagesTab pipelineJobs={pipelineJobs} />}
+          </div>
         </section>
 
         <section className="mt-8 rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl">
@@ -287,10 +266,10 @@ export default function PipelineSummary() {
   );
 }
 
-function OverviewTab({ workspace }) {
+function OverviewTab({ workspace, run }) {
   const requirementEvidence = buildRequirementEvidence(workspace);
   return (
-    <WorkflowPackagePanel workspace={workspace} evidence={requirementEvidence} />
+    <WorkflowPackagePanel workspace={workspace} evidence={requirementEvidence} run={run} />
   );
 }
 
@@ -626,54 +605,44 @@ function FrontendTab({ frontend, reports }) {
     /browser-smoke-report/i,
   ]);
   const [journeyFilter, setJourneyFilter] = useState('all');
-  const [designFilter, setDesignFilter] = useState('all');
-  const [traceabilityFilter, setTraceabilityFilter] = useState('all');
+  const [caseFilter, setCaseFilter] = useState('all');
   const filteredJourneys = useMemo(() => {
     const journeys = Array.isArray(frontend.journeys) ? frontend.journeys : [];
     if (journeyFilter === 'passing') return journeys.filter((item) => item.status === 'pass');
     if (journeyFilter === 'failing') return journeys.filter((item) => item.status === 'fail');
     return journeys;
   }, [frontend.journeys, journeyFilter]);
-  const filteredDesignCases = useMemo(() => {
-    const cases = Array.isArray(frontend.designCases) ? frontend.designCases : [];
-    if (designFilter === 'frontend-executable') return cases.filter((item) => item.automation_scope === 'frontend-executable');
-    if (designFilter === 'manual-review') return cases.filter((item) => item.automation_scope === 'manual-review');
-    if (designFilter === 'backend-only') return cases.filter((item) => item.automation_scope === 'backend-only');
-    return cases;
-  }, [designFilter, frontend.designCases]);
-  const filteredTraceability = useMemo(() => {
-    const rows = Array.isArray(frontend.traceabilityRecords) ? frontend.traceabilityRecords : [];
-    if (traceabilityFilter === 'covered') return rows.filter((item) => item.coverage_status === 'covered');
-    if (traceabilityFilter === 'missing') return rows.filter((item) => item.coverage_status !== 'covered');
-    return rows;
-  }, [frontend.traceabilityRecords, traceabilityFilter]);
+  const mergedCases = useMemo(() => mergeFrontendCases(frontend), [frontend]);
+  const filteredCases = useMemo(() => {
+    if (caseFilter === 'generated') return mergedCases.filter((item) => item.linkedJourneys.length > 0);
+    if (caseFilter === 'missing') return mergedCases.filter((item) => item.linkedJourneys.length === 0);
+    return mergedCases;
+  }, [caseFilter, mergedCases]);
   const { pageRows: pagedJourneys, page: journeyPage, totalPages: journeyPages, setPage: setJourneyPage } = usePagination(filteredJourneys, 4);
-  const { pageRows: pagedDesignCases, page: designPage, totalPages: designPages, setPage: setDesignPage } = usePagination(filteredDesignCases, 5);
-  const { pageRows: pagedTraceability, page: traceabilityPage, totalPages: traceabilityPages, setPage: setTraceabilityPage } = usePagination(filteredTraceability, 6);
-  const { pageRows: pagedScreenshots, page: screenshotPage, totalPages: screenshotPages, setPage: setScreenshotPage } = usePagination(frontend.screenshotGallery || [], 8);
+  const { pageRows: pagedCases, page: casePage, totalPages: casePages, setPage: setCasePage } = usePagination(filteredCases, 6);
   const phaseCards = [
     {
-      label: 'Test design',
-      value: frontend.designSummary?.total_cases ?? 0,
-      sub: `${frontend.designSummary?.frontend_executable_cases ?? 0} UI executable`,
+      label: 'Frontend test cases',
+      value: frontend.designSummary?.total_cases ?? frontend.designCases?.length ?? 0,
+      sub: `${frontend.designSummary?.frontend_executable_cases ?? 0} selected as UI-automatable`,
       tone: 'bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(79,70,229,.06))]',
     },
     {
-      label: 'Journey generation',
+      label: 'Journeys generated',
       value: frontend.journeySummary?.suggested_journeys ?? frontend.suggestedJourneys?.length ?? 0,
-      sub: frontend.journeySummary?.generation_mode || 'AI mandatory',
+      sub: `${mergedCases.filter((item) => item.linkedJourneys.length > 0).length} cases linked to a journey`,
       tone: 'bg-[linear-gradient(135deg,rgba(168,85,247,.12),rgba(217,70,239,.06))]',
     },
     {
-      label: 'Traceability',
-      value: frontend.traceabilitySummary?.cases_with_generated_journeys ?? 0,
-      sub: `${frontend.traceabilitySummary?.cases_without_generated_journeys ?? 0} still unmapped`,
+      label: 'Journeys executed',
+      value: `${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`,
+      sub: `${frontend.failedJourneys || 0} failed, ${frontend.skippedJourneys || 0} skipped`,
       tone: 'bg-[linear-gradient(135deg,rgba(45,212,191,.14),rgba(16,185,129,.06))]',
     },
     {
-      label: 'Execution',
-      value: `${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`,
-      sub: `${frontend.failedJourneys || 0} failed`,
+      label: 'Screenshots captured',
+      value: frontend.screenshotGallery?.length ?? 0,
+      sub: 'Visual proof attached to executed journey steps',
       tone: 'bg-[linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,191,36,.06))]',
     },
   ];
@@ -683,24 +652,19 @@ function FrontendTab({ frontend, reports }) {
     ['passing', 'Passing'],
     ['failing', 'Failing'],
   ];
-  const designFilters = [
+  const caseFilters = [
     ['all', 'All cases'],
-    ['frontend-executable', 'UI executable'],
-    ['manual-review', 'Manual review'],
-    ['backend-only', 'Backend only'],
+    ['generated', 'Journey generated'],
+    ['missing', 'Not generated'],
   ];
-  const traceabilityFilters = [
-    ['all', 'All mappings'],
-    ['covered', 'Covered'],
-    ['missing', 'Needs mapping'],
-  ];
+  const executionNote = summarizeExecutionNote(frontend.executionReason);
 
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
         title="Frontend quality"
-        eyebrow="Design, journeys, screenshots, and traceability"
-        description="This view keeps frontend planning, Selenium journey generation, runtime evidence, and UI traceability together so reviewers can audit the happy flow without mixing it into backend totals."
+        eyebrow="Test cases, journeys, and screenshots"
+        description="This tab keeps the frontend story simple: what UI cases were identified, which Selenium journeys were generated, how they executed, and what screenshots were captured."
         downloads={downloads}
       />
       <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
@@ -716,14 +680,14 @@ function FrontendTab({ frontend, reports }) {
                 </Badge>
               </div>
               <h4 className="mt-3 font-heading text-xl font-bold tracking-tight text-slate-950">
-                Selenium journey evidence is ready for review
+                Frontend automation summary
               </h4>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Phase outputs are grouped exactly how QA teams review UI automation: design intent, generated journeys, execution proof, and traceability back to approved cases.
+                Use this view to review UI-facing test cases, the Selenium journeys created for them, and the execution proof attached to each journey.
               </p>
             </div>
             <div className="grid min-w-[180px] gap-2 rounded-2xl bg-white/80 p-3 ring-1 ring-violet-100">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Runtime</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Execution status</p>
               <div className="flex items-baseline gap-2">
                 <span className="font-heading text-2xl font-bold text-foreground">{frontend.passedJourneys || 0}</span>
                 <span className="text-xs text-muted-foreground">passed</span>
@@ -746,12 +710,11 @@ function FrontendTab({ frontend, reports }) {
             {[
               ['Detection', frontend.detectionStatus || 'Not available'],
               ['Launch mode', frontend.launchMode || 'Not available'],
-              ['Journey mode', frontend.journeyMode || 'Not available'],
-              ['Config path', frontend.configPath || 'Not recorded'],
-              ['Contract', frontend.contractVersion || 'Not recorded'],
+              ['Journey source', frontend.journeyMode || 'Not available'],
+              ['Runtime config', frontend.autoGeneratedConfigUsed ? 'Auto-generated for this run' : frontend.configured ? 'Config file provided' : 'Not recorded'],
               ['URL', frontend.url || 'Not available'],
               ['Page title', frontend.title || 'Not available'],
-              ['Config source', frontend.autoGeneratedConfigUsed ? 'Auto-generated runtime config' : frontend.configured ? 'Configured journey contract' : 'Not recorded'],
+              ['Config path', frontend.configPath || 'Not recorded'],
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl bg-slate-50 px-3 py-3 ring-1 ring-border">
                 <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
@@ -759,22 +722,23 @@ function FrontendTab({ frontend, reports }) {
               </div>
             ))}
           </div>
-          {frontend.executionReason ? (
-            <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-3 text-xs leading-5 text-amber-900">
-              {frontend.executionReason}
+          {executionNote ? (
+            <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-800">Execution note</p>
+              <p className="mt-1 text-xs leading-5 text-amber-900">{executionNote}</p>
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.92fr)]">
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)]">
         <section className="rounded-2xl border border-border bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Journey explorer</p>
               <h4 className="mt-1 font-heading text-base font-bold">Executable UI flows</h4>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Review the journeys the pipeline executed, their assertions, and attached screenshots.
+                Review every generated journey with all recorded steps and its related screenshots.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -786,9 +750,7 @@ function FrontendTab({ frontend, reports }) {
                     setJourneyFilter(value);
                     setJourneyPage(1);
                   }}
-                  className={`rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
-                    journeyFilter === value ? 'bg-primary text-primary-foreground' : 'bg-slate-100 text-muted-foreground hover:bg-slate-200'
-                  }`}
+                  className={`rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${journeyFilter === value ? 'bg-primary text-primary-foreground' : 'bg-slate-100 text-muted-foreground hover:bg-slate-200'}`}
                 >
                   {label}
                 </button>
@@ -821,14 +783,14 @@ function FrontendTab({ frontend, reports }) {
                       {(journey.steps || []).filter((step) => step.status === 'fail').length} step fail
                     </p>
                     {journey.failure_message ? (
-                      <p className="mt-2 text-xs leading-5 text-rose-700">{journey.failure_message}</p>
+                      <p className="mt-2 text-xs leading-5 text-rose-700">{summarizeExecutionNote(journey.failure_message)}</p>
                     ) : null}
                   </div>
                 </div>
 
                 {(journey.steps || []).length ? (
                   <div className="mt-4 grid gap-2">
-                    {(journey.steps || []).slice(0, 6).map((step, index) => (
+                    {(journey.steps || []).map((step, index) => (
                       <div key={`${journey.slug || journey.name}-${step.name || index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50/90 px-3 py-2 ring-1 ring-border">
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-foreground">{step.name || `Step ${index + 1}`}</p>
@@ -842,15 +804,12 @@ function FrontendTab({ frontend, reports }) {
                         </div>
                       </div>
                     ))}
-                    {(journey.steps || []).length > 6 ? (
-                      <p className="text-xs text-muted-foreground">Showing 6 of {(journey.steps || []).length} recorded steps.</p>
-                    ) : null}
                   </div>
                 ) : null}
 
                 {journey.screenshots?.length ? (
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {journey.screenshots.slice(0, 3).map((shot) => (
+                    {journey.screenshots.map((shot) => (
                       <ScreenshotPreviewCard key={`${journey.slug || journey.name}-${shot.name}-${shot.stepName}`} item={shot} />
                     ))}
                   </div>
@@ -863,71 +822,47 @@ function FrontendTab({ frontend, reports }) {
           <PaginationControls page={journeyPage} totalPages={journeyPages} onPageChange={setJourneyPage} totalItems={filteredJourneys.length} />
         </section>
 
-        <section className="space-y-6">
-          <div className="rounded-2xl border border-border bg-white p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Screenshot gallery</p>
-                <h4 className="mt-1 font-heading text-base font-bold">Visual proof inside the summary</h4>
-              </div>
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
-                {(frontend.screenshotGallery || []).length} captures
-              </span>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {pagedScreenshots.length ? pagedScreenshots.map((shot) => (
-                <ScreenshotPreviewCard key={`${shot.journeyName}-${shot.name}-${shot.stepName}`} item={shot} />
-              )) : (
-                <EmptyStateCard message="No screenshot evidence was published in the current artifact bundle." />
-              )}
-            </div>
-            <PaginationControls page={screenshotPage} totalPages={screenshotPages} onPageChange={setScreenshotPage} totalItems={(frontend.screenshotGallery || []).length} />
-          </div>
-
-          <div className="rounded-2xl border border-border bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Frontend artifacts</p>
-            <h4 className="mt-1 font-heading text-base font-bold">Published bundle files</h4>
-            <div className="mt-4 space-y-2">
-              {frontendArtifacts.length ? frontendArtifacts.map((file) => (
-                <div key={file.name} className="flex items-start justify-between gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-border">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-foreground">{file.name.split('/').pop()}</p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">{file.desc}</p>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <ReportDownloadButton report={file} compact />
-                  </div>
+        <section className="rounded-2xl border border-border bg-white p-4 shadow-sm">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Frontend artifacts</p>
+          <h4 className="mt-1 font-heading text-base font-bold">Published bundle files</h4>
+          <div className="mt-4 space-y-2">
+            {frontendArtifacts.length ? frontendArtifacts.map((file) => (
+              <div key={file.name} className="flex items-start justify-between gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-border">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">{file.name.split('/').pop()}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{file.desc}</p>
                 </div>
-              )) : (
-                <EmptyStateCard message="No dedicated frontend artifact files were found in the report bundle." />
-              )}
-            </div>
+                <div className="flex shrink-0 gap-2">
+                  <ReportDownloadButton report={file} compact />
+                </div>
+              </div>
+            )) : (
+              <EmptyStateCard message="No dedicated frontend artifact files were found in the report bundle." />
+            )}
           </div>
         </section>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+      <div className="mt-6">
         <section className="rounded-2xl border border-border bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Frontend test design</p>
-              <h4 className="mt-1 font-heading text-base font-bold">Approved UI-facing cases</h4>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Frontend test cases</p>
+              <h4 className="mt-1 font-heading text-base font-bold">Cases linked to generated journeys</h4>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                These are the frontend cases the AI planning phase classified from BRD, BDD, and UI-aware source facts.
+                Each row shows the UI-focused test case, its linked BDD scenario, generated journey status, and any available reason when a journey was not created.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {designFilters.map(([value, label]) => (
+              {caseFilters.map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => {
-                    setDesignFilter(value);
-                    setDesignPage(1);
+                    setCaseFilter(value);
+                    setCasePage(1);
                   }}
-                  className={`rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
-                    designFilter === value ? 'bg-primary text-primary-foreground' : 'bg-slate-100 text-muted-foreground hover:bg-slate-200'
-                  }`}
+                  className={`rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${caseFilter === value ? 'bg-primary text-primary-foreground' : 'bg-slate-100 text-muted-foreground hover:bg-slate-200'}`}
                 >
                   {label}
                 </button>
@@ -935,90 +870,39 @@ function FrontendTab({ frontend, reports }) {
             </div>
           </div>
           <div className="mt-4 space-y-3">
-            {pagedDesignCases.length ? pagedDesignCases.map((item) => (
-              <div key={item.test_case_id || item.title} className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.94))] p-4">
+            {pagedCases.length ? pagedCases.map((item) => (
+              <div key={item.id} className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.94))] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-semibold text-foreground">{item.title || item.test_case_id}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{item.test_case_id} · {item.module || 'Module not recorded'}</p>
+                    <p className="font-semibold text-foreground">{item.title}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.testCaseId} · {item.module || 'Module not recorded'}</p>
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                      {[item.scenario_type, item.priority, item.recommended_start_path].filter(Boolean).map((chip) => (
+                      {[item.priority, item.scenarioType, item.recommendedPath].filter(Boolean).map((chip) => (
                         <span key={chip} className="rounded-full bg-slate-100 px-2.5 py-1">{chip}</span>
                       ))}
                     </div>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${frontendScopeTone(item.automation_scope)}`}>
-                    {item.automation_scope || 'unknown'}
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${frontendCoverageTone(item.status)}`}>
+                    {item.statusLabel}
                   </span>
                 </div>
-                {item.business_goal ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.business_goal}</p> : null}
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <DetailBlock label="Assertions" value={item.required_assertions} />
-                  <DetailBlock label="Notes" value={[item.notes, item.confidence_score ? `Confidence: ${item.confidence_score}` : ''].filter(Boolean).join('\n')} />
+                {item.businessGoal ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.businessGoal}</p> : null}
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                  <DetailBlock label="Linked BDD scenario" value={item.linkedBddScenario} />
+                  <DetailBlock label="Linked journey" value={item.linkedJourneys.length ? item.linkedJourneys : ['Not generated']} />
+                  <DetailBlock label="Reason / notes" value={item.reason} />
                 </div>
               </div>
             )) : (
-              <EmptyStateCard message="No frontend test design cases matched the current filter." />
+              <EmptyStateCard message="No frontend test cases matched the selected filter." />
             )}
           </div>
-          <PaginationControls page={designPage} totalPages={designPages} onPageChange={setDesignPage} totalItems={filteredDesignCases.length} />
-        </section>
-
-        <section className="rounded-2xl border border-border bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">BDD traceability</p>
-              <h4 className="mt-1 font-heading text-base font-bold">Frontend coverage mapping</h4>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Review which UI-eligible cases received generated journeys and which ones still need intervention.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {traceabilityFilters.map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => {
-                    setTraceabilityFilter(value);
-                    setTraceabilityPage(1);
-                  }}
-                  className={`rounded-full px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] transition ${
-                    traceabilityFilter === value ? 'bg-primary text-primary-foreground' : 'bg-slate-100 text-muted-foreground hover:bg-slate-200'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-4 space-y-3">
-            {pagedTraceability.length ? pagedTraceability.map((item) => (
-              <div key={item.test_case_id || item.title} className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.94))] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-foreground">{item.title || item.test_case_id}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{item.test_case_id} · {item.module || 'Module not recorded'}</p>
-                  </div>
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${frontendCoverageTone(item.coverage_status)}`}>
-                    {item.coverage_status || 'unknown'}
-                  </span>
-                </div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <DetailBlock label="Scope / path" value={[item.automation_scope, item.recommended_start_path].filter(Boolean).join('\n')} />
-                  <DetailBlock label="Linked journeys" value={item.linked_journey_names?.length ? item.linked_journey_names : ['No generated journey linked']} />
-                </div>
-              </div>
-            )) : (
-              <EmptyStateCard message="No traceability rows matched the selected filter." />
-            )}
-          </div>
-          <PaginationControls page={traceabilityPage} totalPages={traceabilityPages} onPageChange={setTraceabilityPage} totalItems={filteredTraceability.length} />
+          <PaginationControls page={casePage} totalPages={casePages} onPageChange={setCasePage} totalItems={filteredCases.length} />
         </section>
       </div>
     </section>
   );
 }
-
 function ScreenshotPreviewCard({ item }) {
   return (
     <Dialog>
@@ -1097,6 +981,66 @@ function EmptyStateCard({ message }) {
       {message}
     </div>
   );
+}
+
+function summarizeExecutionNote(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= 220) return text;
+  return `${text.slice(0, 217)}...`;
+}
+
+function mergeFrontendCases(frontend) {
+  const designCases = Array.isArray(frontend?.designCases) ? frontend.designCases : [];
+  const traceabilityRecords = Array.isArray(frontend?.traceabilityRecords) ? frontend.traceabilityRecords : [];
+  const traceabilityById = new Map();
+  const traceabilityByTitle = new Map();
+
+  for (const row of traceabilityRecords) {
+    const idKey = String(row?.test_case_id || row?.testCaseId || '').trim().toLowerCase();
+    const titleKey = String(row?.title || row?.name || '').trim().toLowerCase();
+    if (idKey && !traceabilityById.has(idKey)) traceabilityById.set(idKey, row);
+    if (titleKey && !traceabilityByTitle.has(titleKey)) traceabilityByTitle.set(titleKey, row);
+  }
+
+  return designCases.map((item, index) => {
+    const id = String(item?.test_case_id || item?.testCaseId || `frontend-case-${index + 1}`);
+    const title = item?.title || item?.name || id;
+    const trace = traceabilityById.get(id.toLowerCase()) || traceabilityByTitle.get(String(title).trim().toLowerCase()) || null;
+    const linkedJourneys = Array.isArray(trace?.linked_journey_names)
+      ? trace.linked_journey_names.filter(Boolean)
+      : [];
+    const status = linkedJourneys.length
+      ? 'covered'
+      : String(trace?.coverage_status || trace?.status || 'missing').toLowerCase();
+    const linkedBddScenario = Array.isArray(item?.linked_bdd_scenarios) && item.linked_bdd_scenarios.length
+      ? item.linked_bdd_scenarios.join('\n')
+      : item?.bdd_scenario
+        || item?.bddScenario
+        || item?.scenario_title
+        || item?.scenario_name
+        || 'Not recorded';
+    const reason = trace?.reason
+      || trace?.notes
+      || item?.notes
+      || (linkedJourneys.length ? 'Journey generated for this test case.' : 'Not generated');
+
+    return {
+      id,
+      title,
+      testCaseId: id,
+      module: item?.module || trace?.module || '',
+      priority: item?.priority || '',
+      scenarioType: item?.scenario_type || item?.scenarioType || '',
+      recommendedPath: item?.recommended_start_path || trace?.recommended_start_path || '',
+      businessGoal: item?.business_goal || '',
+      linkedBddScenario,
+      linkedJourneys,
+      status,
+      statusLabel: linkedJourneys.length ? 'Journey generated' : 'Not generated',
+      reason,
+    };
+  });
 }
 
 function frontendVisualTone(value) {
@@ -1224,12 +1168,17 @@ function ReportsTab({ reports }) {
   );
 }
 
-function WorkflowPackagePanel({ workspace, evidence }) {
+function WorkflowPackagePanel({ workspace, evidence, run }) {
   const packageArtifact = evidence.packageArtifact;
   const manifestArtifact = evidence.manifestArtifact;
+  const gapStatus = workspace.gapAnalysisPath ? 'Run and attached' : 'Skipped or not attached';
+  const triggeredAt = formatDetailedDateTime(run?.createdAt || workspace.generatedAt);
   const detailRows = [
-    ['Upload mode', workspace.uploadSource || 'Not recorded'],
-    ['Package', workspace.packageName || 'Not recorded'],
+    ['Package source', workspace.uploadSource || 'Not recorded'],
+    ['Selected package', workspace.packageName || 'Not recorded'],
+    ['Requirements used', workspace.approvalStatus || 'Not recorded'],
+    ['Gap analysis', gapStatus],
+    ['Triggered at', triggeredAt],
     ['Platform', workspace.platform || 'Unknown'],
     ['Requirement root', workspace.requirementRoot || 'Not recorded'],
     ['Package path', workspace.packagePath || packageArtifact?.path || 'Not recorded'],
@@ -1240,8 +1189,8 @@ function WorkflowPackagePanel({ workspace, evidence }) {
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-[0_24px_80px_-54px_rgba(79,70,229,.45)] backdrop-blur-xl md:p-6">
       <TabHeader
         title="Workflow package and requirements"
-        eyebrow="Manifest-backed input files"
-        description="This is the selected workflow input context: package details plus BRD, BDD, and gap analysis files when the manifest published them."
+        eyebrow="Actual VeriSpace selections"
+        description="This overview shows the package source, requirement selection, gap-analysis usage, and the exact BRD and BDD files attached to this run."
       />
       <div className="mt-5 grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="rounded-2xl border border-violet-100 bg-[linear-gradient(180deg,rgba(245,243,255,.95),rgba(255,255,255,.95))] p-4">
@@ -1536,3 +1485,4 @@ function MetricCard({ label, value, sub, tone = 'bg-white' }) {
     </div>
   );
 }
+
