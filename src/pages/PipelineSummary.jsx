@@ -156,37 +156,37 @@ export default function PipelineSummary() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-16 md:pt-20">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-10 md:pt-12">
       <main className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <Button asChild variant="outline" className="mb-5 rounded-full bg-white/80 text-sm">
-          <Link to="/dashboard">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to dashboard
-          </Link>
-        </Button>
+        <div className="mb-5 flex items-center justify-between">
+          <Button asChild variant="outline" className="rounded-full bg-white/80 text-sm">
+            <Link to="/dashboard">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to dashboard
+            </Link>
+          </Button>
+          <Button variant="outline" className="rounded-full bg-white/80 shadow-sm text-sm" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {isFetching ? 'Refreshing' : 'Refresh'}
+          </Button>
+        </div>
 
         <section className="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-[0_24px_90px_-50px_rgba(79,70,229,.55)] backdrop-blur-2xl md:p-8">
           <div className="rounded-[28px] bg-[linear-gradient(135deg,rgba(79,70,229,.12),rgba(168,85,247,.08),rgba(16,185,129,.08))] p-5 md:p-6">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 max-w-4xl flex-1">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="rounded-full bg-violet-100 px-3 py-1 text-violet-700 hover:bg-violet-100">
-                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                      Pipeline Summary
-                    </Badge>
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase ${statusTone[run.status] || statusTone.running}`}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {run.status === 'failure' ? 'Needs Review' : run.status === 'running' ? 'Running' : 'Success'}
-                    </span>
-                    <Badge variant="outline" className="rounded-full text-[11px]">
-                      Run #{run.runNumber} - {run.mode || 'workspace'}
-                    </Badge>
-                  </div>
-                  <Button variant="outline" className="rounded-full bg-white/90 shadow-sm" onClick={() => refetch()} disabled={isFetching}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    {isFetching ? 'Refreshing' : 'Refresh'}
-                  </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="rounded-full bg-violet-100 px-3 py-1 text-violet-700 hover:bg-violet-100">
+                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                    Pipeline Summary
+                  </Badge>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase ${statusTone[run.status] || statusTone.running}`}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                    {run.status === 'failure' ? 'Needs Review' : run.status === 'running' ? 'Running' : 'Success'}
+                  </span>
+                  <Badge variant="outline" className="rounded-full text-[11px]">
+                    Run #{run.runNumber} - {run.mode || 'workspace'}
+                  </Badge>
                 </div>
                 <h1 className="mt-4 font-heading text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">{run.projectName || 'Workspace'}</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
