@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -669,7 +669,7 @@ function FrontendTab({ frontend, reports }) {
         description="This tab keeps the frontend story simple: what UI cases were identified, which Selenium journeys were generated, how they executed, and what screenshots were captured."
         downloads={downloads}
       />
-      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
+      <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,0.9fr)]">
         <div className="rounded-[28px] border border-violet-100 bg-[linear-gradient(135deg,rgba(238,242,255,.98),rgba(255,255,255,.96),rgba(236,253,245,.92))] p-5 shadow-[0_24px_80px_-54px_rgba(79,70,229,.48)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
@@ -733,7 +733,7 @@ function FrontendTab({ frontend, reports }) {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)]">
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,0.9fr)]">
         <section className="rounded-2xl border border-border bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -907,7 +907,7 @@ function FrontendTab({ frontend, reports }) {
   );
 }
 function JourneyScreenshotRail({ items, journeyName }) {
-  const PAGE_SIZE = 4;
+  const PAGE_SIZE = 3;
   const [page, setPage] = useState(1);
   const [activeIndex, setActiveIndex] = useState(0);
   const [open, setOpen] = useState(false);
@@ -957,7 +957,7 @@ function JourneyScreenshotRail({ items, journeyName }) {
             key={`${journeyName}-${shot.name}-${shot.stepName}`}
             type="button"
             onClick={() => openPreview(shot)}
-            className="group w-[168px] shrink-0 overflow-hidden rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.94))] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            className="group w-[200px] shrink-0 overflow-hidden rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.94))] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           >
             <div className="aspect-[16/10] overflow-hidden bg-slate-100">
               {shot.viewHref ? (
