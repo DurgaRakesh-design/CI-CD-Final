@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 
 const navItems = [
   { label: 'Home', path: '/', icon: Sparkles },
-  { label: 'VerSpace', path: '/workspace', icon: FlaskConical },
+  { label: 'VeriSpace', path: '/workspace', icon: FlaskConical },
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
 ];
 
