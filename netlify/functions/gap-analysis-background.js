@@ -610,6 +610,7 @@ async function callOpenAIFileTool({
   temperature = 0.1,
   timeoutMs = Number(process.env.OPENAI_FILE_TOOL_TIMEOUT_MS || 840000),
   requestTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_REQUEST_TIMEOUT_MS || 120000),
+  finalizationTimeoutMs = Number(process.env.OPENAI_FILE_TOOL_FINALIZATION_TIMEOUT_MS || 420000),
   pollIntervalMs = Number(process.env.OPENAI_FILE_TOOL_POLL_INTERVAL_MS || 3000),
   maxOutputTokens = Number(process.env.OPENAI_GAP_MAX_OUTPUT_TOKENS || 30000),
   model = process.env.OPENAI_MODEL || "gpt-4.1",
@@ -618,6 +619,7 @@ async function callOpenAIFileTool({
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
   const effectiveTimeoutMs = Math.max(timeoutMs, 300000);
   const effectiveRequestTimeoutMs = Math.max(requestTimeoutMs, 120000);
+  const effectiveFinalizationTimeoutMs = Math.max(finalizationTimeoutMs, 240000);
   const effectivePollIntervalMs = Math.max(pollIntervalMs, 1500);
   const createPayload = await postOpenAIResponse({
     apiKey,
@@ -654,7 +656,18 @@ async function callOpenAIFileTool({
     timeoutMs: effectiveTimeoutMs,
     pollIntervalMs: effectivePollIntervalMs,
   });
-  const outputText = extractResponseText(payload);
+  let outputText = extractResponseText(payload);
+  if (!String(outputText || "").trim() && payload?.id) {
+    outputText = await requestFinalJsonFromResponse({
+      apiKey,
+      model,
+      previousResponseId: payload.id,
+      responseSchema,
+      timeoutMs: effectiveFinalizationTimeoutMs,
+      pollIntervalMs: effectivePollIntervalMs,
+      maxOutputTokens,
+    });
+  }
   if (!String(outputText || "").trim()) {
     throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
   }
@@ -689,6 +702,50 @@ function summarizeResponsePayload(payload) {
   const output = Array.isArray(payload?.output) ? payload.output : [];
   const outputTypes = output.map((item) => item?.type || item?.role || "unknown").slice(0, 8);
   return `Response status=${payload?.status || "unknown"} outputTypes=${outputTypes.join(",") || "none"} incompleteReason=${payload?.incomplete_details?.reason || ""}`;
+}
+
+async function requestFinalJsonFromResponse({
+  apiKey,
+  model,
+  previousResponseId,
+  responseSchema,
+  timeoutMs,
+  pollIntervalMs,
+  maxOutputTokens,
+}) {
+  const createPayload = await postOpenAIResponse({
+    apiKey,
+    timeoutMs,
+    body: {
+      model,
+      background: true,
+      previous_response_id: previousResponseId,
+      input: [
+        {
+          role: "user",
+          content:
+            "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
+        },
+      ],
+      temperature: 0,
+      max_output_tokens: maxOutputTokens,
+      text: {
+        format: {
+          type: "json_schema",
+          name: responseSchema.name,
+          schema: responseSchema.schema,
+          strict: true,
+        },
+      },
+    },
+  });
+  const payload = await waitForOpenAIResponse({
+    apiKey,
+    initialPayload: createPayload,
+    timeoutMs,
+    pollIntervalMs,
+  });
+  return extractResponseText(payload);
 }
 
 async function postOpenAIResponse({ apiKey, body, timeoutMs }) {
