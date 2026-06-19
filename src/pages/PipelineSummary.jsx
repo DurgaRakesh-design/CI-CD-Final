@@ -810,10 +810,11 @@ function FrontendTab({ frontend, reports }) {
                 ) : null}
 
                 {journey.screenshots?.length ? (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {journey.screenshots.map((shot) => (
-                      <ScreenshotPreviewCard key={`${journey.slug || journey.name}-${shot.name}-${shot.stepName}`} item={shot} />
-                    ))}
+                  <div className="mt-4">
+                    <JourneyScreenshotRail
+                      items={journey.screenshots}
+                      journeyName={journey.name || 'Journey'}
+                    />
                   </div>
                 ) : null}
               </div>
@@ -889,10 +890,10 @@ function FrontendTab({ frontend, reports }) {
                   </span>
                 </div>
                 {item.businessGoal ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.businessGoal}</p> : null}
-                <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                  <DetailBlock label="Linked BDD scenario" value={item.linkedBddScenario} />
-                  <DetailBlock label="Linked journey" value={item.linkedJourneys.length ? item.linkedJourneys : ['Not generated']} />
-                  <DetailBlock label="Reason / notes" value={item.reason} />
+                <div className={`mt-3 grid gap-3 ${item.frontendDetails.length >= 3 ? 'lg:grid-cols-3' : item.frontendDetails.length === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}>
+                  {item.frontendDetails.map((detail) => (
+                    <DetailBlock key={`${item.id}-${detail.label}`} label={detail.label} value={detail.value} />
+                  ))}
                 </div>
               </div>
             )) : (
@@ -905,6 +906,137 @@ function FrontendTab({ frontend, reports }) {
     </section>
   );
 }
+function JourneyScreenshotRail({ items, journeyName }) {
+  const PAGE_SIZE = 4;
+  const [page, setPage] = useState(1);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [open, setOpen] = useState(false);
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const activeItem = items[activeIndex] || null;
+
+  useEffect(() => {
+    if (activeIndex > items.length - 1) {
+      setActiveIndex(0);
+    }
+  }, [activeIndex, items.length]);
+
+  const openPreview = (item) => {
+    const index = items.findIndex((candidate) => candidate === item);
+    setActiveIndex(index >= 0 ? index : 0);
+    setOpen(true);
+  };
+
+  const showPrev = () => setActiveIndex((value) => (value <= 0 ? items.length - 1 : value - 1));
+  const showNext = () => setActiveIndex((value) => (value >= items.length - 1 ? 0 : value + 1));
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Screenshots</p>
+          <p className="mt-1 text-xs text-muted-foreground">Preview captured journey steps in sequence.</p>
+        </div>
+        {items.length > PAGE_SIZE ? (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8 rounded-full bg-white" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              Prev
+            </Button>
+            <span className="text-[11px] text-muted-foreground">Page {currentPage} of {totalPages}</span>
+            <Button variant="outline" size="sm" className="h-8 rounded-full bg-white" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+              Next
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {pageItems.map((shot) => (
+          <button
+            key={`${journeyName}-${shot.name}-${shot.stepName}`}
+            type="button"
+            onClick={() => openPreview(shot)}
+            className="group w-[168px] shrink-0 overflow-hidden rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,250,252,.94))] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="aspect-[16/10] overflow-hidden bg-slate-100">
+              {shot.viewHref ? (
+                <img
+                  src={shot.viewHref}
+                  alt={`${shot.journeyName} ${shot.stepName}`}
+                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                />
+              ) : (
+                <div className="grid h-full place-items-center text-xs text-muted-foreground">Preview not available</div>
+              )}
+            </div>
+            <div className="p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">{shot.stepName}</p>
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground">{shot.stepType || shot.journeyName}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${frontendStatusTone(shot.status)}`}>
+                  {shot.status || 'unknown'}
+                </span>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-5xl border-white/80 bg-white/98 p-4 sm:rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>{activeItem?.journeyName || journeyName}</DialogTitle>
+            <DialogDescription>
+              {activeItem?.stepName || 'Screenshot'} {activeItem?.stepType ? `· ${activeItem.stepType}` : ''} {items.length ? `· ${activeIndex + 1} of ${items.length}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-2xl border border-border bg-slate-50">
+            {activeItem?.viewHref ? (
+              <img src={activeItem.viewHref} alt={`${activeItem.journeyName} ${activeItem.stepName}`} className="max-h-[75vh] w-full object-contain" />
+            ) : (
+              <div className="grid min-h-[320px] place-items-center text-sm text-muted-foreground">Preview not available</div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">{activeItem?.reportName || activeItem?.name || 'Screenshot'}</div>
+            <div className="flex flex-wrap gap-2">
+              {items.length > 1 ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" className="rounded-full bg-white" onClick={showPrev}>
+                    Prev shot
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="rounded-full bg-white" onClick={showNext}>
+                    Next shot
+                  </Button>
+                </>
+              ) : null}
+              {activeItem?.viewHref ? (
+                <Button asChild variant="outline" size="sm" className="rounded-full bg-white">
+                  <a href={activeItem.viewHref} target="_blank" rel="noreferrer">
+                    <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                    Open
+                  </a>
+                </Button>
+              ) : null}
+              {activeItem?.downloadHref ? (
+                <Button asChild variant="outline" size="sm" className="rounded-full bg-white">
+                  <a href={activeItem.downloadHref} download={activeItem.name}>
+                    <Download className="mr-2 h-3.5 w-3.5" />
+                    Download
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function ScreenshotPreviewCard({ item }) {
   return (
     <Dialog>
@@ -1026,6 +1158,29 @@ function mergeFrontendCases(frontend) {
       || trace?.notes
       || item?.notes
       || (linkedJourneys.length ? 'Journey generated for this test case.' : 'Not generated');
+    const steps = Array.isArray(item?.test_steps) && item.test_steps.length
+      ? item.test_steps
+      : Array.isArray(item?.steps) && item.steps.length
+        ? item.steps
+        : Array.isArray(item?.testSteps) && item.testSteps.length
+          ? item.testSteps
+          : [];
+    const expectedOutcome = Array.isArray(item?.expected_outcome) && item.expected_outcome.length
+      ? item.expected_outcome
+      : Array.isArray(item?.expectedOutcome) && item.expectedOutcome.length
+        ? item.expectedOutcome
+        : item?.expected_result
+          ? [item.expected_result]
+          : item?.expectedResult
+            ? (Array.isArray(item.expectedResult) ? item.expectedResult : [item.expectedResult])
+            : [];
+    const frontendDetails = [
+      linkedBddScenario && linkedBddScenario !== 'Not recorded' ? { label: 'Linked BDD scenario', value: linkedBddScenario } : null,
+      { label: 'Linked journey', value: linkedJourneys.length ? linkedJourneys : ['Not generated'] },
+      steps.length ? { label: 'Steps', value: steps } : null,
+      expectedOutcome.length ? { label: 'Expected outcome', value: expectedOutcome } : null,
+      reason ? { label: 'Reason / notes', value: reason } : null,
+    ].filter(Boolean);
 
     return {
       id,
@@ -1041,6 +1196,9 @@ function mergeFrontendCases(frontend) {
       status,
       statusLabel: linkedJourneys.length ? 'Journey generated' : 'Not generated',
       reason,
+      steps,
+      expectedOutcome,
+      frontendDetails,
     };
   });
 }
