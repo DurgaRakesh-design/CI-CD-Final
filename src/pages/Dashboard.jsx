@@ -19,7 +19,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { loadDashboardSnapshot } from '@/services/dashboardService';
+import { invalidateDashboardSnapshotCache, loadDashboardSnapshot } from '@/services/dashboardService';
 
 const metricIcons = {
   flask: FlaskConical,
@@ -199,6 +199,11 @@ export default function DashboardPage() {
     setPage(1);
   };
 
+  const handleRefresh = () => {
+    invalidateDashboardSnapshotCache();
+    refetch();
+  };
+
   if (isLoading || !snapshot || !overview) {
     return <DashboardLoading />;
   }
@@ -280,7 +285,7 @@ export default function DashboardPage() {
                   <SectionLabel inline>Pipeline Runs</SectionLabel>
                   <p className="mt-1 text-xl font-heading font-bold">{filtered.length} runs</p>
                 </div>
-                <Button variant="outline" size="sm" className="h-9 rounded-xl px-3" onClick={() => refetch()} disabled={isFetching}>
+                <Button variant="outline" size="sm" className="h-9 rounded-xl px-3" onClick={handleRefresh} disabled={isFetching}>
                   <RefreshCw className="mr-2 h-3.5 w-3.5" />
                   {isFetching ? 'Refreshing' : 'Refresh'}
                 </Button>

@@ -27,7 +27,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { loadDashboardSnapshot } from '@/services/dashboardService';
+import { invalidateDashboardSnapshotCache, loadDashboardSnapshot } from '@/services/dashboardService';
 
 const pipelineTabs = [
   { id: 'overview', label: 'Overview' },
@@ -123,6 +123,11 @@ export default function PipelineSummary() {
     }
   }, [pipelineTab, visiblePipelineTabs]);
 
+  const handleRefresh = () => {
+    invalidateDashboardSnapshotCache();
+    refetch();
+  };
+
   const readiness = typeof run?.readinessScore === 'number'
     ? run.readinessScore
     : run?.status === 'failure'
@@ -165,7 +170,7 @@ export default function PipelineSummary() {
               Back to dashboard
             </Link>
           </Button>
-          <Button variant="outline" className="rounded-full bg-white/80 shadow-sm text-sm" onClick={() => refetch()} disabled={isFetching}>
+          <Button variant="outline" className="rounded-full bg-white/80 shadow-sm text-sm" onClick={handleRefresh} disabled={isFetching}>
             <RefreshCw className="mr-2 h-4 w-4" />
             {isFetching ? 'Refreshing' : 'Refresh'}
           </Button>

@@ -22,6 +22,13 @@ const DEFAULT_WORKSPACE = {
   status: 'draft',
 };
 
+const LIVE_PIPELINE_CACHE_TTL_MS = 30000;
+let livePipelineCache = {
+  expiresAt: 0,
+  promise: null,
+  value: null,
+};
+
 export function loadLocalDashboardSnapshot() {
   const local = readLocalState();
   return buildDashboardSnapshot({
@@ -38,9 +45,9 @@ export function loadLocalDashboardSnapshot() {
 }
 
 export async function loadDashboardSnapshot(options = {}) {
-  const { selectedRunNumber = null } = options;
+  const { selectedRunNumber = null, force = false } = options;
   const local = readLocalState();
-  const livePipeline = await loadLivePipelineSnapshot({ selectedRunNumber });
+  const livePipeline = await loadLivePipelineSnapshot({ selectedRunNumber, force });
   const remoteRuns = livePipeline?.runs || [];
 
   return buildDashboardSnapshot({
@@ -54,6 +61,14 @@ export async function loadDashboardSnapshot(options = {}) {
     livePipeline,
     preferredRunNumber: selectedRunNumber,
   });
+}
+
+export function invalidateDashboardSnapshotCache() {
+  livePipelineCache = {
+    expiresAt: 0,
+    promise: null,
+    value: null,
+  };
 }
 
 export function recordPipelineRunSnapshot({ result, workspaceData, documents = [], gapResults = null }) {
@@ -1467,7 +1482,16 @@ function normalizeRemoteRun(run, workspaceState) {
   };
 }
 
-async function loadLivePipelineSnapshot({ selectedRunNumber = null } = {}) {
+async function loadLivePipelineSnapshot({ selectedRunNumber = null, force = false } = {}) {
+  const now = Date.now();
+  if (!force && livePipelineCache.value && livePipelineCache.expiresAt > now) {
+    return livePipelineCache.value;
+  }
+  if (!force && livePipelineCache.promise) {
+    return await livePipelineCache.promise;
+  }
+
+  livePipelineCache.promise = (async () => {
   try {
     const primaryRuns = await listPrimaryWorkflowRunsSinceYesterday();
     const latestRun = primaryRuns.find((run) => String(run.run_number) === String(selectedRunNumber)) || primaryRuns[0] || null;
@@ -1525,6 +1549,15 @@ async function loadLivePipelineSnapshot({ selectedRunNumber = null } = {}) {
   } catch (_) {
     return { runs: [], jobs: [], artifacts: [], reports: {}, manifest: null, workspaceArtifacts: [], runBundles: [] };
   }
+  })();
+
+  const result = await livePipelineCache.promise;
+  livePipelineCache = {
+    expiresAt: Date.now() + LIVE_PIPELINE_CACHE_TTL_MS,
+    promise: null,
+    value: result,
+  };
+  return result;
 }
 
 async function listPrimaryWorkflowRunsSinceYesterday() {
