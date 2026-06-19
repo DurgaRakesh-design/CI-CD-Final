@@ -101,6 +101,7 @@ export default function PipelineSummary() {
   const codeQuality = snapshot?.codeQuality || {};
   const frontend = snapshot?.frontend || {};
   const reports = snapshot?.reports || [];
+  const summaryBundleReport = useMemo(() => getBundleReport(reports), [reports]);
   const pipelineJobs = run?.pipelineJobs || snapshot?.pipelineJobs || [];
   const visiblePipelineTabs = useMemo(
     () => pipelineTabs.filter((tab) => {
@@ -201,6 +202,9 @@ export default function PipelineSummary() {
                   <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5"><GitBranch className="h-4 w-4" />{run.branch || 'develop'}</span>
                   <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5"><Clock className="h-4 w-4" />{run.duration || 'pending'}</span>
                   <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1.5"><BarChart3 className="h-4 w-4" />{isFetching ? 'Refreshing...' : 'Live snapshot'}</span>
+                  {summaryBundleReport ? (
+                    <ReportDownloadButton report={{ ...summaryBundleReport, buttonLabel: 'Download Full Bundle' }} />
+                  ) : null}
                 </div>
               </div>
               <ReadinessGauge value={readiness} status={run.status} covered={run.bddCovered || 0} total={run.bddTotal || 0} />
@@ -419,7 +423,10 @@ function StagesTab({ pipelineJobs }) {
 }
 
 function TestCasesTab({ rows, run, reports }) {
-  const downloads = findReports(reports, [/qa-test-case-report\.xlsx$/i, /qa-test-case-report\.json$/i]);
+  const downloads = useMemo(() => {
+    const workbook = findReports(reports, [/qa-test-case-report\.xlsx$/i])[0];
+    return workbook ? [{ ...workbook, buttonLabel: 'Download Excel Report' }] : [];
+  }, [reports]);
   const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
@@ -466,7 +473,6 @@ function TestCasesTab({ rows, run, reports }) {
 }
 
 function BddScenariosTab({ rows, run, reports }) {
-  const downloads = findReports(reports, [/traceability-validation-matrix\.json$/i, /requirement-traceability\.json$/i, /qa-test-case-report\.xlsx$/i]);
   const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
@@ -474,7 +480,6 @@ function BddScenariosTab({ rows, run, reports }) {
         title="Normalized BDD scenarios"
         eyebrow="BDD coverage"
         description="All normalized BDD scenarios are shown here, including backend-covered scenarios and scenarios filtered out of the backend lane."
-        downloads={downloads}
       />
       <div className="mt-4 grid gap-3 md:grid-cols-6">
         <MetricCard label="All scenarios" value={run.normalizedBddTotal || rows.length || 0} tone="bg-violet-50/70" />
@@ -513,7 +518,10 @@ function BddScenariosTab({ rows, run, reports }) {
 }
 
 function TestScriptsTab({ rows, reports }) {
-  const downloads = findReports(reports, [/test-script-manifest\.json$/i, /^generated-tests\//i, /^test-scripts\//i, /^rejected-ai-tests\//i]).slice(0, 8);
+  const downloads = useMemo(() => {
+    const scriptBundle = getScriptBundleReport(reports);
+    return scriptBundle ? [{ ...scriptBundle, buttonLabel: 'Download Script Bundle' }] : [];
+  }, [reports]);
   const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
   const accepted = rows.filter((row) => /accepted|executed/i.test(String(row.status || ''))).length;
   const rejected = rows.filter((row) => /reject/i.test(String(row.status || ''))).length;
@@ -619,14 +627,10 @@ function AiTab({ aiDetails, reports }) {
 }
 
 function FrontendTab({ frontend, reports }) {
-  const downloads = findReports(reports, [
-    /frontend-quality-summary/i,
-    /frontend-test-design/i,
-    /frontend-journey-suggestions/i,
-    /frontend-traceability/i,
-    /frontend-smoke-report/i,
-    /browser-smoke-report/i,
-  ]);
+  const downloads = useMemo(() => {
+    const frontendBundle = getFrontendBundleReport(reports, frontend);
+    return frontendBundle ? [{ ...frontendBundle, buttonLabel: 'Download Frontend Bundle' }] : [];
+  }, [reports, frontend]);
   const [journeyFilter, setJourneyFilter] = useState('all');
   const [caseFilter, setCaseFilter] = useState('all');
   const filteredJourneys = useMemo(() => {
@@ -1255,14 +1259,12 @@ function frontendCoverageTone(value) {
 }
 
 function QualityTab({ codeQuality, reports }) {
-  const downloads = findReports(reports, [/coverage-gap-analysis\.json$/i, /code-improvement-suggestions\.json$/i, /qa-test-case-report\.xlsx$/i]);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
         title="Quality findings"
         eyebrow="Coverage gaps and suggestions"
         description="Coverage hotspots and improvement suggestions come from their own quality files, not from AI or traceability tabs."
-        downloads={downloads}
       />
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="AI tests" value={codeQuality.aiTests || 0} tone="bg-violet-50/70" />
@@ -1546,7 +1548,7 @@ function ReportDownloadButton({ report, compact = false }) {
     <Button asChild variant="outline" size="sm" className={`${compact ? 'h-8 px-2' : 'rounded-full'} bg-white`}>
       <a href={report.downloadHref} download={report.downloadName || report.name}>
         <Download className={`${compact ? 'mr-0' : 'mr-2'} h-3.5 w-3.5`} />
-        {compact ? <span className="sr-only">Download {report.name}</span> : `Download ${shortReportLabel(report.name)}`}
+        {compact ? <span className="sr-only">Download {report.name}</span> : (report.buttonLabel || `Download ${shortReportLabel(report.name)}`)}
       </a>
     </Button>
   );
@@ -1555,6 +1557,26 @@ function ReportDownloadButton({ report, compact = false }) {
 function findReports(reports, patterns) {
   const list = Array.isArray(reports) ? reports : [];
   return list.filter((report) => patterns.some((pattern) => pattern.test(String(report?.name || ''))));
+}
+
+function getBundleReport(reports) {
+  return findReports(reports, [/quality-reports.*\.zip$/i]).find((report) => report?.downloadHref)
+    || (Array.isArray(reports) ? reports.find((report) => report?.bundle && report?.downloadHref) : null)
+    || null;
+}
+
+function getScriptBundleReport(reports) {
+  const scriptFiles = findReports(reports, [/^(generated-tests|test-scripts|rejected-ai-tests)\//i]);
+  if (!scriptFiles.length) return null;
+  return getBundleReport(reports);
+}
+
+function getFrontendBundleReport(reports, frontend) {
+  const hasFrontendEvidence = Boolean((frontend?.frontendArtifactFiles || []).length)
+    || Boolean(frontend?.journeys?.length)
+    || Boolean(frontend?.screenshotGallery?.length);
+  if (!hasFrontendEvidence) return null;
+  return getBundleReport(reports);
 }
 
 function buildRequirementEvidence(workspace) {
