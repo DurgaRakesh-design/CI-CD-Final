@@ -1653,7 +1653,22 @@ function shortReportLabel(name) {
 }
 
 function ReadinessGauge({ value, status, covered = 0, total = 0 }) {
-  const color = status === 'failure' ? '#f59e0b' : status === 'running' ? '#6366f1' : '#10b981';
+  const normalizedValue = Number(value || 0);
+  const readinessLabel = normalizedValue >= 85
+    ? 'Production Ready'
+    : normalizedValue >= 60
+      ? 'Needs Review'
+      : 'High Risk';
+  const color = normalizedValue >= 85
+    ? '#10b981'
+    : normalizedValue >= 60
+      ? '#f59e0b'
+      : '#ef4444';
+  const supportingText = normalizedValue >= 85
+    ? `Calculated from scenario coverage: ${covered} covered of ${total || 0} total scenarios.`
+    : normalizedValue >= 60
+      ? `Coverage is improving, but ${Math.max((total || 0) - covered, 0)} scenarios still need stronger evidence.`
+      : `Coverage is too low for promotion: ${Math.max((total || 0) - covered, 0)} scenarios remain uncovered.`;
   return (
     <div className="rounded-3xl bg-white/80 p-4 shadow-sm">
       <div className="flex items-center gap-4">
@@ -1668,10 +1683,10 @@ function ReadinessGauge({ value, status, covered = 0, total = 0 }) {
       <div>
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Readiness</p>
         <p className="mt-1 font-heading text-lg font-bold md:text-xl">
-          {status === 'failure' ? 'Needs Review' : 'Production Ready'}
+          {readinessLabel}
         </p>
         <p className="mt-2 max-w-[220px] text-xs leading-5 text-muted-foreground">
-          Calculated from scenario coverage: {covered} covered of {total || 0} total scenarios.
+          {supportingText}
         </p>
       </div>
       </div>
