@@ -774,28 +774,61 @@ function buildLiveTraceabilityRows(traceability, qaReport) {
   });
 }
 
+function resolveLiveTestScriptArtifact(row, reportFiles, reportByBaseName) {
+  const fileCandidates = [
+    row?.file,
+    row?.generated_test_file,
+    row?.source_file,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const normalizedCandidates = fileCandidates.flatMap((candidate) => {
+    const basename = candidate.split('/').pop();
+    return basename && basename !== candidate ? [candidate, basename] : [candidate];
+  });
+  for (const candidate of normalizedCandidates) {
+    const exact = reportFiles.find((file) => String(file?.name || '') === candidate);
+    if (exact) return exact;
+    const suffix = reportFiles.find((file) => String(file?.name || '').endsWith(candidate));
+    if (suffix) return suffix;
+    const base = reportByBaseName.get(candidate);
+    if (base) return base;
+  }
+  return null;
+}
+
 function buildLiveTestScripts(reports) {
   const manifestScripts = Array.isArray(reports?.testScriptManifest?.scripts) ? reports.testScriptManifest.scripts : [];
   const qaScripts = Array.isArray(reports?.qaReport?.test_scripts) ? reports.qaReport.test_scripts : [];
   const scripts = manifestScripts.length ? manifestScripts : qaScripts;
-  return scripts.slice(0, 120).map((row) => ({
-    id: row.scriptId || row.file || row.className,
-    scriptId: row.scriptId,
-    testCaseId: row.testCaseId,
-    scenarioId: row.scenarioId,
-    feature: row.feature || 'Feature',
-    scenario: row.scenario || 'Scenario',
-    file: row.file || row.generated_test_file || row.source_file,
-    packageName: row.packageName,
-    className: row.className,
-    methodName: row.methodName || row.generated_test_method,
-    qualifiedName: row.qualifiedName,
-    scriptType: row.scriptType || row.testType,
-    status: String(row.status || row.result || row.executionStatus || 'not_run').toLowerCase().replace(/\s+/g, '_'),
-    result: row.result || row.executionResult || row.status,
-    duration: row.duration || row.durationMs,
-    failureReason: row.failureReason || row.reason,
-  }));
+  const reportFiles = Array.isArray(reports?.reportFiles) ? reports.reportFiles : [];
+  const reportByBaseName = new Map(
+    reportFiles.map((file) => [String(file?.name || '').split('/').pop(), file])
+  );
+  return scripts.slice(0, 120).map((row) => {
+    const scriptArtifact = resolveLiveTestScriptArtifact(row, reportFiles, reportByBaseName);
+    return {
+      id: row.scriptId || row.file || row.className,
+      scriptId: row.scriptId,
+      testCaseId: row.testCaseId,
+      scenarioId: row.scenarioId,
+      feature: row.feature || 'Feature',
+      scenario: row.scenario || 'Scenario',
+      file: row.file || row.generated_test_file || row.source_file,
+      packageName: row.packageName,
+      className: row.className,
+      methodName: row.methodName || row.generated_test_method,
+      qualifiedName: row.qualifiedName,
+      scriptType: row.scriptType || row.testType,
+      status: String(row.status || row.result || row.executionStatus || 'not_run').toLowerCase().replace(/\s+/g, '_'),
+      result: row.result || row.executionResult || row.status,
+      duration: row.duration || row.durationMs,
+      failureReason: row.failureReason || row.reason,
+      downloadHref: scriptArtifact?.downloadHref || '',
+      downloadName: scriptArtifact?.downloadName || scriptArtifact?.name || (String(row.file || '').split('/').pop() || ''),
+      artifactName: scriptArtifact?.name || '',
+    };
+  });
 }
 
 function buildLiveReports(reportFiles, artifacts) {

@@ -510,8 +510,11 @@ function BddScenariosTab({ rows, run, reports }) {
 function TestScriptsTab({ rows, reports }) {
   const downloads = findReports(reports, [/test-script-manifest\.json$/i, /^generated-tests\//i, /^test-scripts\//i, /^rejected-ai-tests\//i]).slice(0, 8);
   const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
-  const accepted = rows.filter((row) => /pass|accepted|success/i.test(row.status || row.result || '')).length;
-  const rejected = rows.filter((row) => /reject|fail|error/i.test(row.status || row.result || '')).length;
+  const accepted = rows.filter((row) => /accepted|executed/i.test(String(row.status || ''))).length;
+  const rejected = rows.filter((row) => /reject/i.test(String(row.status || ''))).length;
+  const passed = rows.filter((row) => /pass|success/i.test(String(row.result || ''))).length;
+  const failed = rows.filter((row) => /fail/i.test(String(row.result || ''))).length;
+  const errored = rows.filter((row) => /error/i.test(String(row.result || ''))).length;
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
@@ -520,10 +523,13 @@ function TestScriptsTab({ rows, reports }) {
         description="Script-level details from the manifest: file, Java class, method, linked scenario, status, duration, and failure reason."
         downloads={downloads}
       />
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard label="Scripts" value={rows.length} tone="bg-violet-50/70" />
-        <MetricCard label="Accepted / passed" value={accepted} tone="bg-emerald-50/70" />
-        <MetricCard label="Rejected / failed" value={rejected} tone="bg-rose-50/70" />
+        <MetricCard label="Accepted" value={accepted} sub="ready for execution" tone="bg-emerald-50/70" />
+        <MetricCard label="Rejected" value={rejected} sub="stopped before execution" tone="bg-rose-50/70" />
+        <MetricCard label="Passed" value={passed} sub="executed successfully" tone="bg-cyan-50/70" />
+        <MetricCard label="Failed" value={failed} sub="assertion or status mismatch" tone="bg-amber-50/70" />
+        <MetricCard label="Errored" value={errored} sub="execution/runtime issue" tone="bg-fuchsia-50/70" />
       </div>
       <div className="mt-4 space-y-2">
         {pageRows.map((row) => (
@@ -538,7 +544,17 @@ function TestScriptsTab({ rows, reports }) {
                   ))}
                 </div>
               </div>
-              <Badge variant="outline" className="text-xs">{row.status}</Badge>
+              <div className="flex items-center gap-2">
+                {row.downloadHref ? (
+                  <Button asChild variant="outline" size="sm" className="h-8 rounded-lg bg-white px-3">
+                    <a href={row.downloadHref} download={row.downloadName || row.file || row.className || row.scriptId}>
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      Script
+                    </a>
+                  </Button>
+                ) : null}
+                <Badge variant="outline" className="text-xs">{row.status}</Badge>
+              </div>
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-3">
               <DetailBlock label="Feature / scenario" value={[row.feature, row.scenario].filter(Boolean).join('\n')} />
