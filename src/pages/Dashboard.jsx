@@ -121,15 +121,13 @@ function formatRunExecutionSummary(run) {
   const failed = Number(run.testsFailed || 0);
   const notRun = Number(run.testsSkipped || 0);
   const total = Number(run.testsTotal || 0);
-  const normalizedBddTotal = Number(run.normalizedBddTotal || 0);
-  const filteredOut = Number(run.bddFilteredOut || 0);
   if (total > 0) {
-    return `${run.projectName || 'Selected package'} on ${run.branch || 'develop'} via ${run.workflowName || 'CI Pipeline'}. ${total} test cases | ${passed} passed | ${failed} failed | ${notRun} not run${normalizedBddTotal ? ` | ${normalizedBddTotal} BDD scenarios total | ${filteredOut} filtered out` : ''}.`;
+    return `${run.projectName || 'Selected package'} on ${run.branch || 'develop'} via ${run.workflowName || 'CI Pipeline'}. ${total} test cases | ${passed} passed | ${failed} failed | ${notRun} not run.`;
   }
   const covered = Number(run.bddCovered || 0);
   const scenarios = Number(run.bddTotal || 0);
   if (scenarios > 0) {
-    return `${run.projectName || 'Selected package'} on ${run.branch || 'develop'} via ${run.workflowName || 'CI Pipeline'}. ${covered}/${scenarios} backend scenarios covered${normalizedBddTotal ? ` | ${normalizedBddTotal} total | ${filteredOut} filtered out` : ''}.`;
+    return `${run.projectName || 'Selected package'} on ${run.branch || 'develop'} via ${run.workflowName || 'CI Pipeline'}. ${covered}/${scenarios} backend scenarios covered.`;
   }
   return 'Waiting for published execution evidence';
 }
@@ -339,7 +337,7 @@ export default function DashboardPage() {
                           <span>{run.testsSkipped || 0} not run</span>
                         </div>
                         <div className="text-[11px] text-muted-foreground">
-                          {run.normalizedBddTotal || run.bddTotal || 0} total | {run.bddFilteredOut || 0} filtered | {run.bddCovered || 0}/{run.bddTotal || 0} backend covered
+                          {run.bddCovered || 0}/{run.bddTotal || 0} backend covered
                         </div>
                       </div>
                     </button>
@@ -422,7 +420,7 @@ export default function DashboardPage() {
                 <div className="rounded-xl bg-indigo-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Backend BDD Coverage</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-indigo-700">{selectedRun?.bddCovered || 0}/{selectedRun?.bddTotal || 0}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.normalizedBddTotal || selectedRun?.bddTotal || 0} total | {selectedRun?.bddFilteredOut || 0} filtered out | {selectedBddCoverage}% backend covered | {selectedRun?.bddUncovered || 0} uncovered</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{selectedBddCoverage}% backend covered | {selectedRun?.bddUncovered || 0} uncovered</p>
                 </div>
 
                 <div className="rounded-xl bg-amber-50 p-4">

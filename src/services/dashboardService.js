@@ -468,10 +468,11 @@ function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun, workspa
   const bdds = Array.isArray(manifest?.bdds) ? manifest.bdds : [];
   const source = formatRequirementSource(metadata.requirementSource);
   const uploadMode = inferUploadMode(manifest);
+  const inferredPackageName = inferProjectNameFromReports(reports) || selectedRun?.projectName || selectedRun?.packageName || '';
 
   return {
     uploadSource: uploadMode,
-    packageName: manifest?.packageName || selectedRun?.packageName || 'GitHub package',
+    packageName: manifest?.packageName || inferredPackageName || 'GitHub package',
     platform: metadata.platform || 'Unknown',
     brdCount: Number(manifest?.brdCount || (manifest?.brd ? 1 : 0)),
     bddCount: Number(manifest?.bddCount || bdds.length),
@@ -480,6 +481,9 @@ function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun, workspa
       : selectedRun?.bddTotal
         ? `${selectedRun.bddCovered}/${selectedRun.bddTotal} scenarios covered`
         : 'Waiting for report evidence',
+    traceabilityStatus: selectedRun?.bddTotal
+      ? `${selectedRun.bddCovered}/${selectedRun.bddTotal} backend scenarios covered`
+      : 'Waiting for report evidence',
     gapCount: Number(gap?.openFindings || selectedRun?.openFindings || 0),
     approvalStatus: source,
     generatedAt: selectedRun?.updatedAt || selectedRun?.createdAt || manifest?.runId || 'Not available',
@@ -562,6 +566,7 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   const aiMeta = reports?.generatedTestMeta || {};
   const frontend = reports?.browserSmoke || {};
   const rowSummary = summarizeQaRows(reports?.qaReport);
+  const inferredProjectName = inferProjectNameFromReports(reports);
   const testsTotal = numberFrom(rowSummary.total, qaSummary.total_test_cases, qaSummary.plannedTestCases, qaSummary.total_unique_test_methods, run.testsTotal);
   const testsPassed = numberFrom(rowSummary.passed, qaSummary.passed, qaSummary.scripts_passed, run.testsPassed);
   const testsFailed = numberFrom(rowSummary.failed, qaSummary.failed, qaSummary.scripts_failed, qaSummary.errors, run.testsFailed);
@@ -580,8 +585,8 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   const coverageAi = numberFrom(qaSummary.coverage_percent, bddTotal ? Math.round((bddCovered / bddTotal) * 100) : 0, run.coverageAi);
   return {
     ...run,
-    projectName: cleanPackageName(manifest?.packageName) || run.projectName,
-    packageName: manifest?.packageName || run.packageName,
+    projectName: cleanPackageName(manifest?.packageName) || inferredProjectName || run.projectName,
+    packageName: manifest?.packageName || inferredProjectName || run.packageName,
     packagePath: manifest?.packagePath || run.packagePath,
     manifestPath: manifest?.manifestPath || run.manifestPath,
     gapAnalysisPath: manifest?.gapAnalysis?.path || run.gapAnalysisPath,
@@ -1802,6 +1807,27 @@ function numberFrom(...values) {
 
 function cleanPackageName(value) {
   return String(value || '').replace(/\.(zip|jar|war|ear)$/i, '').trim();
+}
+
+function inferProjectNameFromReports(reports) {
+  const candidates = [];
+  const traceability = reports?.requirementTraceability || reports?.traceability || {};
+  const normalized = Array.isArray(traceability?.normalized_scenarios) ? traceability.normalized_scenarios : [];
+  const scenarioRecords = Array.isArray(traceability?.scenario_records) ? traceability.scenario_records : [];
+
+  normalized.forEach((item) => {
+    candidates.push(item?.sourceBddFile, item?.sourceBrdFile);
+  });
+  scenarioRecords.forEach((item) => {
+    candidates.push(item?.sourceBddFile, item?.sourceBrdFile);
+  });
+
+  for (const value of candidates) {
+    const text = String(value || '');
+    const match = text.match(/packages\/requirements\/([^/]+)-\d{14}\//i);
+    if (match?.[1]) return cleanPackageName(match[1]);
+  }
+  return '';
 }
 
 function formatRequirementSource(value) {

@@ -204,7 +204,7 @@ export default function PipelineSummary() {
 
           <div className="mt-6 grid gap-4 md:grid-cols-5">
             <MetricCard label="Test Cases" value={run.testsTotal || 0} sub={`${run.testsPassed || 0} passed | ${run.testsFailed || 0} failed | ${run.testsSkipped || 0} not run`} tone="bg-[linear-gradient(135deg,rgba(139,92,246,.12),rgba(99,102,241,.06))]" />
-            <MetricCard label="BDD Scenarios" value={run.normalizedBddTotal || run.bddTotal || 0} sub={`${run.bddFilteredOut || 0} filtered out | ${run.bddTotal || 0} backend scope | ${run.bddCovered || 0} covered | ${run.bddUncovered || 0} uncovered`} tone="bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.06))]" />
+            <MetricCard label="BDD Scenarios" value={run.normalizedBddTotal || run.bddTotal || 0} sub={`${run.bddCovered || 0}/${run.bddTotal || 0} backend covered | ${run.bddUncovered || 0} uncovered`} tone="bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.06))]" />
             <MetricCard label="AI Test Scripts" value={`${aiDetails.executed || 0}/${aiDetails.generated || 0}`} sub="accepted / generated" tone="bg-[linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,191,36,.06))]" />
             <MetricCard label="Frontend Journeys" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub={frontend.visual || 'Not detected'} tone="bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(45,212,191,.06))]" />
             <MetricCard label="Published Reports" value={reports.length} sub="artifact files available" tone="bg-[linear-gradient(135deg,rgba(236,72,153,.12),rgba(217,70,239,.06))]" />
