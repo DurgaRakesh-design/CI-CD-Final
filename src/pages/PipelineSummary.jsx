@@ -204,7 +204,7 @@ export default function PipelineSummary() {
 
           <div className="mt-6 grid gap-4 md:grid-cols-5">
             <MetricCard label="Test Cases" value={run.testsTotal || 0} sub={`${run.testsPassed || 0} passed | ${run.testsFailed || 0} failed | ${run.testsSkipped || 0} not run`} tone="bg-[linear-gradient(135deg,rgba(139,92,246,.12),rgba(99,102,241,.06))]" />
-            <MetricCard label="Scenario Coverage" value={`${run.bddCovered || 0}/${run.bddTotal || 0}`} sub={`${run.bddUncovered || 0} uncovered`} tone="bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.06))]" />
+            <MetricCard label="BDD Scenarios" value={run.normalizedBddTotal || run.bddTotal || 0} sub={`${run.bddFilteredOut || 0} filtered out | ${run.bddTotal || 0} backend scope | ${run.bddCovered || 0} covered | ${run.bddUncovered || 0} uncovered`} tone="bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.06))]" />
             <MetricCard label="AI Test Scripts" value={`${aiDetails.executed || 0}/${aiDetails.generated || 0}`} sub="accepted / generated" tone="bg-[linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,191,36,.06))]" />
             <MetricCard label="Frontend Journeys" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub={frontend.visual || 'Not detected'} tone="bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(45,212,191,.06))]" />
             <MetricCard label="Published Reports" value={reports.length} sub="artifact files available" tone="bg-[linear-gradient(135deg,rgba(236,72,153,.12),rgba(217,70,239,.06))]" />
@@ -421,7 +421,7 @@ function TestCasesTab({ rows, run, reports }) {
       <TabHeader
         title="Detailed test cases"
         eyebrow="QA workbook evidence"
-        description="Each row comes from the QA test-case report and includes scenario, steps, data, expected result, execution status, and linked script IDs when available."
+        description="Each row comes from the QA test-case report and includes linked scenario ID, test type, automation target, business steps, expected result, and execution status."
         downloads={downloads}
       />
       <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -438,18 +438,18 @@ function TestCasesTab({ rows, run, reports }) {
                 <div className="font-semibold">{row.name}</div>
                 <div className="mt-1 text-xs text-muted-foreground">{row.suite}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                  {[row.testCaseId, row.requirementId, row.scenarioId, row.type, row.priority].filter(Boolean).map((item) => (
+                  {[row.testCaseId, row.scenarioId, row.type, row.automationTarget, row.priority].filter(Boolean).map((item) => (
                     <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5">{item}</span>
                   ))}
                 </div>
               </div>
-              <Badge variant="outline" className="text-xs">{row.status}</Badge>
+              <Badge variant="outline" className="text-xs">{String(row.status || 'unknown').replace(/_/g, ' ')}</Badge>
             </div>
             {row.description ? <p className="mt-3 text-sm text-muted-foreground">{row.description}</p> : null}
             <div className="mt-3 grid gap-3 lg:grid-cols-3">
               <DetailBlock label="Preconditions" value={row.preconditions} />
               <DetailBlock label="Steps" value={row.steps} />
-              <DetailBlock label="Test data / expected result" value={[row.testData, row.expectedResult].filter(Boolean).join('\n')} />
+              <DetailBlock label="Test data / expected result" value={[row.testData, row.expectedResult, row.automationReason].filter(Boolean).join('\n')} />
             </div>
             {row.failureReason ? <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700">{row.failureReason}</div> : null}
           </div>
@@ -467,15 +467,17 @@ function BddScenariosTab({ rows, run, reports }) {
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
         title="Normalized BDD scenarios"
-        eyebrow="Requirement coverage"
-        description="Normalized BDD scenarios with requirement IDs, feature names, source files, execution status, traceability, and linked scripts."
+        eyebrow="BDD coverage"
+        description="All normalized BDD scenarios are shown here, including backend-covered scenarios and scenarios filtered out of the backend lane."
         downloads={downloads}
       />
-      <div className="mt-4 grid gap-3 sm:grid-cols-4">
-        <MetricCard label="Coverage" value={`${run.bddTotal ? Math.round(((run.bddCovered || 0) / run.bddTotal) * 100) : 0}%`} tone="bg-violet-50/70" />
+      <div className="mt-4 grid gap-3 md:grid-cols-6">
+        <MetricCard label="All scenarios" value={run.normalizedBddTotal || rows.length || 0} tone="bg-violet-50/70" />
+        <MetricCard label="Filtered out" value={run.bddFilteredOut || rows.filter((item) => item.isFilteredOut).length} tone="bg-slate-100" />
+        <MetricCard label="Backend scope" value={run.bddTotal || rows.filter((item) => !item.isFilteredOut).length} tone="bg-indigo-50/70" />
         <MetricCard label="Features" value={new Set(rows.map((item) => item.feature)).size} tone="bg-blue-50/70" />
         <MetricCard label="Covered" value={rows.filter((item) => item.status === 'covered').length} tone="bg-emerald-50/70" />
-        <MetricCard label="Uncovered" value={rows.filter((item) => item.status !== 'covered').length} tone="bg-amber-50/70" />
+        <MetricCard label="Uncovered" value={rows.filter((item) => item.status === 'uncovered').length} tone="bg-amber-50/70" />
       </div>
       <div className="mt-4 space-y-2">
         {pageRows.map((row) => (
@@ -485,7 +487,7 @@ function BddScenariosTab({ rows, run, reports }) {
                 <div className="font-semibold">{row.name}</div>
                 <div className="mt-1 text-xs text-muted-foreground">{row.feature}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                  {[row.requirementId, row.testCaseId, row.scriptId, row.executionResult || row.status].filter(Boolean).map((item) => (
+                  {[row.scenarioId, row.scenarioScope, row.automationTarget, row.executionResult || row.status].filter(Boolean).map((item) => (
                     <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5">{item}</span>
                   ))}
                 </div>
@@ -495,7 +497,7 @@ function BddScenariosTab({ rows, run, reports }) {
             <div className="mt-3 grid gap-3 lg:grid-cols-3">
               <DetailBlock label="Source BDD" value={row.sourceBddFile || row.file} />
               <DetailBlock label="Steps" value={row.steps} />
-              <DetailBlock label="Expected result / source" value={[row.expectedResult, row.coverageSource].filter(Boolean).join('\n')} />
+              <DetailBlock label="Expected result / source" value={[row.expectedResult, row.coverageSource, row.automationReason].filter(Boolean).join('\n')} />
             </div>
           </div>
         ))}

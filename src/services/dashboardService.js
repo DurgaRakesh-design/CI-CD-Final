@@ -222,8 +222,9 @@ function buildDashboardSnapshot({ workspaceState, documents, gapResults, latestR
   const testRows = liveReports.qaReport
     ? buildLiveTestRows(liveReports.qaReport)
     : buildTestRows({ documents: docList, gapResults: gapState, workspaceState: normalizedWorkspace });
-  const bddScenarios = liveReports.traceability
-    ? buildLiveTraceabilityRows(liveReports.traceability)
+  const traceabilityReport = liveReports.requirementTraceability || liveReports.traceability;
+  const bddScenarios = traceabilityReport
+    ? buildLiveTraceabilityRows(traceabilityReport, liveReports.qaReport)
     : buildBddScenarios({ documents: docList, gapResults: gapState });
   const testScripts = liveReports.qaReport || liveReports.testScriptManifest
     ? buildLiveTestScripts(liveReports)
@@ -474,7 +475,11 @@ function buildLiveWorkspace({ manifest, artifacts, reports, selectedRun, workspa
     platform: metadata.platform || 'Unknown',
     brdCount: Number(manifest?.brdCount || (manifest?.brd ? 1 : 0)),
     bddCount: Number(manifest?.bddCount || bdds.length),
-    traceabilityStatus: selectedRun?.bddTotal ? `${selectedRun.bddCovered}/${selectedRun.bddTotal} scenarios covered` : 'Waiting for report evidence',
+    traceabilityStatus: selectedRun?.normalizedBddTotal
+      ? `${selectedRun.normalizedBddTotal} total · ${selectedRun.bddFilteredOut || 0} filtered out · ${selectedRun.bddCovered || 0}/${selectedRun.bddTotal || 0} backend covered`
+      : selectedRun?.bddTotal
+        ? `${selectedRun.bddCovered}/${selectedRun.bddTotal} scenarios covered`
+        : 'Waiting for report evidence',
     gapCount: Number(gap?.openFindings || selectedRun?.openFindings || 0),
     approvalStatus: source,
     generatedAt: selectedRun?.updatedAt || selectedRun?.createdAt || manifest?.runId || 'Not available',
@@ -552,7 +557,8 @@ function buildRepoArtifact({ name, path, type, size }) {
 function hydrateRunFromLiveReports(run, reports, manifest) {
   if (!run) return null;
   const qaSummary = reports?.qaReport?.summary || {};
-  const traceSummary = reports?.traceability?.summary || {};
+  const traceabilityReport = reports?.requirementTraceability || reports?.traceability || {};
+  const traceSummary = traceabilityReport?.summary || {};
   const aiMeta = reports?.generatedTestMeta || {};
   const frontend = reports?.browserSmoke || {};
   const rowSummary = summarizeQaRows(reports?.qaReport);
@@ -563,6 +569,14 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   const bddTotal = numberFrom(traceSummary.scenarios, traceSummary.rows, traceSummary.scenarios_found, testsTotal, run.bddTotal);
   const bddCovered = numberFrom(traceSummary.covered_rows, traceSummary.covered_scenarios, qaSummary.covered_scenarios, testsPassed, run.bddCovered);
   const bddUncovered = numberFrom(traceSummary.uncovered_rows, traceSummary.uncovered_scenarios, qaSummary.uncovered_scenarios, Math.max(0, bddTotal - bddCovered), run.bddUncovered);
+  const normalizedBddTotal = numberFrom(
+    traceSummary.normalized_scenarios_total,
+    Array.isArray(traceabilityReport?.normalized_scenarios) ? traceabilityReport.normalized_scenarios.length : undefined,
+    Array.isArray(reports?.qaReport?.normalized_scenarios) ? reports.qaReport.normalized_scenarios.length : undefined,
+    bddTotal,
+    run.normalizedBddTotal
+  );
+  const bddFilteredOut = Math.max(0, normalizedBddTotal - bddTotal);
   const coverageAi = numberFrom(qaSummary.coverage_percent, bddTotal ? Math.round((bddCovered / bddTotal) * 100) : 0, run.coverageAi);
   return {
     ...run,
@@ -576,9 +590,11 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
     testsPassed,
     testsFailed,
     testsSkipped,
+    normalizedBddTotal,
     bddTotal,
     bddCovered,
     bddUncovered,
+    bddFilteredOut,
     codeCoverage: numberFrom(reports?.coverageGap?.line_coverage, run.codeCoverage),
     coverageAi,
     openFindings: bddUncovered,
@@ -676,7 +692,9 @@ function buildLiveTestRows(qaReport) {
     testCaseId: row.testCaseId,
     scriptId: row.scriptId,
     scenarioId: row.scenarioId,
-    requirementId: row.requirementId,
+    automationTarget: row.automationTarget,
+    automationReason: row.automationReason,
+    automationStatus: row.automationStatus,
     priority: row.priority,
     preconditions: row.preconditions,
     steps: row.testSteps || row.steps,
@@ -689,32 +707,66 @@ function buildLiveTestRows(qaReport) {
   }));
 }
 
-function buildLiveTraceabilityRows(traceability) {
-  const rows = Array.isArray(traceability?.rows)
-    ? traceability.rows
-    : Array.isArray(traceability?.scenario_records)
-      ? traceability.scenario_records
-      : Array.isArray(traceability?.records)
-        ? traceability.records
-        : [];
-  return rows.slice(0, 80).map((row) => ({
-    id: row.scenarioId || row.testCaseId || row.scriptId || row.scenario,
-    feature: row.feature || row.featureId || 'Feature',
-    name: row.scenario || row.name || row.scenarioId || 'Scenario',
-    status: isCoveredGap(row) || String(row.coverageStatus || '').toLowerCase() === 'covered' ? 'covered' : 'uncovered',
-    executionResult: row.executionResult || row.status || row.coverageStatus || 'Not recorded',
-    scriptType: row.scriptType || row.test_type || row.type || 'traceability',
-    testCaseId: row.testCaseId,
-    scriptId: row.scriptId,
-    file: row.file || row.sourceBddFile || row.source_feature_file,
-    requirementId: row.requirementId,
-    sourceBddFile: row.sourceBddFile || row.source_feature_file,
-    sourceBrdFile: row.sourceBrdFile,
-    steps: row.steps,
-    expectedResult: row.expectedResult || row.expected_result,
-    coverageSource: row.coverageSource || row.coverage_source,
-    linkedScripts: row.linkedScripts,
-  }));
+function buildLiveTraceabilityRows(traceability, qaReport) {
+  const normalizedRows = Array.isArray(traceability?.normalized_scenarios)
+    ? traceability.normalized_scenarios
+    : Array.isArray(qaReport?.normalized_scenarios)
+      ? qaReport.normalized_scenarios
+      : [];
+  const backendRows = Array.isArray(traceability?.scenario_records)
+    ? traceability.scenario_records
+    : Array.isArray(traceability?.records)
+      ? traceability.records
+      : [];
+  const backendByScenarioId = new Map(
+    backendRows
+      .map((row) => [String(row?.scenarioId || '').trim(), row])
+      .filter(([key]) => key)
+  );
+  const rows = normalizedRows.length ? normalizedRows : backendRows;
+  return rows.slice(0, 120).map((row) => {
+    const scenarioId = row.scenarioId || row.testCaseId || row.scriptId || row.scenario;
+    const backendRow = backendByScenarioId.get(String(scenarioId || '').trim()) || null;
+    const automationTarget = row.automationTarget || backendRow?.automationTarget || '';
+    const isBackendScoped = ['backend', 'hybrid'].includes(String(automationTarget || '').toLowerCase());
+    const isFilteredOut = normalizedRows.length ? !isBackendScoped : false;
+    return {
+      id: scenarioId,
+      scenarioId,
+      feature: row.feature || backendRow?.feature || row.featureId || 'Feature',
+      name: row.scenario || backendRow?.scenario || row.name || row.scenarioId || 'Scenario',
+      status: isFilteredOut
+        ? 'filtered_out'
+        : (isCoveredGap(backendRow || row) || String(backendRow?.coverageStatus || row.coverageStatus || '').toLowerCase() === 'covered'
+          ? 'covered'
+          : 'uncovered'),
+      scenarioScope: isFilteredOut ? 'Filtered Out' : 'Backend / Hybrid',
+      executionResult: isFilteredOut
+        ? 'Filtered Out'
+        : (backendRow?.executionStatus || row.executionResult || row.status || row.coverageStatus || 'Not recorded'),
+      automationTarget,
+      automationReason: row.automationReason || backendRow?.automationReason || '',
+      priority: row.priority || backendRow?.priority || '',
+      featureSequence: row.featureSequence,
+      scenarioSequence: row.scenarioSequence,
+      scenarioSequenceInFeature: row.scenarioSequenceInFeature,
+      scriptType: backendRow?.scriptType || row.scriptType || row.test_type || row.type || 'traceability',
+      testCaseId: backendRow?.testCaseId,
+      scriptId: backendRow?.scriptId,
+      file: backendRow?.file || row.file || row.sourceBddFile || row.source_feature_file,
+      sourceBddFile: row.sourceBddFile || backendRow?.sourceBddFile || row.source_feature_file,
+      sourceBrdFile: row.sourceBrdFile || backendRow?.sourceBrdFile,
+      steps: row.steps || backendRow?.steps,
+      expectedResult: row.expectedResult || row.expected_result || backendRow?.expectedResult || backendRow?.expected_result,
+      coverageSource: isFilteredOut
+        ? 'Removed from backend lane during normalization'
+        : (backendRow?.coverageSource || backendRow?.coverage_source || row.coverageSource || row.coverage_source),
+      linkedScripts: backendRow?.linkedScripts,
+      linkedTestCaseIds: backendRow?.linkedTestCaseIds || [],
+      linkedScriptIds: backendRow?.linkedScriptIds || [],
+      isFilteredOut,
+    };
+  });
 }
 
 function buildLiveTestScripts(reports) {
@@ -900,8 +952,10 @@ function buildKeyMetrics({ workspaceState, documents, gapResults, selectedRun, r
     const totalRuns = trustedRuns.length;
     const successCount = trustedRuns.filter((run) => run.status === 'success').length;
     const failureCount = trustedRuns.filter((run) => run.status === 'failure').length;
+    const normalizedScenarios = trustedRuns.reduce((sum, run) => sum + Number(run.normalizedBddTotal || run.bddTotal || 0), 0);
     const coveredScenarios = trustedRuns.reduce((sum, run) => sum + Number(run.bddCovered || 0), 0);
     const totalScenarios = trustedRuns.reduce((sum, run) => sum + Number(run.bddTotal || 0), 0);
+    const filteredScenarios = trustedRuns.reduce((sum, run) => sum + Number(run.bddFilteredOut || 0), 0);
     const totalTestCases = trustedRuns.reduce((sum, run) => sum + Number(run.testsTotal || 0), 0);
     const passedTestCases = trustedRuns.reduce((sum, run) => sum + Number(run.testsPassed || 0), 0);
     const notRunTestCases = trustedRuns.reduce((sum, run) => sum + Number(run.testsSkipped || 0), 0);
@@ -1327,8 +1381,9 @@ function normalizeRemoteRun(run, workspaceState) {
   const displayTitle = String(run.display_title || '').trim();
   const workflowName = String(run.name || 'Main CI').trim();
   const workspacePackage = workspaceState.package_name || workspaceState.selected_package?.name || '';
-  const projectName = cleanPackageName(workspacePackage)
-    || (/^ci pipeline$/i.test(displayTitle) ? portalConfig.repo : displayTitle)
+  const runDisplayProject = /^ci pipeline$/i.test(displayTitle) ? '' : cleanPackageName(displayTitle);
+  const projectName = runDisplayProject
+    || cleanPackageName(workspacePackage)
     || portalConfig.repo;
   return {
     id: run.id,
@@ -1352,9 +1407,11 @@ function normalizeRemoteRun(run, workspaceState) {
     testsPassed: 0,
     testsFailed: 0,
     testsSkipped: 0,
+    normalizedBddTotal: 0,
     bddTotal: 0,
     bddCovered: 0,
     bddUncovered: 0,
+    bddFilteredOut: 0,
     codeCoverage: 0,
     coverageAi: 0,
     trigger: run.event || 'GitHub',
@@ -1702,7 +1759,18 @@ function pickManifestForRun({ manifests, run, reportBundle }) {
   const reportMatch = manifests.find((manifest) => manifest.runId && qaReportText.includes(manifest.runId));
   if (reportMatch) return reportMatch;
 
-  return manifests[0];
+  const traceabilityText = JSON.stringify(reportBundle?.requirementTraceability || reportBundle?.traceability || {});
+  const traceabilityMatch = manifests.find((manifest) => {
+    const requirementRoot = String(manifest.requirementRoot || '').trim();
+    const packageName = String(manifest.packageName || '').trim();
+    return (
+      (requirementRoot && traceabilityText.includes(requirementRoot))
+      || (packageName && traceabilityText.includes(packageName))
+    );
+  });
+  if (traceabilityMatch) return traceabilityMatch;
+
+  return null;
 }
 
 function parseRepoJsonFile(file) {
@@ -1767,7 +1835,7 @@ function describeReportFile(name) {
   if (/quality-reports.*\.zip$/i.test(value)) return 'Complete GitHub Actions quality-report artifact bundle.';
   if (/qa-test-case-report\.json$/i.test(value)) return 'Test case execution and AI script acceptance evidence.';
   if (/qa-test-case-report\.xlsx$/i.test(value)) return 'Excel handoff version of the QA test report.';
-  if (/traceability|requirement-traceability/i.test(value)) return 'Requirement, BDD scenario, script, and execution traceability evidence.';
+  if (/traceability|requirement-traceability/i.test(value)) return 'BDD scenario, test case, script, and execution traceability evidence.';
   if (/coverage-gap-analysis/i.test(value)) return 'Class and method coverage gaps found after CI execution.';
   if (/code-improvement-suggestions/i.test(value)) return 'Generated quality recommendations for uncovered or weak areas.';
   if (/frontend-quality-summary/i.test(value)) return 'Phase-by-phase frontend quality summary across design, generation, traceability, and execution.';
@@ -1809,7 +1877,7 @@ function mergeRunDetails(primary, fallback) {
     ...primary,
   };
 
-  const metricKeys = ['testsTotal', 'testsPassed', 'testsFailed', 'testsSkipped', 'bddTotal', 'bddCovered', 'bddUncovered', 'codeCoverage', 'coverageAi', 'aiGenerated', 'aiAccepted', 'aiRejected'];
+  const metricKeys = ['testsTotal', 'testsPassed', 'testsFailed', 'testsSkipped', 'normalizedBddTotal', 'bddFilteredOut', 'bddTotal', 'bddCovered', 'bddUncovered', 'codeCoverage', 'coverageAi', 'aiGenerated', 'aiAccepted', 'aiRejected'];
   for (const key of metricKeys) {
     const fallbackValue = Number(fallback[key]);
     const primaryValue = Number(primary[key]);
