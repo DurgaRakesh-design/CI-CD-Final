@@ -596,9 +596,15 @@ function TestScriptsTab({ rows, reports }) {
                 `Acceptance: ${row.acceptanceStatus || 'accepted'}`,
                 `Execution: ${String(row.executionStatus || 'not_run').replace(/_/g, ' ')}`,
                 row.duration,
-                row.failureReason,
+                row.statusReason,
               ].filter(Boolean).join('\n')} />
             </div>
+            {(row.expectedResult || row.steps) ? (
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <DetailBlock label="Expected result" value={row.expectedResult} />
+                <DetailBlock label="Test steps" value={row.steps} />
+              </div>
+            ) : null}
           </div>
         ))}
       </div>

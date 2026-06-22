@@ -840,6 +840,16 @@ function buildLiveTestScripts(reports) {
   const manifestScripts = Array.isArray(reports?.testScriptManifest?.scripts) ? reports.testScriptManifest.scripts : [];
   const qaScripts = Array.isArray(reports?.qaReport?.test_scripts) ? reports.qaReport.test_scripts : [];
   const scripts = manifestScripts.length ? manifestScripts : qaScripts;
+  const qaTestCases = Array.isArray(reports?.qaReport?.trusted_test_cases)
+    ? reports.qaReport.trusted_test_cases
+    : Array.isArray(reports?.qaReport?.test_cases)
+      ? reports.qaReport.test_cases
+      : [];
+  const testCaseById = new Map(
+    qaTestCases
+      .map((row) => [String(row?.testCaseId || row?.id || '').trim(), row])
+      .filter(([key]) => key)
+  );
   const reportFiles = Array.isArray(reports?.reportFiles) ? reports.reportFiles : [];
   const reportByBaseName = new Map(
     reportFiles.map((file) => [String(file?.name || '').split('/').pop(), file])
@@ -848,6 +858,20 @@ function buildLiveTestScripts(reports) {
     const scriptArtifact = resolveLiveTestScriptArtifact(row, reportFiles, reportByBaseName);
     const acceptanceStatus = normalizeAcceptanceStatus(row.status);
     const executionStatus = normalizeScriptExecutionStatus(row.executionStatus, row.result, row.executionResult);
+    const linkedTestCase = testCaseById.get(String(row?.testCaseId || '').trim()) || null;
+    const expectedResult = row.expectedResult || row.expected_result || linkedTestCase?.expectedResult || linkedTestCase?.expected_result || '';
+    const testSteps = row.testSteps || row.steps || linkedTestCase?.testSteps || linkedTestCase?.steps || '';
+    const failureReason = row.failureReason || row.failure_reason || row.reason || '';
+    const statusReason = failureReason
+      || (acceptanceStatus === 'rejected'
+        ? 'Rejected during AI compile validation before execution.'
+        : executionStatus === 'errored'
+          ? 'Execution stopped because of a runtime or environment error.'
+          : executionStatus === 'failed'
+            ? 'Execution completed but assertions or expected runtime checks failed.'
+            : executionStatus === 'not_run'
+              ? 'Accepted script did not reach runtime execution in this workflow run.'
+              : '');
     return {
       id: row.scriptId || row.file || row.className,
       scriptId: row.scriptId,
@@ -866,7 +890,10 @@ function buildLiveTestScripts(reports) {
       executionStatus,
       result: row.result || row.executionResult || row.executionStatus || row.status,
       duration: row.duration || row.durationMs,
-      failureReason: row.failureReason || row.reason,
+      failureReason,
+      statusReason,
+      expectedResult,
+      steps: testSteps,
       downloadHref: scriptArtifact?.downloadHref || '',
       downloadName: scriptArtifact?.downloadName || scriptArtifact?.name || (String(row.file || '').split('/').pop() || ''),
       artifactName: scriptArtifact?.name || '',
