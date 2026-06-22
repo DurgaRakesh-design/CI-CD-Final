@@ -48,6 +48,19 @@ const statusTone = {
   running: 'text-blue-700 bg-blue-50 border-blue-200',
 };
 
+const scriptAcceptanceTone = {
+  accepted: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  rejected: 'text-rose-700 bg-rose-50 border-rose-200',
+};
+
+const scriptExecutionTone = {
+  passed: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  failed: 'text-amber-700 bg-amber-50 border-amber-200',
+  errored: 'text-fuchsia-700 bg-fuchsia-50 border-fuchsia-200',
+  skipped: 'text-slate-700 bg-slate-100 border-slate-200',
+  not_run: 'text-slate-700 bg-slate-100 border-slate-200',
+};
+
 function SummaryLoading() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,hsl(245_95%_97%),transparent_28rem),radial-gradient(circle_at_top_right,hsl(156_80%_96%),transparent_26rem),linear-gradient(180deg,hsl(220_20%_99%),hsl(248_70%_98%))] pb-16 pt-16 md:pt-20">
@@ -188,7 +201,7 @@ export default function PipelineSummary() {
                   </Badge>
                   <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase ${statusTone[run.status] || statusTone.running}`}>
                     <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    {run.status === 'failure' ? 'Needs Review' : run.status === 'running' ? 'Running' : 'Success'}
+                    {run.status === 'failure' ? 'Needs Review' : run.status === 'running' ? 'Running' : 'Completed'}
                   </span>
                   <Badge variant="outline" className="rounded-full text-[11px]">
                     Run #{run.runNumber} - {run.mode || 'workspace'}
@@ -214,7 +227,7 @@ export default function PipelineSummary() {
           <div className="mt-6 grid gap-4 md:grid-cols-5">
             <MetricCard label="Test Cases" value={run.testsTotal || 0} sub={`${run.testsPassed || 0} passed | ${run.testsFailed || 0} failed | ${run.testsSkipped || 0} not run`} tone="bg-[linear-gradient(135deg,rgba(139,92,246,.12),rgba(99,102,241,.06))]" />
             <MetricCard label="BDD Scenarios" value={run.normalizedBddTotal || run.bddTotal || 0} sub={`${run.bddCovered || 0}/${run.bddTotal || 0} backend covered | ${run.bddUncovered || 0} uncovered`} tone="bg-[linear-gradient(135deg,rgba(99,102,241,.12),rgba(59,130,246,.06))]" />
-            <MetricCard label="AI Test Scripts" value={`${aiDetails.executed || 0}/${aiDetails.generated || 0}`} sub="accepted / generated" tone="bg-[linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,191,36,.06))]" />
+            <MetricCard label="AI Test Scripts" value={`${aiDetails.accepted || aiDetails.executed || 0}/${aiDetails.generated || 0}`} sub="accepted / generated" tone="bg-[linear-gradient(135deg,rgba(245,158,11,.14),rgba(251,191,36,.06))]" />
             <MetricCard label="Frontend Journeys" value={`${frontend.passedJourneys || 0}/${frontend.totalJourneys || 0}`} sub={frontend.visual || 'Not detected'} tone="bg-[linear-gradient(135deg,rgba(16,185,129,.14),rgba(45,212,191,.06))]" />
             <MetricCard label="Published Reports" value={reports.length} sub="artifact files available" tone="bg-[linear-gradient(135deg,rgba(236,72,153,.12),rgba(217,70,239,.06))]" />
           </div>
@@ -523,11 +536,12 @@ function TestScriptsTab({ rows, reports }) {
     return scriptBundle ? [{ ...scriptBundle, buttonLabel: 'Download Script Bundle' }] : [];
   }, [reports]);
   const { pageRows, page, totalPages, setPage } = usePagination(rows, PAGE_SIZE);
-  const accepted = rows.filter((row) => /accepted|executed/i.test(String(row.status || ''))).length;
-  const rejected = rows.filter((row) => /reject/i.test(String(row.status || ''))).length;
-  const passed = rows.filter((row) => /pass|success/i.test(String(row.result || ''))).length;
-  const failed = rows.filter((row) => /fail/i.test(String(row.result || ''))).length;
-  const errored = rows.filter((row) => /error/i.test(String(row.result || ''))).length;
+  const accepted = rows.filter((row) => row.acceptanceStatus === 'accepted').length;
+  const rejected = rows.filter((row) => row.acceptanceStatus === 'rejected').length;
+  const passed = rows.filter((row) => row.executionStatus === 'passed').length;
+  const failed = rows.filter((row) => row.executionStatus === 'failed').length;
+  const errored = rows.filter((row) => row.executionStatus === 'errored').length;
+  const notRun = rows.filter((row) => row.acceptanceStatus === 'accepted' && (row.executionStatus === 'not_run' || row.executionStatus === 'skipped')).length;
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
@@ -536,13 +550,14 @@ function TestScriptsTab({ rows, reports }) {
         description="Script-level details from the manifest: file, Java class, method, linked scenario, status, duration, and failure reason."
         downloads={downloads}
       />
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
         <MetricCard label="Scripts" value={rows.length} tone="bg-violet-50/70" />
-        <MetricCard label="Accepted" value={accepted} sub="ready for execution" tone="bg-emerald-50/70" />
-        <MetricCard label="Rejected" value={rejected} sub="stopped before execution" tone="bg-rose-50/70" />
+        <MetricCard label="Accepted" value={accepted} sub="compile-validated" tone="bg-emerald-50/70" />
+        <MetricCard label="Rejected Before Execution" value={rejected} sub="did not pass validation" tone="bg-rose-50/70" />
         <MetricCard label="Passed" value={passed} sub="executed successfully" tone="bg-cyan-50/70" />
         <MetricCard label="Failed" value={failed} sub="assertion or status mismatch" tone="bg-amber-50/70" />
         <MetricCard label="Errored" value={errored} sub="execution/runtime issue" tone="bg-fuchsia-50/70" />
+        <MetricCard label="Accepted But Not Executed" value={notRun} sub="validated but never reached runtime" tone="bg-slate-100" />
       </div>
       <div className="mt-4 space-y-2">
         {pageRows.map((row) => (
@@ -566,13 +581,23 @@ function TestScriptsTab({ rows, reports }) {
                     </a>
                   </Button>
                 ) : null}
-                <Badge variant="outline" className="text-xs">{row.status}</Badge>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase ${scriptAcceptanceTone[row.acceptanceStatus] || scriptAcceptanceTone.accepted}`}>
+                  {row.acceptanceStatus === 'rejected' ? 'rejected before execution' : (row.acceptanceStatus || 'accepted')}
+                </span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase ${scriptExecutionTone[row.executionStatus] || scriptExecutionTone.not_run}`}>
+                  {String(row.executionStatus || 'not_run').replace(/_/g, ' ')}
+                </span>
               </div>
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-3">
               <DetailBlock label="Feature / scenario" value={[row.feature, row.scenario].filter(Boolean).join('\n')} />
               <DetailBlock label="Java method" value={[row.packageName, row.methodName, row.qualifiedName].filter(Boolean).join('\n')} />
-              <DetailBlock label="Execution" value={[row.result, row.duration, row.failureReason].filter(Boolean).join('\n')} />
+              <DetailBlock label="Execution" value={[
+                `Acceptance: ${row.acceptanceStatus || 'accepted'}`,
+                `Execution: ${String(row.executionStatus || 'not_run').replace(/_/g, ' ')}`,
+                row.duration,
+                row.failureReason,
+              ].filter(Boolean).join('\n')} />
             </div>
           </div>
         ))}

@@ -37,7 +37,7 @@ function StatusPill({ status }) {
     failure: 'bg-rose-50 text-rose-700 ring-rose-200',
     running: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
   };
-  const label = status === 'success' ? 'Success' : status === 'failure' ? 'Failed' : 'Running';
+  const label = status === 'success' ? 'Completed' : status === 'failure' ? 'Failed' : 'Running';
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ${map[status] || map.running}`}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
@@ -188,7 +188,7 @@ export default function DashboardPage() {
     ? `${heroRun.pipelineJobs.filter((job) => job.status === 'success').length}/${heroRun.pipelineJobs.length} stages completed`
     : 'Stage tracker available in the selected pipeline';
   const heroMetrics = [
-    { icon: Workflow, label: 'Run Status', value: heroRun?.status === 'failure' ? 'Failed' : heroRun?.status === 'success' ? 'Success' : 'Running' },
+    { icon: Workflow, label: 'Run Status', value: heroRun?.status === 'failure' ? 'Failed' : heroRun?.status === 'success' ? 'Completed' : 'Running' },
     { icon: FlaskConical, label: 'Test Cases', value: `${heroRun?.testsTotal || 0}` },
     { icon: TrendingUp, label: 'Scenario Coverage', value: `${heroRun?.bddCovered || 0}/${heroRun?.bddTotal || 0}` },
     { icon: Brain, label: 'AI Scripts', value: `${heroRun?.aiAccepted || 0}/${heroRun?.aiGenerated || 0}` },
@@ -409,7 +409,7 @@ export default function DashboardPage() {
                 <div className="rounded-xl bg-rose-50 p-4">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Run Status</div>
                   <div className="mt-2 font-heading text-2xl font-bold text-rose-700">
-                    {selectedRun?.status === 'failure' ? 'Failed' : selectedRun?.status === 'success' ? 'Success' : 'Running'}
+                    {selectedRun?.status === 'failure' ? 'Failed' : selectedRun?.status === 'success' ? 'Completed' : 'Running'}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{selectedRun?.workflowName || 'Main CI workflow'}</p>
                 </div>

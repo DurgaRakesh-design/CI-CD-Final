@@ -579,6 +579,7 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   const traceabilityReport = reports?.requirementTraceability || reports?.traceability || {};
   const traceSummary = traceabilityReport?.summary || {};
   const aiMeta = reports?.generatedTestMeta || {};
+  const scriptManifest = reports?.testScriptManifest?.summary || {};
   const frontend = reports?.browserSmoke || {};
   const rowSummary = summarizeQaRows(reports?.qaReport);
   const inferredProjectName = inferProjectNameFromReports(reports);
@@ -598,6 +599,9 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
   );
   const bddFilteredOut = Math.max(0, normalizedBddTotal - bddTotal);
   const coverageAi = numberFrom(qaSummary.coverage_percent, bddTotal ? Math.round((bddCovered / bddTotal) * 100) : 0, run.coverageAi);
+  const aiGenerated = numberFrom(scriptManifest.generatedScriptCandidates, qaSummary.generatedScriptCandidates, aiMeta.tests_generated_candidate_methods, qaSummary.generatedScripts);
+  const aiAccepted = numberFrom(scriptManifest.acceptedGeneratedScripts, qaSummary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests);
+  const aiRejected = numberFrom(scriptManifest.rejectedGeneratedScripts, qaSummary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests, Math.max(0, aiGenerated - aiAccepted));
   return {
     ...run,
     projectName: cleanPackageName(manifest?.packageName) || inferredProjectName || run.projectName,
@@ -622,9 +626,9 @@ function hydrateRunFromLiveReports(run, reports, manifest) {
     readinessScore: bddTotal ? clamp(Math.round((bddCovered / bddTotal) * 100), 0, 100) : run.readinessScore,
     frontendTotal: numberFrom(frontend.total_journeys),
     frontendPassed: numberFrom(frontend.passed_journeys),
-    aiGenerated: numberFrom(qaSummary.generatedScriptCandidates, aiMeta.tests_generated_candidate_methods, qaSummary.generatedScripts),
-    aiAccepted: numberFrom(qaSummary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests, qaSummary.generatedScripts),
-    aiRejected: numberFrom(qaSummary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests),
+    aiGenerated,
+    aiAccepted,
+    aiRejected,
   };
 }
 
@@ -812,6 +816,26 @@ function resolveLiveTestScriptArtifact(row, reportFiles, reportByBaseName) {
   return null;
 }
 
+function normalizeAcceptanceStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (normalized.includes('reject')) return 'rejected';
+  if (!normalized || normalized === 'not_run') return 'accepted';
+  return 'accepted';
+}
+
+function normalizeScriptExecutionStatus(...values) {
+  const normalized = values
+    .map((value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '_'))
+    .find(Boolean);
+  if (!normalized) return 'not_run';
+  if (normalized === 'pass' || normalized === 'passed' || normalized === 'success') return 'passed';
+  if (normalized === 'fail' || normalized === 'failed' || normalized === 'failure') return 'failed';
+  if (normalized === 'error' || normalized === 'errored') return 'errored';
+  if (normalized === 'skip' || normalized === 'skipped') return 'skipped';
+  if (normalized === 'not_run' || normalized === 'notrun' || normalized === 'pending') return 'not_run';
+  return 'not_run';
+}
+
 function buildLiveTestScripts(reports) {
   const manifestScripts = Array.isArray(reports?.testScriptManifest?.scripts) ? reports.testScriptManifest.scripts : [];
   const qaScripts = Array.isArray(reports?.qaReport?.test_scripts) ? reports.qaReport.test_scripts : [];
@@ -822,6 +846,8 @@ function buildLiveTestScripts(reports) {
   );
   return scripts.slice(0, 120).map((row) => {
     const scriptArtifact = resolveLiveTestScriptArtifact(row, reportFiles, reportByBaseName);
+    const acceptanceStatus = normalizeAcceptanceStatus(row.status);
+    const executionStatus = normalizeScriptExecutionStatus(row.executionStatus, row.result, row.executionResult);
     return {
       id: row.scriptId || row.file || row.className,
       scriptId: row.scriptId,
@@ -836,7 +862,9 @@ function buildLiveTestScripts(reports) {
       qualifiedName: row.qualifiedName,
       scriptType: row.scriptType || row.testType,
       status: String(row.status || row.result || row.executionStatus || 'not_run').toLowerCase().replace(/\s+/g, '_'),
-      result: row.result || row.executionResult || row.status,
+      acceptanceStatus,
+      executionStatus,
+      result: row.result || row.executionResult || row.executionStatus || row.status,
       duration: row.duration || row.durationMs,
       failureReason: row.failureReason || row.reason,
       downloadHref: scriptArtifact?.downloadHref || '',
@@ -867,14 +895,15 @@ function buildLiveAiDetails(reports) {
   const scriptManifest = reports?.testScriptManifest?.summary || {};
   const progress = reports?.progressStatus || {};
   const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
-  const generated = numberFrom(summary.generatedScriptCandidates, aiMeta.tests_generated_candidate_methods, scriptManifest.generatedScriptCandidates, summary.generatedScripts, progress.details?.generatedScripts);
-  const executed = numberFrom(summary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests, scriptManifest.acceptedGeneratedScripts, summary.automationReadyTestCases);
-  const rejected = numberFrom(summary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests, scriptManifest.rejectedGeneratedScripts, summary.automationRejectedTestCases, Math.max(0, generated - executed));
+  const generated = numberFrom(scriptManifest.generatedScriptCandidates, summary.generatedScriptCandidates, aiMeta.tests_generated_candidate_methods, summary.generatedScripts, progress.details?.generatedScripts);
+  const accepted = numberFrom(scriptManifest.acceptedGeneratedScripts, summary.acceptedGeneratedScripts, aiMeta.accepted_ai_tests, summary.automationReadyTestCases);
+  const rejected = numberFrom(scriptManifest.rejectedGeneratedScripts, summary.rejectedGeneratedScripts, aiMeta.rejected_ai_tests, summary.automationRejectedTestCases, Math.max(0, generated - accepted));
   return {
     generated,
-    executed,
+    accepted,
+    executed: accepted,
     rejected,
-    accuracy: generated ? Math.round((executed / generated) * 100) : 0,
+    accuracy: generated ? Math.round((accepted / generated) * 100) : 0,
     progress: progress.status ? `${progress.phase || 'AI generation'} ${progress.status}` : 'No progress status artifact found',
     generationMode: aiMeta.generation_mode || reports?.generatedTestTraceability?.summary?.generation_mode || reports?.codeSuggestions?.generation_mode || 'artifact-driven',
     fallbackReason: reports?.codeSuggestions?.fallback_reason || '',
@@ -1019,14 +1048,14 @@ function buildKeyMetrics({ workspaceState, documents, gapResults, selectedRun, r
         icon: 'flask',
         label: 'Pipeline Runs',
         value: String(totalRuns),
-        sub: `${successCount} successful · ${failureCount} failed`,
+        sub: `${successCount} completed · ${failureCount} failed`,
         tone: 'violet',
       },
       {
         icon: 'trend',
-        label: 'Successful Runs',
+        label: 'Completed Runs',
         value: `${successCount}/${totalRuns || 1}`,
-        sub: `${totalRuns ? Math.round((successCount / totalRuns) * 100) : 0}% success rate`,
+        sub: `${totalRuns ? Math.round((successCount / totalRuns) * 100) : 0}% completion rate`,
         tone: 'emerald',
       },
       {
