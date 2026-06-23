@@ -47,20 +47,20 @@ export default function AiJobTimeline({
   const stageNarrative = buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage });
 
   return (
-    <div className="mx-auto mt-2 w-full max-w-8xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
+    <div className="mx-auto mt-2 w-full max-w-7xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
       <div className="bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.22),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(135deg,rgba(248,245,255,0.98),rgba(240,253,255,0.94))] p-6">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <div className="space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col items-start gap-3 text-left">
             <div className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
               <Sparkles className="h-3.5 w-3.5" />
               Live AI Journey
             </div>
             <div>
               <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
-              <p className="mx-auto mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
             </div>
           </div>
-          <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
+          <div className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
             {status?.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : status?.status === 'failed' ? <AlertTriangle className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
             {formatToken(status?.status || 'queued')}
           </div>
@@ -172,7 +172,7 @@ export default function AiJobTimeline({
           </div>
         </div>
         {latestInteraction && (
-          <div className="mb-4 rounded-[26px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
+          <div className="rounded-[26px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 text-white shadow-md">
@@ -183,7 +183,7 @@ export default function AiJobTimeline({
                   <p className="mt-1 text-sm leading-6 text-slate-700">{latestInteraction.message}</p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 shrink-0">
                 <span className="rounded-full border border-violet-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700">
                   {getStageMeta(latestInteraction.stage).label}
                 </span>
@@ -192,47 +192,8 @@ export default function AiJobTimeline({
                 </span>
               </div>
             </div>
-            <div className="mt-4 rounded-[22px] border border-white/80 bg-white/75 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600">AI interpretation</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">
-                {stageNarrative}
-              </p>
-            </div>
           </div>
         )}
-        <div className="grid gap-3 lg:grid-cols-2">
-          {recentLogs.length > 0 ? recentLogs.map((entry, index) => (
-            <motion.div
-              key={`${entry.at || 'log'}-${index}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut', delay: index * 0.03 }}
-              className={`rounded-2xl border p-4 ${logTone[entry.level] || logTone.info}`}
-            >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-slate-900/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">
-                      {getStageMeta(entry.stage).label}
-                    </span>
-                    <span className="text-[11px] font-medium uppercase tracking-[0.18em] opacity-70">
-                      {formatToken(entry.level || 'info')}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6">{entry.message}</p>
-                  {entry.meta && Object.keys(entry.meta).length > 0 && (
-                    <p className="mt-2 text-xs opacity-70">{formatMeta(entry.meta)}</p>
-                  )}
-                </div>
-                <span className="shrink-0 text-[11px] font-medium opacity-70">{formatTime(entry.at)}</span>
-              </div>
-            </motion.div>
-          )) : (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 lg:col-span-2">
-              Waiting for the first detailed event from the background job.
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
