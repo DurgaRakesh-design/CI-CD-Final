@@ -47,7 +47,7 @@ export default function AiJobTimeline({
   const stageNarrative = buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage });
 
   return (
-    <div className="mx-auto mt-2 w-full max-w-6xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
+    <div className="mx-auto mt-2 w-full max-w-8xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
       <div className="bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.22),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(135deg,rgba(248,245,255,0.98),rgba(240,253,255,0.94))] p-6">
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="space-y-3">
