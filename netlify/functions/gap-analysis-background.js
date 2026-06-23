@@ -446,7 +446,7 @@ async function buildGapAssessmentReport(context, plan) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["title", "severity", "relatedDocumentId", "relatedDocument", "documentType", "evidence", "explanation", "recommendation"],
+              required: ["riskId", "title", "severity", "relatedDocumentId", "relatedDocument", "documentType", "evidence", "explanation", "recommendation"],
               properties: {
                 riskId: { type: "string" },
                 title: { type: "string" },
@@ -1347,7 +1347,7 @@ function traceabilityAuditResponseSchema() {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["title", "severity", "relatedDocumentId", "relatedDocument", "documentType", "evidence", "explanation", "recommendation"],
+            required: ["riskId", "title", "severity", "relatedDocumentId", "relatedDocument", "documentType", "evidence", "explanation", "recommendation"],
             properties: {
               riskId: { type: "string" },
               title: { type: "string" },
