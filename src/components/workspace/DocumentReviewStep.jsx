@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Code2, ArrowRight, ArrowLeft, Edit3, CheckCircle2, Download, Save, Loader2, AlertTriangle, RefreshCw, TriangleAlert, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   const [regenLoading, setRegenLoading] = useState(false);
   const [docPage, setDocPage] = useState(1);
   const [gapPage, setGapPage] = useState(1);
+  const activeGenerationRef = useRef({ signature: '', status: 'idle' });
 
   useEffect(() => {
     let cancelled = false;
@@ -35,9 +36,27 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         documents.every((doc) => (doc.source_signature || '') === signature);
 
       if (docsMatchSignature) {
+        activeGenerationRef.current = { signature, status: 'completed' };
         setSelectedId(prev => prev || documents[0].id);
         return;
       }
+      if (!workspaceData.requirement_source) return;
+      if (
+        activeGenerationRef.current.signature === signature &&
+        activeGenerationRef.current.status === 'running'
+      ) {
+        return;
+      }
+      if (
+        workspaceData.requirement_source === 'ai_generated' &&
+        !workspaceData.package_file &&
+        !workspaceData.package_signals?.projectName &&
+        !workspaceData.package_signals?.fileName
+      ) {
+        setError('Package context is missing for AI generation. Please go back, reselect the package, and try again.');
+        return;
+      }
+      activeGenerationRef.current = { signature, status: 'running' };
       setLoading(true);
       setError('');
       try {
@@ -57,10 +76,12 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             ...doc,
             source_signature: signature,
           }));
+          activeGenerationRef.current = { signature, status: 'completed' };
           setDocuments(stampedDocs);
           setSelectedId(stampedDocs[0]?.id || '');
         }
       } catch (err) {
+        activeGenerationRef.current = { signature, status: 'failed' };
         if (!cancelled) setError(err.message || 'Could not prepare documents.');
       } finally {
         if (!cancelled) setLoading(false);
@@ -70,7 +91,15 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
     return () => {
       cancelled = true;
     };
-  }, [documents, gapResults, setDocuments, workspaceData]);
+  }, [
+    documents,
+    gapResults,
+    setDocuments,
+    workspaceData.package_file,
+    workspaceData.package_signals,
+    workspaceData.requirement_signature,
+    workspaceData.requirement_source,
+  ]);
 
   const gapModel = useMemo(() => buildGapModel(gapResults, documents), [gapResults, documents]);
   const selectedUnlinkedGaps = selectedId === 'unlinked-gaps';

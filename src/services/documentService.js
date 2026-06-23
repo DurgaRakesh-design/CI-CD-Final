@@ -1,6 +1,6 @@
 import { safeFileName } from './encoding';
 
-const PACKAGE_CHUNK_BYTES = 1600 * 1024;
+const PACKAGE_CHUNK_BYTES = 2 * 1024 * 1024;
 const PACKAGE_UPLOAD_CONCURRENCY = 3;
 const inFlightRequirementSuites = new Map();
 
@@ -52,6 +52,15 @@ async function generateRequirementSuiteRequest({
   jobTimeoutMs = 900000,
   onStatusUpdate = null,
 }) {
+  if (
+    generationMode === 'initial' &&
+    !packageFile &&
+    !uploadedRequirements?.length &&
+    !packageSignals?.projectName &&
+    !packageSignals?.fileName
+  ) {
+    throw new Error('Document generation is missing package or requirement inputs. Please reselect the package and try again.');
+  }
   const jobId = createJobId();
   const packageUpload = packageFile && generationMode === 'initial'
     ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
@@ -75,36 +84,46 @@ async function generateRequirementSuiteRequest({
 }
 
 function buildGenerationRequestKey({ packageSignals, packageFile, uploadedRequirements, gapResults, generationMode, targetDocument, targetGap }) {
-  if (generationMode !== 'initial' || !packageFile) return '';
   return JSON.stringify({
     mode: generationMode,
     fileName: packageFile.name || packageSignals?.fileName || '',
     fileSize: packageFile.size || 0,
     fileModified: packageFile.lastModified || 0,
     projectName: packageSignals?.projectName || '',
+    platform: packageSignals?.platform || '',
+    buildTool: packageSignals?.buildTool || '',
+    uploadedRequirementNames: Array.isArray(uploadedRequirements)
+      ? uploadedRequirements.map((file) => `${file?.name || ''}:${file?.size || 0}`)
+      : [],
     uploadedRequirementCount: uploadedRequirements?.length || 0,
-    hasGapResults: Boolean(gapResults),
+    gapFindingCount: Array.isArray(gapResults?.findings) ? gapResults.findings.length : 0,
     targetDocumentId: targetDocument?.id || '',
     targetGapId: targetGap?.id || '',
   });
 }
 
 async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate }) {
-  const uploadId = `${jobId}-${Date.now()}`;
   const name = safeFileName(packageFile.name || packageSignals?.fileName || 'source-package.zip');
   const type = packageFile.type || 'application/zip';
   const fileSize = packageFile.size || 0;
   const total = Math.max(1, Math.ceil(fileSize / PACKAGE_CHUNK_BYTES));
   let uploadedCount = 0;
+  const uploadId = await initializePackageUpload({ jobId, name, type, fileSize, chunkCount: total });
 
   await runConcurrentUploads(total, PACKAGE_UPLOAD_CONCURRENCY, async (index) => {
     const start = index * PACKAGE_CHUNK_BYTES;
     const end = Math.min(start + PACKAGE_CHUNK_BYTES, fileSize);
-    const contentBase64 = await readFileSliceAsBase64(packageFile, start, end);
-    const response = await fetch('/.netlify/functions/ai-package-upload', {
+    const chunk = packageFile.slice(start, end);
+    const params = new URLSearchParams({
+      action: 'chunk',
+      uploadId,
+      index: String(index),
+      total: String(total),
+    });
+    const response = await fetch(`/.netlify/functions/ai-package-upload?${params.toString()}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'chunk', uploadId, name, type, size: fileSize, index, total, contentBase64 }),
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: chunk,
     });
     if (!response.ok) {
       const payload = await readJsonResponse(response, 'Package upload');
@@ -122,7 +141,7 @@ async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatus
   const response = await fetch('/.netlify/functions/ai-package-upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'complete', uploadId, name, type, size: fileSize, chunkCount: total }),
+    body: JSON.stringify({ action: 'complete', uploadId, chunkCount: total }),
   });
   if (!response.ok) {
     const payload = await readJsonResponse(response, 'Package upload');
@@ -138,14 +157,26 @@ async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatus
   };
 }
 
-async function readFileSliceAsBase64(file, start, end) {
-  const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
-  let binary = '';
-  const step = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += step) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + step));
+async function initializePackageUpload({ jobId, name, type, fileSize, chunkCount }) {
+  const response = await fetch('/.netlify/functions/ai-package-upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'init',
+      uploadId: `${jobId}-${Date.now()}`,
+      name,
+      type,
+      size: fileSize,
+      chunkCount,
+    }),
+  });
+  if (!response.ok) {
+    const payload = await readJsonResponse(response, 'Package upload');
+    throw new Error(payload?.message || 'Package upload failed.');
   }
-  return btoa(binary);
+  const payload = await readJsonResponse(response, 'Package upload');
+  if (!payload?.uploadId) throw new Error('Package upload initialization did not return an upload id.');
+  return payload.uploadId;
 }
 
 async function runConcurrentUploads(total, concurrency, worker) {

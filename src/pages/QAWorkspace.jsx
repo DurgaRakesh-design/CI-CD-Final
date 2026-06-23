@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import WorkflowStepper from '../components/workspace/WorkflowStepper';
 import PackageSourceStep from '../components/workspace/PackageSourceStep';
@@ -16,16 +16,26 @@ export default function QAWorkspace() {
   const [gapResults, setGapResults] = useState(persisted.gapResults);
   const [documents, setDocuments] = useState(persisted.documents);
 
-  const updateData = (data) => {
-    setWorkspaceData(prev => ({ ...prev, ...data }));
-  };
+  const updateData = useCallback((data) => {
+    setWorkspaceData((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.entries(data || {}).forEach(([key, value]) => {
+        if (!Object.is(prev[key], value)) {
+          next[key] = value;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, []);
 
-  const clearDownstream = () => {
+  const clearDownstream = useCallback(() => {
     setDocuments([]);
     setGapResults(null);
-  };
+  }, []);
 
-  const resetWorkspace = () => {
+  const resetWorkspace = useCallback(() => {
     const next = {
       name: 'New VerSpace Session',
       status: 'draft',
@@ -39,10 +49,10 @@ export default function QAWorkspace() {
     } catch (_) {
       // ignore
     }
-  };
+  }, []);
 
-  const internalGoNext = () => setInternalStep(prev => prev + 1);
-  const internalGoBack = () => setInternalStep(prev => Math.max(prev - 1, 0));
+  const internalGoNext = useCallback(() => setInternalStep(prev => prev + 1), []);
+  const internalGoBack = useCallback(() => setInternalStep(prev => Math.max(prev - 1, 0)), []);
 
   useEffect(() => {
     try {
