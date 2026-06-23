@@ -407,40 +407,69 @@ async function callOpenAIFileTool({
 }
 
 async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs, pollIntervalMs }) {
-  const createPayload = await postOpenAIResponse({
-    apiKey,
-    timeoutMs,
-    body: {
-      model,
-      background: true,
-      previous_response_id: previousResponseId,
-      input: [
-        {
-          role: "user",
-          content:
-            "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
-        },
-      ],
-      temperature: 0,
-      max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
-      text: {
-        format: {
-          type: "json_schema",
-          name: responseSchema.name,
-          schema: responseSchema.schema,
-          strict: true,
+  const attempts = [
+    {
+      label: "finalization",
+      body: {
+        model,
+        background: true,
+        previous_response_id: previousResponseId,
+        input:
+          "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
+        temperature: 0,
+        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+        tools: [],
+        text: {
+          format: {
+            type: "json_schema",
+            name: responseSchema.name,
+            schema: responseSchema.schema,
+            strict: true,
+          },
         },
       },
     },
-    timeoutLabel: "finalization",
-  });
-  const payload = await waitForOpenAIResponse({
-    apiKey,
-    initialPayload: createPayload,
-    timeoutMs,
-    pollIntervalMs,
-  });
-  return extractResponseText(payload);
+    {
+      label: "finalization-fallback",
+      body: {
+        model,
+        background: false,
+        previous_response_id: previousResponseId,
+        instructions:
+          "Return the final structured JSON using the already completed analysis from the previous response. Do not call tools again. Do not add prose or markdown.",
+        input: "Return only the final JSON payload now.",
+        temperature: 0,
+        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+        tools: [],
+        text: {
+          format: {
+            type: "json_schema",
+            name: responseSchema.name,
+            schema: responseSchema.schema,
+            strict: true,
+          },
+        },
+      },
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const createPayload = await postOpenAIResponse({
+      apiKey,
+      timeoutMs,
+      body: attempt.body,
+      timeoutLabel: attempt.label,
+    });
+    const payload = await waitForOpenAIResponse({
+      apiKey,
+      initialPayload: createPayload,
+      timeoutMs,
+      pollIntervalMs,
+    });
+    const extracted = extractResponseText(payload);
+    if (String(extracted || "").trim()) return extracted;
+  }
+  return "";
 }
 
 async function postOpenAIResponse({ apiKey, body, timeoutMs, timeoutLabel }) {
@@ -568,9 +597,24 @@ function extractResponseText(payload) {
   if (payload?.output_text) return payload.output_text;
   const chunks = [];
   for (const item of payload?.output || []) {
+    if (typeof item?.text === "string" && item.text.trim()) chunks.push(item.text);
+    if (typeof item?.result === "string" && item.result.trim()) chunks.push(item.result);
+    if (Array.isArray(item?.summary)) {
+      for (const summaryItem of item.summary) {
+        if (typeof summaryItem === "string" && summaryItem.trim()) chunks.push(summaryItem);
+        else if (summaryItem?.text) chunks.push(summaryItem.text);
+        else if (summaryItem?.content) chunks.push(summaryItem.content);
+      }
+    }
     for (const content of item?.content || []) {
       if (content?.type === "output_text" && content?.text) chunks.push(content.text);
       if (content?.type === "text" && content?.text) chunks.push(content.text);
+      if (typeof content === "string" && content.trim()) chunks.push(content);
+    }
+    for (const output of item?.outputs || []) {
+      if (output?.type === "output_text" && output?.text) chunks.push(output.text);
+      if (output?.type === "text" && output?.text) chunks.push(output.text);
+      if (typeof output === "string" && output.trim()) chunks.push(output);
     }
   }
   return chunks.join("\n").trim();
