@@ -110,24 +110,26 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl mx-auto space-y-6 pb-24">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-        <div>
-          <h2 className="font-heading font-bold text-2xl">Gap Analysis</h2>
-          <p className="text-muted-foreground mt-2">Compare source-code evidence with reviewed BRD and BDD documents</p>
-        </div>
-        {result && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => downloadGapAnalysis(result, workspaceData)} className="rounded-xl h-10 px-4" disabled={!canDownload}>
-              <Download className="w-4 h-4 mr-2" />
-              Download Report
-            </Button>
-            <Button variant="outline" onClick={runAnalysis} disabled={running} className="rounded-xl h-10 px-4">
-              <RefreshCw className={`w-4 h-4 mr-2 ${running ? 'animate-spin' : ''}`} />
-              Re-run Analysis
-            </Button>
+      {!(running && !result) && (
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+          <div>
+            <h2 className="font-heading font-bold text-2xl">Gap Analysis</h2>
+            <p className="text-muted-foreground mt-2">Compare source-code evidence with reviewed BRD and BDD documents</p>
           </div>
-        )}
-      </div>
+          {result && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" onClick={() => downloadGapAnalysis(result, workspaceData)} className="rounded-xl h-10 px-4" disabled={!canDownload}>
+                <Download className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
+              <Button variant="outline" onClick={runAnalysis} disabled={running} className="rounded-xl h-10 px-4">
+                <RefreshCw className={`w-4 h-4 mr-2 ${running ? 'animate-spin' : ''}`} />
+                Re-run Analysis
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {!result && (
         <div className="text-center py-8">
@@ -150,7 +152,7 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-6xl py-2">
+            <div className="mx-auto max-w-6xl py-4">
               {jobStatus && (
                 <AiJobTimeline
                   status={jobStatus}

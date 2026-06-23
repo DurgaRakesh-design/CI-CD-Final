@@ -44,6 +44,7 @@ export default function AiJobTimeline({
     [logs, stageKey, status?.status],
   );
   const spotlightIcon = currentStageMeta.icon;
+  const stageNarrative = buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage });
 
   return (
     <div className="mx-auto mt-2 w-full max-w-6xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
@@ -56,7 +57,7 @@ export default function AiJobTimeline({
             </div>
             <div>
               <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+              <p className="mx-auto mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
             </div>
           </div>
           <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
@@ -65,7 +66,7 @@ export default function AiJobTimeline({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.85fr)_minmax(280px,0.72fr)]">
+        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.88fr)]">
           <AnimatePresence mode="wait">
             <motion.div
               key={`${stageKey}-${status?.status || 'running'}`}
@@ -81,7 +82,7 @@ export default function AiJobTimeline({
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex items-start gap-4">
                     <AnimatedAiOrb accent={currentStageMeta.accent} icon={spotlightIcon} running={status?.status === 'running'} />
-                    <div>
+                    <div className="max-w-xl">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Active Stage</p>
                       <h4 className="mt-1 text-2xl font-semibold text-slate-950">{currentStageMeta.label}</h4>
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">{currentMessage}</p>
@@ -159,13 +160,6 @@ export default function AiJobTimeline({
               <SnapshotStat label="Stage" value={currentStageMeta.label} />
               <SnapshotStat label="Updated" value={formatTime(status?.updatedAt)} />
             </div>
-
-            <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Live interpretation</p>
-              <p className="mt-2 text-sm leading-6 text-slate-200">
-                {buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage })}
-              </p>
-            </div>
           </div>
         </div>
       </div>
@@ -174,7 +168,7 @@ export default function AiJobTimeline({
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Live interaction</p>
-            <p className="text-xs text-slate-500">The latest background messages are surfaced here as the AI interacts with your package and workspace state.</p>
+            <p className="text-xs text-slate-500">The latest background messages and the current AI interpretation are surfaced here as the job works through your package.</p>
           </div>
         </div>
         {latestInteraction && (
@@ -197,6 +191,12 @@ export default function AiJobTimeline({
                   {formatTime(latestInteraction.at)}
                 </span>
               </div>
+            </div>
+            <div className="mt-4 rounded-[22px] border border-white/80 bg-white/75 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-violet-600">AI interpretation</p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {stageNarrative}
+              </p>
             </div>
           </div>
         )}
