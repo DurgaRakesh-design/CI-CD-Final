@@ -671,9 +671,11 @@ function FrontendTab({ frontend, reports }) {
     return journeys;
   }, [frontend.journeys, journeyFilter]);
   const mergedCases = useMemo(() => mergeFrontendCases(frontend), [frontend]);
+  const generatedCaseCount = mergedCases.filter((item) => item.generationStatus === 'generated').length;
+  const rejectedCaseCount = mergedCases.filter((item) => item.generationStatus === 'rejected').length;
   const filteredCases = useMemo(() => {
-    if (caseFilter === 'generated') return mergedCases.filter((item) => item.linkedJourneys.length > 0);
-    if (caseFilter === 'missing') return mergedCases.filter((item) => item.linkedJourneys.length === 0);
+    if (caseFilter === 'generated') return mergedCases.filter((item) => item.generationStatus === 'generated');
+    if (caseFilter === 'missing') return mergedCases.filter((item) => item.generationStatus !== 'generated');
     return mergedCases;
   }, [caseFilter, mergedCases]);
   const { pageRows: pagedJourneys, page: journeyPage, totalPages: journeyPages, setPage: setJourneyPage } = usePagination(filteredJourneys, 4);
@@ -688,7 +690,7 @@ function FrontendTab({ frontend, reports }) {
     {
       label: 'Journeys generated',
       value: frontend.journeySummary?.suggested_journeys ?? frontend.suggestedJourneys?.length ?? 0,
-      sub: `${mergedCases.filter((item) => item.linkedJourneys.length > 0).length} cases linked to a journey`,
+      sub: `${generatedCaseCount} cases generated${rejectedCaseCount ? ` · ${rejectedCaseCount} rejected` : ''}`,
       tone: 'bg-[linear-gradient(135deg,rgba(168,85,247,.12),rgba(217,70,239,.06))]',
     },
     {
@@ -1199,10 +1201,15 @@ function mergeFrontendCases(frontend) {
     const trace = traceabilityById.get(id.toLowerCase()) || traceabilityByTitle.get(String(title).trim().toLowerCase()) || null;
     const linkedJourneys = Array.isArray(trace?.linked_journey_names)
       ? trace.linked_journey_names.filter(Boolean)
-      : [];
-    const status = linkedJourneys.length
-      ? 'covered'
-      : String(trace?.coverage_status || trace?.status || 'missing').toLowerCase();
+      : trace?.primary_journey_name
+        ? [trace.primary_journey_name].filter(Boolean)
+        : [];
+    const generationStatus = String(
+      trace?.journey_generation_status
+      || trace?.status
+      || (linkedJourneys.length ? 'generated' : 'not-generated')
+    ).toLowerCase();
+    const executionStatus = String(trace?.execution_status || '').toLowerCase();
     const linkedBddScenario = Array.isArray(item?.linked_bdd_scenarios) && item.linked_bdd_scenarios.length
       ? item.linked_bdd_scenarios.join('\n')
       : item?.bdd_scenario
@@ -1210,7 +1217,9 @@ function mergeFrontendCases(frontend) {
         || item?.scenario_title
         || item?.scenario_name
         || 'Not recorded';
-    const reason = trace?.reason
+    const reason = trace?.journey_generation_reason
+      || trace?.reason
+      || trace?.execution_reason
       || trace?.notes
       || item?.notes
       || (linkedJourneys.length ? 'Journey generated for this test case.' : 'Not generated');
@@ -1230,11 +1239,27 @@ function mergeFrontendCases(frontend) {
           : item?.expectedResult
             ? (Array.isArray(item.expectedResult) ? item.expectedResult : [item.expectedResult])
             : [];
+    const status = generationStatus === 'generated'
+      ? (executionStatus || 'generated')
+      : generationStatus;
+    const statusLabelMap = {
+      generated: 'Journey generated',
+      rejected: 'Journey rejected',
+      'not-generated': 'Not generated',
+      'not-applicable': 'Not applicable',
+      passed: 'Journey passed',
+      failed: 'Journey failed',
+      errored: 'Journey errored',
+      skipped: 'Journey skipped',
+      not_run: 'Journey not run',
+    };
     const frontendDetails = [
       linkedBddScenario && linkedBddScenario !== 'Not recorded' ? { label: 'Linked BDD scenario', value: linkedBddScenario } : null,
       { label: 'Linked journey', value: linkedJourneys.length ? linkedJourneys : ['Not generated'] },
       steps.length ? { label: 'Steps', value: steps } : null,
       expectedOutcome.length ? { label: 'Expected outcome', value: expectedOutcome } : null,
+      executionStatus ? { label: 'Execution status', value: statusLabelMap[executionStatus] || executionStatus } : null,
+      trace?.execution_reason ? { label: 'Execution reason', value: trace.execution_reason } : null,
       reason ? { label: 'Reason / notes', value: reason } : null,
     ].filter(Boolean);
 
@@ -1250,7 +1275,9 @@ function mergeFrontendCases(frontend) {
       linkedBddScenario,
       linkedJourneys,
       status,
-      statusLabel: linkedJourneys.length ? 'Journey generated' : 'Not generated',
+      generationStatus,
+      executionStatus,
+      statusLabel: statusLabelMap[status] || statusLabelMap[generationStatus] || 'Not generated',
       reason,
       steps,
       expectedOutcome,
@@ -1284,6 +1311,9 @@ function frontendScopeTone(value) {
 
 function frontendCoverageTone(value) {
   const normalized = String(value || '').toLowerCase();
+  if (['generated', 'passed'].includes(normalized)) return 'bg-emerald-50 text-emerald-700';
+  if (['failed', 'errored', 'rejected'].includes(normalized)) return 'bg-rose-50 text-rose-700';
+  if (['not-generated', 'not_run', 'not-applicable', 'skipped'].includes(normalized)) return 'bg-amber-50 text-amber-700';
   if (normalized === 'covered') return 'bg-emerald-50 text-emerald-700';
   if (normalized.includes('without') || normalized.includes('missing') || normalized.includes('unmapped')) return 'bg-rose-50 text-rose-700';
   return 'bg-amber-50 text-amber-700';

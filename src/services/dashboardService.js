@@ -980,6 +980,10 @@ function buildLiveFrontend(reports) {
   const journeys = Array.isArray(smoke.journeys) ? smoke.journeys : [];
   const designCases = Array.isArray(testDesign.frontend_test_cases) ? testDesign.frontend_test_cases : [];
   const traceabilityRecords = Array.isArray(traceability.records) ? traceability.records : [];
+  const caseLifecycle = Array.isArray(qualitySummary.test_case_lifecycle)
+    ? qualitySummary.test_case_lifecycle
+    : [];
+  const caseLifecycleSummary = qualitySummary.test_case_lifecycle_summary || {};
   const suggestedJourneys = Array.isArray(journeySuggestions.journeys) ? journeySuggestions.journeys : [];
   const screenshotGallery = journeys.flatMap((journey) => {
     const stepShots = Array.isArray(journey.steps)
@@ -1039,13 +1043,15 @@ function buildLiveFrontend(reports) {
     journeySummary: journeySuggestions.summary || qualitySummary.journey_generation_summary || {},
     traceabilitySummary: traceability.summary || qualitySummary.traceability_summary || {},
     executionSummary: qualitySummary.execution_summary || smoke || {},
+    caseLifecycle,
+    caseLifecycleSummary,
     journeys: journeys.map((journey) => ({
       ...journey,
       linkedTestCaseIds: Array.isArray(journey.frontend_test_case_ids) ? journey.frontend_test_case_ids : [],
       screenshots: screenshotGallery.filter((item) => item.journeyName === (journey.name || 'Journey')),
     })),
     designCases,
-    traceabilityRecords,
+    traceabilityRecords: caseLifecycle.length ? caseLifecycle : traceabilityRecords,
     suggestedJourneys,
     screenshotGallery,
     frontendArtifactFiles: reportFiles.filter((file) => /^frontend\//i.test(String(file?.name || ''))),
