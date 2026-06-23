@@ -170,11 +170,14 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
         "Automation/test audit rule: do not create a high-severity finding merely because the uploaded source repository has no automated tests or no BDD files. In this product flow, generated/uploaded BDD documents may intentionally live outside the source ZIP and are valid requirements artifacts. Only create an automation/test finding when reviewed documents explicitly claim executable automation, CI test coverage, or implemented BDD tests that the source/package evidence does not support. Otherwise report source test absence as a quality note or low-priority recommendation, not as a blocking BRD/BDD traceability gap.",
         "If the BRD or BDD already documents an open risk, limitation, or known caveat, put it in documentedOpenRisks instead of findings unless the source code contradicts the document or required traceability is missing.",
         "Missing BDD ownership rule: if a source capability is covered in the BRD but no specific BDD feature/scenario covers it, set gapType='missing_bdd', linkStatus='unlinked', relatedDocumentId='', relatedDocument='', and actionType='create_bdd'. Do not attach the finding only to the BRD just because the BRD mentions the capability.",
+        "If a BDD document exists but its scenarios are too generic, incomplete, or weakly mapped, do not mark the capability as missing_bdd. Keep the existing BDD linked and classify it as partial coverage or weak_traceability with a precise explanation.",
         "Strict ownership rule: only set linkStatus='linked' when an existing reviewed document is the precise owner to update now. Use the exact document id/title from documentCatalog. If ownership is uncertain, set linkStatus='ambiguous'. If a new BDD is needed, set linkStatus='unlinked'. Never guess-link a gap to a document by module similarity alone.",
         "missing_brd rule: only use gapType='missing_brd' when the reviewed BRD genuinely lacks the capability or acceptance coverage. Do not use missing_brd when the capability exists in code and the BRD already describes it.",
         "missing_in_code rule: when BRD or BDD clearly documents a capability but the source package does not support it, use gapType='missing_in_code' or unsupported_document_claim rather than missing_brd/missing_bdd.",
         "Multi-document rule: when a finding affects multiple existing documents, include all specific document titles/sections in documentEvidence and evidenceAnchors. relatedDocument should name the most actionable owner only; avoid generic BRD-only ownership for BDD gaps.",
         "For every high/medium finding, provide recommendedFix that can drive BRD/BDD regeneration or manual document correction.",
+        "Always return at least one recommendation. If no action is needed, return a positive recommendation such as proceeding to approval.",
+        "Always return at least one qualityNote. If there are no caveats, return a positive note that evidence quality was sufficient for this review.",
       ],
       requiredOutputShape: traceabilityAuditOutputShape(),
     };
@@ -325,7 +328,7 @@ async function buildGapAssessmentPlan(context) {
               },
             },
           },
-          qualityNotes: { type: "array", items: { type: "string" } },
+          qualityNotes: { type: "array", minItems: 1, items: { type: "string" } },
         },
       },
     },
@@ -374,12 +377,15 @@ async function buildGapAssessmentReport(context, plan) {
       "Use missing_in_code or unsupported_document_claim when the documents describe behavior that the source package does not implement.",
       "Do not report a gap unless you can point to source evidence or an uploaded requirement.",
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
+      "If a BDD document exists but is incomplete or too generic, keep it linked and classify the issue as weak_traceability or partial coverage rather than missing_bdd.",
       "Do not emit duplicate findings or repeated matrix rows for the same capability just because multiple BDD examples exercise the same underlying behavior.",
       "If BRD or BDD already documents a known risk, limitation, or open caveat, include it under documentedOpenRisks instead of findings unless it is itself a traceability mismatch.",
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
       "Include qualityNotes in the response when the evidence is thin or ambiguous.",
       "For each finding, include the concrete evidence hint that would let a reviewer verify it quickly.",
       "Prefer evidenceHints that mention specific files, classes, methods, endpoints, tests, or feature titles rather than generic summary language.",
+      "Always return at least one recommendation. If no corrective action is needed, provide a positive next-step recommendation.",
+      "Always return at least one qualityNote. If there are no caveats, provide a positive note that evidence was sufficient and no major ambiguity remained.",
     ],
     outputShape: {
       summary: "Object with totalFindings, high, medium, low, readiness.",
@@ -460,8 +466,8 @@ async function buildGapAssessmentReport(context, plan) {
               },
             },
           },
-          recommendations: { type: "array", items: { type: "string" } },
-          qualityNotes: { type: "array", items: { type: "string" } },
+          recommendations: { type: "array", minItems: 1, items: { type: "string" } },
+          qualityNotes: { type: "array", minItems: 1, items: { type: "string" } },
         },
       },
     },
@@ -513,21 +519,12 @@ function sanitizeGapFinding(item, documents) {
   let targetDocumentType = inferGapTargetDocumentType({ ...item, gapType });
   const relatedDocumentId = String(item.relatedDocumentId || "").trim();
   const relatedDocument = String(item.relatedDocument || "").trim();
-  let resolvedDoc = resolveRelatedDocument(documents, {
-    relatedDocumentId,
-    relatedDocument,
-    targetDocumentType,
-  });
-  gapType = reconcileGapType(gapType, item, targetDocumentType, resolvedDoc);
-  targetDocumentType = inferGapTargetDocumentType({ ...item, gapType, targetDocumentType });
-  resolvedDoc = resolveRelatedDocument(documents, {
+  const resolvedDoc = resolveRelatedDocument(documents, {
     relatedDocumentId,
     relatedDocument,
     targetDocumentType,
   });
   const normalizedLinkStatus = normalizeLinkStatus(item.linkStatus, {
-    gapType,
-    targetDocumentType,
     resolvedDoc,
     relatedDocumentId,
     relatedDocument,
@@ -611,30 +608,26 @@ function normalizeGapType(value) {
 function inferGapTargetDocumentType(item) {
   const explicit = String(item?.targetDocumentType || "").toUpperCase();
   if (explicit === "BRD" || explicit === "BDD") return explicit;
-  if (item?.gapType === "missing_bdd") return "BDD";
-  if (item?.gapType === "missing_brd") return "BRD";
+  const normalizedGapType = normalizeGapType(item?.gapType);
+  if (normalizedGapType === "missing_bdd") return "BDD";
+  if (normalizedGapType === "missing_brd") return "BRD";
   return "";
 }
 
-function normalizeLinkStatus(value, { gapType, targetDocumentType, resolvedDoc, relatedDocumentId, relatedDocument }) {
+function normalizeLinkStatus(value, { resolvedDoc, relatedDocumentId, relatedDocument }) {
   const normalized = String(value || "").toLowerCase();
-  if (gapType === "missing_bdd") {
-    return resolvedDoc && targetDocumentType === "BDD" ? "linked" : "unlinked";
-  }
   if (normalized === "linked" && resolvedDoc) return "linked";
   if (normalized === "unlinked") return "unlinked";
   if (normalized === "ambiguous") return "ambiguous";
-  if (targetDocumentType && (relatedDocumentId || relatedDocument) && !resolvedDoc) return "ambiguous";
-  if (resolvedDoc) return "linked";
+  if ((relatedDocumentId || relatedDocument) && !resolvedDoc) return "ambiguous";
+  if (resolvedDoc && !normalized) return "linked";
   return "unlinked";
 }
 
 function normalizeActionType(value, gapType, linkStatus) {
-  if (gapType === "missing_bdd") {
-    return linkStatus === "linked" ? "regenerate_document" : "create_bdd";
-  }
-  if (gapType === "missing_brd") return "regenerate_document";
   if (value === "regenerate_document" || value === "create_bdd") return value;
+  if (gapType === "missing_bdd") return linkStatus === "linked" ? "regenerate_document" : "create_bdd";
+  if (gapType === "missing_brd" && linkStatus === "linked") return "regenerate_document";
   return linkStatus === "linked" ? "regenerate_document" : "";
 }
 
@@ -665,31 +658,8 @@ function normalizeGapToken(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function reconcileGapType(gapType, item, targetDocumentType, resolvedDoc) {
-  const documentEvidence = Array.isArray(item?.documentEvidence) ? item.documentEvidence : [];
-  if (gapType === "missing_brd" && hasDocumentEvidenceType(documentEvidence, "brd")) {
-    return "weak_traceability";
-  }
-  if (
-    gapType === "missing_bdd" &&
-    ((resolvedDoc && resolvedDoc.type === "BDD") || hasDocumentEvidenceType(documentEvidence, "bdd") || targetDocumentType === "BDD")
-  ) {
-    return "weak_traceability";
-  }
-  return gapType;
-}
-
-function hasDocumentEvidenceType(documentEvidence, token) {
-  const normalizedToken = String(token || "").toLowerCase();
-  return documentEvidence.some((value) => String(value || "").toLowerCase().includes(normalizedToken));
-}
-
 function normalizeRecommendedFix(value, gapType) {
-  const text = String(value || "").trim();
-  if (gapType === "missing_bdd" && /unit test|integration test|automation test/i.test(text)) {
-    return "Create or expand BDD feature/scenario coverage for this capability with exact expected behavior and validations.";
-  }
-  return text;
+  return String(value || "").trim();
 }
 
 function normalizeDocumentedOpenRisks(value, documents) {
@@ -740,7 +710,6 @@ function normalizeQualityNotes(value) {
   for (const item of Array.isArray(value) ? value : []) {
     const text = String(item || "").trim();
     if (!text) continue;
-    if (/no automated tests are present|implementing unit tests|create unit tests for bdd/i.test(text)) continue;
     const key = normalizeGapToken(text);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -1250,8 +1219,8 @@ function traceabilityAuditOutputShape() {
         targetDocument: "string",
       },
     ],
-    recommendations: ["string"],
-    qualityNotes: ["string"],
+    recommendations: ["at least one string"],
+    qualityNotes: ["at least one string"],
   };
 }
 
@@ -1390,8 +1359,8 @@ function traceabilityAuditResponseSchema() {
             },
           },
         },
-        recommendations: stringArray,
-        qualityNotes: stringArray,
+        recommendations: { ...stringArray, minItems: 1 },
+        qualityNotes: { ...stringArray, minItems: 1 },
       },
     },
   };
