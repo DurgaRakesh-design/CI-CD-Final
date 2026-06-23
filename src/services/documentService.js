@@ -142,7 +142,7 @@ async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatus
   const response = await fetch('/.netlify/functions/ai-package-upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'complete', uploadId, chunkCount: total }),
+    body: JSON.stringify({ action: 'complete', uploadId, name, type, size: fileSize, chunkCount: total }),
   });
   if (!response.ok) {
     const payload = await readJsonResponse(response, 'Package upload');

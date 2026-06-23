@@ -74,6 +74,9 @@ export const handler = async (event) => {
         });
       }
       const manifest = await setPackageUploadManifest(uploadId, {
+        name: safeFileName(request.name || "source-package.zip"),
+        type: String(request.type || "application/zip"),
+        size: Number(request.size || 0),
         status: "completed",
         completedAt: new Date().toISOString(),
         chunkCount: storedChunkCount,

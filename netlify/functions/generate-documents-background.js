@@ -201,11 +201,17 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       purpose: process.env.OPENAI_FILE_PURPOSE || "user_data",
     },
   });
-  const fileId = await uploadPackageToOpenAI(context.packageUpload);
+  const uploadResult = await uploadPackageToOpenAI(context.packageUpload);
+  const fileId = uploadResult.fileId;
   await appendAiJobLog(JOB_TYPE, context.jobId, {
     stage: "file-upload",
     message: "OpenAI file upload completed.",
-    meta: { fileId },
+    meta: {
+      fileId,
+      blobReadMs: uploadResult.timings.blobReadMs,
+      openAiFileUploadMs: uploadResult.timings.openAiFileUploadMs,
+      packageBytes: uploadResult.timings.packageBytes,
+    },
   });
   try {
     await reportProgress({ stage: "file-analysis", progress: 25, message: "Analyzing package structure with OpenAI Code Interpreter." });
@@ -225,13 +231,14 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
     });
 
     await reportProgress({ stage: "drafting", progress: 55, message: "Generating BRD and BDD suite from full package evidence." });
-    const result = await callOpenAIFileTool({
+    const toolResult = await callOpenAIFileTool({
       system,
       user,
       fileId,
       responseSchema: suiteResponseSchema(),
       temperature: 0.12,
     });
+    const result = toolResult.result;
     if (!result) throw new Error("File-based document generation returned no response.");
     const normalized = normalizeSuite(result, "ai_file_tool_generated");
     const qualityGate = evaluateSuiteDepth(normalized);
@@ -245,7 +252,16 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "drafting",
       message: "File-based generation response received from OpenAI.",
-      meta: { bddCount: normalized.bddFiles?.length || 0, brdChars: String(normalized.brd?.content || "").length },
+      meta: {
+        bddCount: normalized.bddFiles?.length || 0,
+        brdChars: String(normalized.brd?.content || "").length,
+        responseCreateMs: toolResult.timings.responseCreateMs,
+        responseWaitMs: toolResult.timings.responseWaitMs,
+        responseRetrieveMs: toolResult.timings.responseRetrieveMs,
+        responseRetrieveAttempts: toolResult.timings.responseRetrieveAttempts,
+        finalizationMs: toolResult.timings.finalizationMs,
+        totalOpenAiMs: toolResult.timings.totalOpenAiMs,
+      },
     });
     return normalized;
   } finally {
@@ -256,24 +272,35 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
 async function uploadPackageToOpenAI(packageUpload) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based document generation.");
+  const blobReadStartedAt = Date.now();
   const storedPackage = packageUpload.packageMaterial || (packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null);
+  const blobReadMs = Date.now() - blobReadStartedAt;
   const bytes = storedPackage?.bytes || Buffer.from(packageUpload.contentBase64 || "", "base64");
   if (!bytes.length) throw new Error("Package upload was empty.");
   const form = new FormData();
   form.append("purpose", process.env.OPENAI_FILE_PURPOSE || "user_data");
   form.append("file", new Blob([bytes], { type: storedPackage?.type || packageUpload.type || "application/zip" }), storedPackage?.name || packageUpload.name || "source-package.zip");
+  const uploadStartedAt = Date.now();
   const response = await fetch("https://api.openai.com/v1/files", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
+  const openAiFileUploadMs = Date.now() - uploadStartedAt;
   const raw = await response.text();
   const payload = parseJsonOrNull(raw);
   if (!response.ok) {
     throw new Error(payload?.error?.message || `OpenAI file upload failed with ${response.status}: ${raw.slice(0, 240)}`);
   }
   if (!payload?.id) throw new Error("OpenAI file upload did not return a file id.");
-  return payload.id;
+  return {
+    fileId: payload.id,
+    timings: {
+      blobReadMs,
+      openAiFileUploadMs,
+      packageBytes: bytes.length,
+    },
+  };
 }
 
 async function deleteOpenAIFile(fileId) {
@@ -299,10 +326,12 @@ async function callOpenAIFileTool({
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for OpenAI file tools.");
+  const totalOpenAiStartedAt = Date.now();
   const effectiveTimeoutMs = Math.max(timeoutMs, 600000);
   const effectiveRequestTimeoutMs = Math.max(requestTimeoutMs, 120000);
   const effectiveFinalizationTimeoutMs = Math.max(finalizationTimeoutMs, 240000);
   const effectivePollIntervalMs = Math.max(pollIntervalMs, 1500);
+  const createStartedAt = Date.now();
   const createPayload = await postOpenAIResponse({
     apiKey,
     timeoutMs: effectiveRequestTimeoutMs,
@@ -333,14 +362,20 @@ async function callOpenAIFileTool({
     },
     timeoutLabel: "request",
   });
-  const payload = await waitForOpenAIResponse({
+  const responseCreateMs = Date.now() - createStartedAt;
+  const waitStartedAt = Date.now();
+  const waitResult = await waitForOpenAIResponse({
     apiKey,
     initialPayload: createPayload,
     timeoutMs: effectiveTimeoutMs,
     pollIntervalMs: effectivePollIntervalMs,
   });
+  const responseWaitMs = Date.now() - waitStartedAt;
+  const payload = waitResult.payload;
   let outputText = extractResponseText(payload);
+  let finalizationMs = 0;
   if (!String(outputText || "").trim() && payload?.id) {
+    const finalizationStartedAt = Date.now();
     outputText = await requestFinalJsonFromResponse({
       apiKey,
       model,
@@ -349,12 +384,23 @@ async function callOpenAIFileTool({
       timeoutMs: effectiveFinalizationTimeoutMs,
       pollIntervalMs: effectivePollIntervalMs,
     });
+    finalizationMs = Date.now() - finalizationStartedAt;
   }
   if (!String(outputText || "").trim()) {
     throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
   }
   try {
-    return JSON.parse(outputText);
+    return {
+      result: JSON.parse(outputText),
+      timings: {
+        responseCreateMs,
+        responseWaitMs,
+        responseRetrieveMs: waitResult.retrieveMs,
+        responseRetrieveAttempts: waitResult.retrieveAttempts,
+        finalizationMs,
+        totalOpenAiMs: Date.now() - totalOpenAiStartedAt,
+      },
+    };
   } catch {
     throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)} ${summarizeResponsePayload(payload)}`);
   }
@@ -430,11 +476,13 @@ async function postOpenAIResponse({ apiKey, body, timeoutMs, timeoutLabel }) {
 async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIntervalMs }) {
   const startedAt = Date.now();
   let payload = initialPayload;
+  let retrieveMs = 0;
+  let retrieveAttempts = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     const status = String(payload?.status || "").toLowerCase();
     if (!status || status === "completed") {
-      return payload;
+      return { payload, retrieveMs, retrieveAttempts };
     }
     if (status === "failed" || status === "cancelled" || status === "incomplete" || status === "expired") {
       throw new Error(`OpenAI file-tool did not complete successfully. ${summarizeResponsePayload(payload)}`);
@@ -443,7 +491,11 @@ async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIn
       throw new Error(`OpenAI file-tool returned no response id for polling. ${summarizeResponsePayload(payload)}`);
     }
     await sleep(pollIntervalMs);
-    payload = await retrieveOpenAIResponseWithRetry({ apiKey, responseId: payload.id });
+    const retrieveStartedAt = Date.now();
+    const retrieveResult = await retrieveOpenAIResponseWithRetry({ apiKey, responseId: payload.id });
+    retrieveMs += Date.now() - retrieveStartedAt;
+    retrieveAttempts += retrieveResult.attempts;
+    payload = retrieveResult.payload;
   }
 
   throw new Error(`OpenAI file-tool processing timed out after ${timeoutMs}ms`);
@@ -468,7 +520,8 @@ async function retrieveOpenAIResponseWithRetry({ apiKey, responseId, maxAttempts
   let lastError;
   for (let attempt = 1; attempt <= Math.max(1, maxAttempts); attempt += 1) {
     try {
-      return await retrieveOpenAIResponse({ apiKey, responseId });
+      const payload = await retrieveOpenAIResponse({ apiKey, responseId });
+      return { payload, attempts: attempt };
     } catch (error) {
       lastError = error;
       if (!isRetryableOpenAIResponseError(error) || attempt === maxAttempts) break;
