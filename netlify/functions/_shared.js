@@ -123,7 +123,7 @@ export function buildEvidenceDigest(signals = {}) {
 function getPackageUploadStore() {
   if (packageUploadStore !== null) return packageUploadStore;
   try {
-    packageUploadStore = getStore({ name: "ai-package-uploads" });
+    packageUploadStore = getStore({ name: "ai-package-uploads", consistency: "strong" });
   } catch (error) {
     if (isNetlifyRuntime()) {
       throw error;
@@ -253,20 +253,22 @@ export async function appendAiJobLog(type, jobId, entry) {
   });
 }
 
-export async function setPackageUploadChunk(uploadId, index, contentBase64) {
+export async function setPackageUploadChunk(uploadId, index, bytes) {
   const key = packageChunkKey(uploadId, index);
+  const payload = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
   const store = getPackageUploadStore();
   if (store) {
-    await store.set(key, String(contentBase64 || ""));
+    await store.set(key, payload);
   } else {
-    packageUploadFallback.set(key, String(contentBase64 || ""));
+    packageUploadFallback.set(key, payload);
   }
 }
 
 export async function setPackageUploadManifest(uploadId, manifest) {
+  const current = await getPackageUploadManifest(uploadId);
   const payload = {
+    ...(current || {}),
     uploadId,
-    completedAt: new Date().toISOString(),
     ...manifest,
   };
   const store = getPackageUploadStore();
@@ -289,7 +291,7 @@ export async function getPackageUploadBytes(uploadId) {
   for (let index = 0; index < total; index += 1) {
     const chunk = await getPackageUploadChunkWithRetry(uploadId, index);
     if (!chunk) throw new Error(`Uploaded package chunk ${index + 1} of ${total} was not found.`);
-    chunkBuffers.push(Buffer.from(String(chunk), "base64"));
+    chunkBuffers.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
 
   const bytes = Buffer.concat(chunkBuffers);
@@ -302,6 +304,20 @@ export async function getPackageUploadBytes(uploadId) {
     type: manifest.type || "application/zip",
     size: bytes.length,
   };
+}
+
+export async function countPackageUploadChunks(uploadId) {
+  const prefix = `${safeBlobSegment(uploadId)}/chunks/`;
+  const store = getPackageUploadStore();
+  if (store) {
+    const { blobs } = await store.list({ prefix });
+    return blobs.length;
+  }
+  let count = 0;
+  for (const key of packageUploadFallback.keys()) {
+    if (String(key).startsWith(prefix)) count += 1;
+  }
+  return count;
 }
 
 async function getPackageUploadManifest(uploadId) {
@@ -323,7 +339,7 @@ async function getPackageUploadChunkWithRetry(uploadId, index) {
   const store = getPackageUploadStore();
   if (store) {
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const chunk = await store.get(key);
+      const chunk = await store.get(key, { type: "arrayBuffer" });
       if (chunk) return chunk;
       await sleep(300 * (attempt + 1));
     }
