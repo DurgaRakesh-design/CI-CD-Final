@@ -47,17 +47,17 @@ export default function AiJobTimeline({
   const stageNarrative = buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage });
 
   return (
-    <div className="mx-auto mt-2 w-full max-w-7xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
-      <div className="bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.22),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(135deg,rgba(248,245,255,0.98),rgba(240,253,255,0.94))] p-6">
+    <div className="mx-auto mt-2 w-full max-w-7xl overflow-hidden rounded-[16px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
+      <div className="bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.22),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(135deg,rgba(248,245,255,0.98),rgba(240,253,255,0.94))] p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col items-start gap-3 text-left">
-            <div className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
+            <div className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
               <Sparkles className="h-3.5 w-3.5" />
               Live AI Journey
             </div>
             <div>
-              <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+              <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+              <p className="mt-1.5 text-sm leading-6 text-slate-600">{description}</p>
             </div>
           </div>
           <div className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
@@ -66,7 +66,7 @@ export default function AiJobTimeline({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.88fr)]">
+        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.88fr)]">
           <AnimatePresence mode="wait">
             <motion.div
               key={`${stageKey}-${status?.status || 'running'}`}
@@ -74,28 +74,28 @@ export default function AiJobTimeline({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -16, scale: 0.98 }}
               transition={{ duration: 0.35, ease: 'easeOut' }}
-              className={`relative overflow-hidden rounded-[28px] border ${currentStageMeta.border} ${currentStageMeta.surface} ${currentStageMeta.glow} p-5`}
+              className={`relative overflow-hidden rounded-[18px] border ${currentStageMeta.border} ${currentStageMeta.surface} ${currentStageMeta.glow} p-4`}
             >
               <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${currentStageMeta.accent}`} />
               <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-white/50 blur-3xl" />
               <div className="relative">
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex items-start gap-4">
                     <AnimatedAiOrb accent={currentStageMeta.accent} icon={spotlightIcon} running={status?.status === 'running'} />
                     <div className="max-w-xl">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Active Stage</p>
-                      <h4 className="mt-1 text-2xl font-semibold text-slate-950">{currentStageMeta.label}</h4>
+                      <h4 className="mt-1 text-lg font-semibold text-slate-950">{currentStageMeta.label}</h4>
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">{currentMessage}</p>
                     </div>
                   </div>
-                  <div className="min-w-[130px] rounded-3xl border border-white/80 bg-white/80 px-4 py-3 text-right shadow-sm">
+                  <div className="min-w-[100px] rounded-xl border border-white/80 bg-white/80 px-4 py-3 text-right shadow-sm">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Progress</p>
-                    <p className="mt-1 text-3xl font-bold text-slate-950">{progress}%</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-950">{progress}%</p>
                   </div>
                 </div>
 
-                <div className="mt-5">
-                  <div className="relative h-3 overflow-hidden rounded-full bg-white/70 ring-1 ring-white/80">
+                <div className="mt-3">
+                  <div className="relative h-2 overflow-hidden rounded-full bg-white/70 ring-1 ring-white/80">
                     <motion.div
                       className={`h-full rounded-full bg-gradient-to-r ${currentStageMeta.accent}`}
                       initial={{ width: '0%' }}
@@ -112,14 +112,13 @@ export default function AiJobTimeline({
                   </div>
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-3">
+                <div className="mt-3 flex flex-wrap gap-3">
                   <MicroStat label="Current stage" value={currentStageMeta.label} />
                   <MicroStat label="Updated" value={formatTime(status?.updatedAt)} />
-                  <MicroStat label="Events streamed" value={`${logs.length}`} />
                 </div>
 
                 {completedStages.length > 0 && (
-                  <div className="mt-6">
+                  <div className="mt-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Completed in the background</p>
                     <div className="mt-3 flex flex-wrap gap-2.5">
                       <AnimatePresence>
@@ -147,7 +146,7 @@ export default function AiJobTimeline({
             </motion.div>
           </AnimatePresence>
 
-          <div className="rounded-[28px] border border-slate-900/5 bg-slate-950 p-5 text-white shadow-inner">
+          <div className="rounded-[18px] border border-slate-900/5 bg-slate-950 p-4 text-white shadow-inner">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Runtime Pulse</p>
@@ -155,7 +154,7 @@ export default function AiJobTimeline({
               </div>
               <Clock3 className="h-4 w-4 text-cyan-300" />
             </div>
-            <div className="mt-4 space-y-3">
+            <div className="mt-3 space-y-3">
               <SnapshotStat label="Status" value={formatToken(status?.status || 'queued')} />
               <SnapshotStat label="Stage" value={currentStageMeta.label} />
               <SnapshotStat label="Updated" value={formatTime(status?.updatedAt)} />
@@ -164,7 +163,7 @@ export default function AiJobTimeline({
         </div>
       </div>
 
-      <div className="border-t border-slate-100 bg-white px-6 py-5">
+      <div className="border-t border-slate-100 bg-white px-5 py-3">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">Live interaction</p>
@@ -172,11 +171,11 @@ export default function AiJobTimeline({
           </div>
         </div>
         {latestInteraction && (
-          <div className="mb-3 rounded-[26px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
+          <div className="mb-3 rounded-[16px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 text-white shadow-md">
-                  <Sparkles className="h-5 w-5" />
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 text-white shadow-md">
+                  <Sparkles className="h-4 w-4" />
                 </div>
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-600">AI says</p>
@@ -194,7 +193,7 @@ export default function AiJobTimeline({
             </div>
           </div>
         )}
-        <div className="rounded-[22px] border border-violet-100 bg-violet-50/60 p-4">
+        <div className="rounded-[18px] border border-violet-100 bg-violet-50/60 p-4">
           <p className="text-sm leading-6 text-slate-700">
             {buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage })}
           </p>
@@ -206,7 +205,7 @@ export default function AiJobTimeline({
 
 function MicroStat({ label, value }) {
   return (
-    <div className="rounded-2xl border border-white/80 bg-white/80 px-3.5 py-2.5 shadow-sm">
+    <div className="rounded-xl border border-white/80 bg-white/80 px-3 py-2 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-semibold text-slate-900">{value || 'Pending'}</p>
     </div>
@@ -215,23 +214,23 @@ function MicroStat({ label, value }) {
 
 function AnimatedAiOrb({ accent, icon: Icon, running }) {
   return (
-    <div className="relative flex h-16 w-16 shrink-0 items-center justify-center">
+    <div className="relative flex h-12 w-12 shrink-0 items-center justify-center">
       <motion.div
         animate={running ? { scale: [1, 1.16, 1], opacity: [0.42, 0.18, 0.42] } : { scale: 1, opacity: 0.28 }}
         transition={{ repeat: running ? Infinity : 0, duration: 2.1, ease: 'easeInOut' }}
-        className={`absolute inset-0 rounded-[22px] bg-gradient-to-br ${accent} blur-md`}
+        className={`absolute inset-0 rounded-[18px] bg-gradient-to-br ${accent} blur-md`}
       />
       <motion.div
         animate={running ? { rotate: [0, 180, 360] } : { rotate: 0 }}
         transition={{ repeat: running ? Infinity : 0, duration: 6, ease: 'linear' }}
-        className="absolute inset-1 rounded-[20px] border border-white/40"
+        className="absolute inset-1 rounded-[16px] border border-white/40"
       />
       <motion.div
         animate={running ? { scale: [1, 1.08, 1] } : { scale: 1 }}
         transition={{ repeat: running ? Infinity : 0, duration: 1.9, ease: 'easeInOut' }}
-        className={`relative flex h-14 w-14 items-center justify-center rounded-[20px] bg-gradient-to-br ${accent} text-white shadow-lg`}
+        className={`relative flex h-10 w-10 items-center justify-center rounded-[16px] bg-gradient-to-br ${accent} text-white shadow-lg`}
       >
-        <Icon className="h-6 w-6" />
+        <Icon className="h-4 w-4" />
       </motion.div>
     </div>
   );
@@ -239,7 +238,7 @@ function AnimatedAiOrb({ accent, icon: Icon, running }) {
 
 function SnapshotStat({ label, value }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
       <p className="mt-1 text-sm font-semibold text-white">{value || 'Pending'}</p>
     </div>
