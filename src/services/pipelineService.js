@@ -286,12 +286,16 @@ function formatGapMarkdown(gap, index) {
   return [
     `${index + 1}. ${gap.gapId ? `${gap.gapId}: ` : ''}${gap.title || 'Coverage finding'}`,
     `   Gap Type: ${gap.gapType || 'Not specified'}`,
+    `   Ownership: ${formatGapOwnership(gap)}`,
+    `   Target Document Type: ${gap.targetDocumentType || 'Not specified'}`,
     `   Severity: ${gap.severity || 'medium'}`,
     `   Confidence: ${gap.confidence || 'Not specified'}`,
     `   Module: ${gap.module || 'Application'}`,
     `   Related Document: ${gap.relatedDocument || gap.relatedDocumentId || 'Unlinked'}`,
+    ...(gap.sourceCapability ? [`   Source Capability: ${gap.sourceCapability}`] : []),
     ...(Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length ? [`   Source Evidence: ${gap.sourceEvidence.join(' | ')}`] : []),
     ...(Array.isArray(gap.documentEvidence) && gap.documentEvidence.length ? [`   Document Evidence: ${gap.documentEvidence.join(' | ')}`] : []),
+    ...(Array.isArray(gap.targetScenarioRefs) && gap.targetScenarioRefs.length ? [`   Target Scenario Refs: ${gap.targetScenarioRefs.join(' | ')}`] : []),
     ...(Array.isArray(gap.evidenceAnchors) && gap.evidenceAnchors.length ? [`   Evidence Anchors: ${gap.evidenceAnchors.join(' | ')}`] : []),
     ...(Array.isArray(gap.missingScenarios) && gap.missingScenarios.length ? [`   Missing Scenarios: ${gap.missingScenarios.join(' | ')}`] : []),
     `   Description: ${gap.description || ''}`,
@@ -303,6 +307,13 @@ function formatGapMarkdown(gap, index) {
 function isCoveredGap(gap) {
   const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
   return status === 'covered' || status.includes('covered_after_regeneration');
+}
+
+function formatGapOwnership(gap) {
+  const status = String(gap?.linkStatus || '').toLowerCase();
+  if (status === 'linked') return gap?.relatedDocument ? `Linked to ${gap.relatedDocument}` : 'Linked to existing document';
+  if (status === 'ambiguous') return 'Ownership is ambiguous';
+  return 'Not linked to an existing document';
 }
 
 function formatTimestamp(value) {

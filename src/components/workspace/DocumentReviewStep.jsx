@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
+import { findFirstMatchingDocumentForGap, findMatchingDocumentsForGap, isCoveredGap, normalizeGapText } from '@/services/gapAnalysisUtils';
 import AiJobTimeline from './AiJobTimeline';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
@@ -734,11 +735,6 @@ function GapPager({ page, totalPages, onPageChange }) {
   );
 }
 
-function isCoveredGap(gap) {
-  const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
-  return status === 'covered' || status.includes('covered_after_regeneration');
-}
-
 function summarizeFindings(findings) {
   const high = findings.filter((item) => item.severity === 'high').length;
   const medium = findings.filter((item) => item.severity === 'medium').length;
@@ -769,7 +765,7 @@ function buildGapModel(gapResults, documents) {
     : [];
   findings.forEach((gap, index) => {
     const normalizedGap = { ...gap, uiId: `gap-${index}` };
-    const matches = findMatchingDocuments(normalizedGap, documents);
+    const matches = findMatchingDocumentsForGap(normalizedGap, documents);
     if (matches.length) {
       matches.forEach((match) => {
         docGapMap.set(match.id, [...(docGapMap.get(match.id) || []), normalizedGap]);
@@ -782,34 +778,7 @@ function buildGapModel(gapResults, documents) {
 }
 
 function findMatchingDocument(gap, documents) {
-  return findMatchingDocuments(gap, documents)[0] || null;
-}
-
-function findMatchingDocuments(gap, documents) {
-  const bddMissingGap = isMissingBddGap(gap);
-  const candidateDocs = bddMissingGap ? documents.filter((doc) => doc.type === 'BDD') : documents;
-  const explicitId = String(gap?.relatedDocumentId || '').trim();
-  if (explicitId) {
-    const byId = candidateDocs.find((doc) => doc.id === explicitId);
-    if (byId) return [byId];
-  }
-  const relatedTokens = [
-    gap?.relatedDocument,
-    gap?.module,
-    gap?.title,
-    ...(Array.isArray(gap?.documentEvidence) ? gap.documentEvidence : []),
-    ...(Array.isArray(gap?.evidenceAnchors) ? gap.evidenceAnchors : []),
-    ...(Array.isArray(gap?.missingScenarios) ? gap.missingScenarios : []),
-  ].map(normalizeGapText).filter(Boolean);
-  const meaningfulTokens = relatedTokens.filter((token) => !isGenericDocumentToken(token));
-  const matches = candidateDocs.filter((doc) => {
-    const title = normalizeGapText(doc.title);
-    const module = normalizeGapText(doc.module);
-    return meaningfulTokens.some((token) => tokenIncludesDocument(token, title, module));
-  });
-  if (matches.length) return matches;
-  if (bddMissingGap || gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return [];
-  return [];
+  return findFirstMatchingDocumentForGap(gap, documents);
 }
 
 function pickReplacementDoc(nextDocs, selectedDoc) {
@@ -849,45 +818,6 @@ function preserveRegeneratedContent({ existing, replacement, heading, minRetenti
   if (existing.includes(replacement)) return existing;
   const headingLine = commentPrefix ? `${commentPrefix}${heading}` : `## ${heading}`;
   return `${existing}\n\n---\n\n${headingLine}\n${replacement}`;
-}
-
-function normalizeGapText(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function isGenericDocumentToken(value) {
-  return [
-    'brd',
-    'bdd',
-    'brd bdd',
-    'requirement',
-    'requirements',
-    'business requirements document',
-    'traceability matrix',
-    'risk register',
-  ].includes(value);
-}
-
-function isMissingBddGap(gap) {
-  const text = [
-    gap?.gapType,
-    gap?.coverageStatus,
-    gap?.actionType,
-    gap?.title,
-    gap?.description,
-    gap?.recommendedFix,
-  ].map(normalizeGapText).join(' ');
-  return text.includes('missing bdd')
-    || text.includes('no bdd')
-    || text.includes('bdd coverage')
-    || text.includes('create bdd')
-    || text.includes('generate bdd');
-}
-
-function tokenIncludesDocument(token, title, module) {
-  if (!token) return false;
-  return title && (title.includes(token) || token.includes(title))
-    || module && (module.includes(token) || token.includes(module));
 }
 
 function severityBadge(severity) {

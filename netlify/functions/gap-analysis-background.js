@@ -78,7 +78,7 @@ async function analyzeWithAI(context, reportProgress) {
     });
     const audit = await buildFileBasedTraceabilityAudit(context, reportProgress);
     await reportProgress({ stage: "verifying", progress: 85, message: "Verifying traceability audit quality." });
-    const validated = normalizeGapPayload(audit);
+    const validated = normalizeGapPayload(audit, context.documents);
     if (!validated.findings.length && !validated.coverageMatrix?.length && !validated.summary) {
       throw new Error("Traceability audit returned no usable findings or coverage matrix.");
     }
@@ -111,7 +111,7 @@ async function analyzeWithAI(context, reportProgress) {
     stage: "verifying",
     message: "Validating findings and readiness summary.",
   });
-  const validated = normalizeGapPayload(report);
+  const validated = normalizeGapPayload(report, context.documents);
   if (!validated.findings.length && !validated.summary) {
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       level: "error",
@@ -153,15 +153,24 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
         content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
         evidenceAnchors: Array.isArray(doc.evidenceAnchors) ? doc.evidenceAnchors : [],
       })),
+      documentCatalog: context.documents.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        type: doc.type,
+        module: doc.module,
+      })),
       auditInstructions: [
         "First build an internal source inventory grouped by capability: authentication, catalog/product, category, cart, wishlist, order/payment, review, admin, profile, integration, security, validation, error handling, persistence, tests, frontend.",
-        "Map source capabilities to BRD FR/BR/GAP/RISK IDs and BDD Feature/Scenario coverage.",
+        "Map source capabilities to BRD requirement coverage and BDD feature/scenario coverage using the exact reviewed document ids/titles provided in documentCatalog.",
         "For each capability classify coverageStatus as covered, partial, missing_brd, missing_bdd, unsupported_document_claim, weak_traceability, or not_applicable.",
         "Flag BDD quality gaps when scenarios are too generic, lack concrete validations, omit negative/security/boundary cases evidenced by code, or cannot be traced to source methods/endpoints.",
         "BDD rule: treat BDD as requirement/scenario documentation, not as automated unit/integration/UI tests. Never classify missing automated tests, test coverage, or unit-test implementation as gapType='missing_bdd'. missing_bdd is only for absent or insufficient BDD feature/scenario documentation.",
         "Flag BRD quality gaps when source capabilities are omitted, requirements are unsupported by source, risks are missing, or evidence anchors are vague.",
         "Automation/test audit rule: do not create a high-severity finding merely because the uploaded source repository has no automated tests or no BDD files. In this product flow, generated/uploaded BDD documents may intentionally live outside the source ZIP and are valid requirements artifacts. Only create an automation/test finding when reviewed documents explicitly claim executable automation, CI test coverage, or implemented BDD tests that the source/package evidence does not support. Otherwise report source test absence as a quality note or low-priority recommendation, not as a blocking BRD/BDD traceability gap.",
         "Missing BDD ownership rule: if a source capability is covered in the BRD but no specific BDD feature/scenario covers it, set gapType='missing_bdd', linkStatus='unlinked', relatedDocumentId='', relatedDocument='', and actionType='create_bdd'. Do not attach the finding only to the BRD just because the BRD mentions the capability.",
+        "Strict ownership rule: only set linkStatus='linked' when an existing reviewed document is the precise owner to update now. Use the exact document id/title from documentCatalog. If ownership is uncertain, set linkStatus='ambiguous'. If a new BDD is needed, set linkStatus='unlinked'. Never guess-link a gap to a document by module similarity alone.",
+        "missing_brd rule: only use gapType='missing_brd' when the reviewed BRD genuinely lacks the capability or acceptance coverage. Do not use missing_brd when the capability exists in code and the BRD already describes it.",
+        "missing_in_code rule: when BRD or BDD clearly documents a capability but the source package does not support it, use gapType='missing_in_code' or unsupported_document_claim rather than missing_brd/missing_bdd.",
         "Multi-document rule: when a finding affects multiple existing documents, include all specific document titles/sections in documentEvidence and evidenceAnchors. relatedDocument should name the most actionable owner only; avoid generic BRD-only ownership for BDD gaps.",
         "For every high/medium finding, provide recommendedFix that can drive BRD/BDD regeneration or manual document correction.",
       ],
@@ -250,6 +259,12 @@ async function buildGapAssessmentPlan(context) {
       type: doc.type,
       module: doc.module,
       content: doc.type === "BDD" ? doc.gherkinContent || doc.content : doc.content,
+    })),
+    documentCatalog: context.documents.map((doc) => ({
+      id: doc.id,
+      title: doc.title,
+      type: doc.type,
+      module: doc.module,
     })),
     planRequirements: {
       primaryFocusAreas: "Array of the most important business capabilities to verify.",
@@ -346,13 +361,15 @@ async function buildGapAssessmentReport(context, plan) {
     })),
     plan,
     rules: [
-      "If a finding clearly belongs to an existing BRD or BDD, set linkStatus='linked', relatedDocumentId to that document id when available, and actionType='regenerate_document'.",
+      "If a finding clearly belongs to an existing BRD or BDD, set linkStatus='linked', relatedDocumentId to that exact reviewed document id, relatedDocument to its exact title, and actionType='regenerate_document'.",
       "If a finding represents a missing capability with no existing BRD/BDD owner, set linkStatus='unlinked' and actionType='create_bdd'.",
       "If a source capability is covered in BRD but missing from all BDD feature/scenario documents, set gapType='missing_bdd', linkStatus='unlinked', relatedDocumentId='', relatedDocument='', and actionType='create_bdd'. Do not link it to BRD only.",
+      "If ownership is not safe to assign to one exact existing document, set linkStatus='ambiguous', leave relatedDocumentId empty, and explain the ambiguity in description/qualityNotes rather than forcing a link.",
       "Do not use generic relatedDocument values such as 'BRD/BDD' when a specific document cannot be identified. Leave it empty and mark unlinked.",
       "BDD rule: BDD coverage means feature/scenario documentation coverage, not automated test execution or unit-test implementation. Do not recommend creating unit tests as the fix for gapType='missing_bdd'.",
       "Do not create a finding titled like 'No automated test or BDD files in source repository' merely because source tests or in-repo BDD files are absent. External generated/uploaded BDD documents are valid in this flow; source test absence belongs in qualityNotes unless documents falsely claim executable automation.",
       "Use business capability names, not technical layer names, for modules.",
+      "Use missing_in_code or unsupported_document_claim when the documents describe behavior that the source package does not implement.",
       "Do not report a gap unless you can point to source evidence or an uploaded requirement.",
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
@@ -362,7 +379,7 @@ async function buildGapAssessmentReport(context, plan) {
     ],
     outputShape: {
       summary: "Object with totalFindings, high, medium, low, readiness.",
-      findings: "Array of findings with severity, title, description, relatedDocumentId, relatedDocument, linkStatus, module, packageSignal, impact, recommendedFix, actionType, evidenceAnchors.",
+      findings: "Array of findings with severity, title, description, gapType, sourceCapabilityId, sourceCapability, targetDocumentType, targetDocumentTitle, relatedDocumentId, relatedDocument, linkStatus, module, packageSignal, impact, recommendedFix, actionType, targetScenarioRefs, evidenceAnchors.",
       recommendations: "Array of concise business-readable next steps.",
       qualityNotes: "Array of evidence caveats or confidence notes.",
     },
@@ -396,11 +413,16 @@ async function buildGapAssessmentReport(context, plan) {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["severity", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "impact", "recommendedFix", "actionType", "evidenceAnchors"],
+              required: ["severity", "title", "description", "gapType", "sourceCapabilityId", "sourceCapability", "targetDocumentType", "targetDocumentTitle", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "impact", "recommendedFix", "actionType", "targetScenarioRefs", "evidenceAnchors"],
               properties: {
                 severity: { type: "string" },
                 title: { type: "string" },
                 description: { type: "string" },
+                gapType: { type: "string" },
+                sourceCapabilityId: { type: "string" },
+                sourceCapability: { type: "string" },
+                targetDocumentType: { type: "string" },
+                targetDocumentTitle: { type: "string" },
                 relatedDocumentId: { type: "string" },
                 relatedDocument: { type: "string" },
                 linkStatus: { type: "string" },
@@ -409,6 +431,7 @@ async function buildGapAssessmentReport(context, plan) {
                 impact: { type: "string" },
                 recommendedFix: { type: "string" },
                 actionType: { type: "string" },
+                targetScenarioRefs: { type: "array", items: { type: "string" } },
                 evidenceAnchors: { type: "array", items: { type: "string" } },
               },
             },
@@ -429,29 +452,8 @@ async function buildGapAssessmentReport(context, plan) {
   return result;
 }
 
-function normalizeGapPayload(payload) {
-  const findings = (Array.isArray(payload.findings) ? payload.findings : []).map((item) => ({
-    gapId: item.gapId || item.id || "",
-    gapType: item.gapType || "",
-    confidence: item.confidence || "",
-    severity: ["high", "medium", "low"].includes(String(item.severity).toLowerCase())
-      ? String(item.severity).toLowerCase()
-      : "medium",
-    title: item.title || "Requirement coverage gap",
-    description: item.description || "",
-    relatedDocumentId: item.relatedDocumentId || "",
-    relatedDocument: item.relatedDocument || "",
-    linkStatus: item.linkStatus === "linked" ? "linked" : item.linkStatus === "unlinked" ? "unlinked" : "",
-    module: item.module || "Application",
-    packageSignal: item.packageSignal || "",
-    impact: item.impact || "",
-    recommendedFix: item.recommendedFix || "",
-    actionType: item.actionType === "regenerate_document" || item.actionType === "create_bdd" ? item.actionType : "",
-    evidenceAnchors: Array.isArray(item.evidenceAnchors) ? item.evidenceAnchors : [],
-    sourceEvidence: Array.isArray(item.sourceEvidence) ? item.sourceEvidence : [],
-    documentEvidence: Array.isArray(item.documentEvidence) ? item.documentEvidence : [],
-    missingScenarios: Array.isArray(item.missingScenarios) ? item.missingScenarios : [],
-  }));
+function normalizeGapPayload(payload, documents = []) {
+  const findings = (Array.isArray(payload.findings) ? payload.findings : []).map((item) => sanitizeGapFinding(item, documents));
   const high = findings.filter((item) => item.severity === "high").length;
   const medium = findings.filter((item) => item.severity === "medium").length;
   const low = findings.filter((item) => item.severity === "low").length;
@@ -478,6 +480,65 @@ function normalizeGapPayload(payload) {
   };
 }
 
+function sanitizeGapFinding(item, documents) {
+  let gapType = normalizeGapType(item.gapType || "");
+  let targetDocumentType = inferGapTargetDocumentType({ ...item, gapType });
+  const relatedDocumentId = String(item.relatedDocumentId || "").trim();
+  const relatedDocument = String(item.relatedDocument || "").trim();
+  let resolvedDoc = resolveRelatedDocument(documents, {
+    relatedDocumentId,
+    relatedDocument,
+    targetDocumentType,
+  });
+  gapType = reconcileGapType(gapType, item, targetDocumentType, resolvedDoc);
+  targetDocumentType = inferGapTargetDocumentType({ ...item, gapType, targetDocumentType });
+  resolvedDoc = resolveRelatedDocument(documents, {
+    relatedDocumentId,
+    relatedDocument,
+    targetDocumentType,
+  });
+  const normalizedLinkStatus = normalizeLinkStatus(item.linkStatus, {
+    gapType,
+    targetDocumentType,
+    resolvedDoc,
+    relatedDocumentId,
+    relatedDocument,
+  });
+  const actionType = normalizeActionType(item.actionType, gapType, normalizedLinkStatus);
+  const documentOwner = normalizedLinkStatus === "linked" && resolvedDoc
+    ? resolvedDoc
+    : null;
+
+  return {
+    gapId: item.gapId || item.id || "",
+    gapType,
+    confidence: item.confidence || "",
+    severity: ["high", "medium", "low"].includes(String(item.severity).toLowerCase())
+      ? String(item.severity).toLowerCase()
+      : "medium",
+    title: item.title || "Requirement coverage gap",
+    description: item.description || "",
+    sourceCapabilityId: String(item.sourceCapabilityId || item.capabilityId || "").trim(),
+    sourceCapability: String(item.sourceCapability || item.capability || item.title || "").trim(),
+    targetDocumentType,
+    targetDocumentTitle: String(item.targetDocumentTitle || "").trim(),
+    relatedDocumentId: documentOwner?.id || (normalizedLinkStatus === "linked" ? relatedDocumentId : ""),
+    relatedDocument: documentOwner?.title || (normalizedLinkStatus === "linked" ? relatedDocument : ""),
+    ownerDocumentIds: documentOwner?.id ? [documentOwner.id] : [],
+    linkStatus: normalizedLinkStatus,
+    module: item.module || "Application",
+    packageSignal: item.packageSignal || "",
+    impact: item.impact || "",
+    recommendedFix: normalizeRecommendedFix(item.recommendedFix || "", gapType),
+    actionType,
+    targetScenarioRefs: Array.isArray(item.targetScenarioRefs) ? item.targetScenarioRefs : [],
+    evidenceAnchors: Array.isArray(item.evidenceAnchors) ? item.evidenceAnchors : [],
+    sourceEvidence: Array.isArray(item.sourceEvidence) ? item.sourceEvidence : [],
+    documentEvidence: Array.isArray(item.documentEvidence) ? item.documentEvidence : [],
+    missingScenarios: Array.isArray(item.missingScenarios) ? item.missingScenarios : [],
+  };
+}
+
 function normalizeCoverageMatrix(value) {
   return (Array.isArray(value) ? value : []).map((row) => ({
     capability: row.capability || "",
@@ -495,6 +556,97 @@ function normalizeSimpleRows(value) {
     if (typeof row === "string") return { title: row };
     return { ...row };
   });
+}
+
+function normalizeGapType(value) {
+  const token = normalizeGapToken(value);
+  if (!token) return "other";
+  if (token === "ambiguous_mapping") return "weak_traceability";
+  return token;
+}
+
+function inferGapTargetDocumentType(item) {
+  const explicit = String(item?.targetDocumentType || "").toUpperCase();
+  if (explicit === "BRD" || explicit === "BDD") return explicit;
+  if (item?.gapType === "missing_bdd") return "BDD";
+  if (item?.gapType === "missing_brd") return "BRD";
+  return "";
+}
+
+function normalizeLinkStatus(value, { gapType, targetDocumentType, resolvedDoc, relatedDocumentId, relatedDocument }) {
+  const normalized = String(value || "").toLowerCase();
+  if (gapType === "missing_bdd") {
+    return resolvedDoc && targetDocumentType === "BDD" ? "linked" : "unlinked";
+  }
+  if (normalized === "linked" && resolvedDoc) return "linked";
+  if (normalized === "unlinked") return "unlinked";
+  if (normalized === "ambiguous") return "ambiguous";
+  if (targetDocumentType && (relatedDocumentId || relatedDocument) && !resolvedDoc) return "ambiguous";
+  if (resolvedDoc) return "linked";
+  return "unlinked";
+}
+
+function normalizeActionType(value, gapType, linkStatus) {
+  if (gapType === "missing_bdd") {
+    return linkStatus === "linked" ? "regenerate_document" : "create_bdd";
+  }
+  if (gapType === "missing_brd") return "regenerate_document";
+  if (value === "regenerate_document" || value === "create_bdd") return value;
+  return linkStatus === "linked" ? "regenerate_document" : "";
+}
+
+function resolveRelatedDocument(documents, { relatedDocumentId, relatedDocument, targetDocumentType }) {
+  const candidates = targetDocumentType
+    ? documents.filter((doc) => doc.type === targetDocumentType)
+    : documents;
+  if (!candidates.length) return null;
+
+  if (relatedDocumentId) {
+    const exactById = candidates.find((doc) => String(doc.id || "").trim() === relatedDocumentId);
+    if (exactById) return exactById;
+  }
+
+  const titleToken = normalizeGapToken(relatedDocument);
+  if (titleToken) {
+    const exactByTitle = candidates.find((doc) => normalizeGapToken(doc.title) === titleToken);
+    if (exactByTitle) return exactByTitle;
+  }
+
+  if (targetDocumentType === "BRD" && candidates.length === 1 && !relatedDocumentId && !relatedDocument) {
+    return candidates[0];
+  }
+  return null;
+}
+
+function normalizeGapToken(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function reconcileGapType(gapType, item, targetDocumentType, resolvedDoc) {
+  const documentEvidence = Array.isArray(item?.documentEvidence) ? item.documentEvidence : [];
+  if (gapType === "missing_brd" && hasDocumentEvidenceType(documentEvidence, "brd")) {
+    return "weak_traceability";
+  }
+  if (
+    gapType === "missing_bdd" &&
+    ((resolvedDoc && resolvedDoc.type === "BDD") || hasDocumentEvidenceType(documentEvidence, "bdd") || targetDocumentType === "BDD")
+  ) {
+    return "weak_traceability";
+  }
+  return gapType;
+}
+
+function hasDocumentEvidenceType(documentEvidence, token) {
+  const normalizedToken = String(token || "").toLowerCase();
+  return documentEvidence.some((value) => String(value || "").toLowerCase().includes(normalizedToken));
+}
+
+function normalizeRecommendedFix(value, gapType) {
+  const text = String(value || "").trim();
+  if (gapType === "missing_bdd" && /unit test|integration test|automation test/i.test(text)) {
+    return "Create or expand BDD feature/scenario coverage for this capability with exact expected behavior and validations.";
+  }
+  return text;
 }
 
 function buildGapContext(request, jobId) {
@@ -931,14 +1083,18 @@ function traceabilityAuditOutputShape() {
     findings: [
       {
         gapId: "GAP-001",
-        gapType: "missing_brd | missing_bdd | unsupported_document_claim | weak_traceability | security | validation | integration | automation | risk",
+        gapType: "missing_brd | missing_bdd | missing_in_code | unsupported_document_claim | weak_traceability | security | validation | integration | automation | risk",
         severity: "high | medium | low",
         confidence: "high | medium | low",
         title: "string",
         description: "string",
+        sourceCapabilityId: "string",
+        sourceCapability: "business capability name",
+        targetDocumentType: "BRD | BDD | ''",
+        targetDocumentTitle: "exact existing document title when applicable",
         relatedDocumentId: "string",
         relatedDocument: "string",
-        linkStatus: "linked | unlinked",
+        linkStatus: "linked | unlinked | ambiguous",
         module: "business module",
         packageSignal: "short source evidence hint",
         sourceEvidence: ["file/class/method/endpoint/resource evidence"],
@@ -946,6 +1102,7 @@ function traceabilityAuditOutputShape() {
         impact: "business impact",
         recommendedFix: "actionable regeneration/manual correction guidance",
         actionType: "regenerate_document | create_bdd",
+        targetScenarioRefs: ["exact scenario titles to update or add"],
         evidenceAnchors: ["reviewer-friendly combined anchors"],
         missingScenarios: ["BDD scenario titles to add when applicable"],
       },
@@ -1031,7 +1188,7 @@ function traceabilityAuditResponseSchema() {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["gapId", "gapType", "severity", "confidence", "title", "description", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "sourceEvidence", "documentEvidence", "impact", "recommendedFix", "actionType", "evidenceAnchors", "missingScenarios"],
+            required: ["gapId", "gapType", "severity", "confidence", "title", "description", "sourceCapabilityId", "sourceCapability", "targetDocumentType", "targetDocumentTitle", "relatedDocumentId", "relatedDocument", "linkStatus", "module", "packageSignal", "sourceEvidence", "documentEvidence", "impact", "recommendedFix", "actionType", "targetScenarioRefs", "evidenceAnchors", "missingScenarios"],
             properties: {
               gapId: { type: "string" },
               gapType: { type: "string" },
@@ -1039,6 +1196,10 @@ function traceabilityAuditResponseSchema() {
               confidence: { type: "string" },
               title: { type: "string" },
               description: { type: "string" },
+              sourceCapabilityId: { type: "string" },
+              sourceCapability: { type: "string" },
+              targetDocumentType: { type: "string" },
+              targetDocumentTitle: { type: "string" },
               relatedDocumentId: { type: "string" },
               relatedDocument: { type: "string" },
               linkStatus: { type: "string" },
@@ -1049,6 +1210,7 @@ function traceabilityAuditResponseSchema() {
               impact: { type: "string" },
               recommendedFix: { type: "string" },
               actionType: { type: "string" },
+              targetScenarioRefs: stringArray,
               evidenceAnchors: stringArray,
               missingScenarios: stringArray,
             },

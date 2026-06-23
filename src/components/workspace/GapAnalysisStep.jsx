@@ -4,6 +4,7 @@ import { BarChart3, ArrowRight, ArrowLeft, AlertTriangle, CheckCircle2, Lightbul
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { runGapAnalysis } from '@/services/documentService';
+import { findFirstMatchingDocumentForGap, findMatchingDocumentsForGap, getGapOwnershipLabel, getGapTypeLabel, groupGapFindings, isCoveredGap } from '@/services/gapAnalysisUtils';
 import AiJobTimeline from './AiJobTimeline';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
@@ -105,6 +106,7 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
 
   const activeFindings = result?.findings?.filter((gap) => !isCoveredGap(gap)) || [];
   const coveredFindings = result?.findings?.filter(isCoveredGap) || [];
+  const groupedFindings = groupGapFindings(activeFindings);
   const summary = buildDisplaySummary(result, activeFindings, coveredFindings);
   const canDownload = Boolean(result);
 
@@ -236,26 +238,43 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
                 <CheckCircle2 className="w-4 h-4" />
                 {result.skipped ? 'Gap analysis was skipped. You can still continue to manual approval.' : 'No open gaps detected. Review is ready for approval.'}
               </div>
-            ) : activeFindings.map((gap, i) => (
-              <div key={i} className={`p-4 rounded-xl border ${severityColors[gap.severity] || severityColors.medium}`}>
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm">{gap.title}</p>
-                    <p className="text-xs mt-1 opacity-80">{gap.description}</p>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {gap.module && <Badge variant="outline" className="text-xs">{gap.module}</Badge>}
-                      {gap.relatedDocument && <Badge variant="outline" className="text-xs">{gap.relatedDocument}</Badge>}
-                    </div>
-                    {gap.recommendedFix && <p className="text-xs mt-2 font-medium">Fix: {gap.recommendedFix}</p>}
-                    {Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length > 0 && (
-                      <p className="text-xs mt-2 opacity-80">Source: {gap.sourceEvidence.slice(0, 3).join(' | ')}</p>
-                    )}
-                    {Array.isArray(gap.documentEvidence) && gap.documentEvidence.length > 0 && (
-                      <p className="text-xs mt-1 opacity-80">Document: {gap.documentEvidence.slice(0, 3).join(' | ')}</p>
-                    )}
-                  </div>
+            ) : groupedFindings.map((group) => (
+              <div key={group.key} className="space-y-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="text-sm font-semibold text-slate-900">{group.label}</p>
+                  <p className="mt-1 text-xs text-slate-600">{group.description}</p>
                 </div>
+                {group.items.map((gap, i) => (
+                  <div key={`${group.key}-${i}`} className={`p-4 rounded-xl border ${severityColors[gap.severity] || severityColors.medium}`}>
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-sm">{gap.title}</p>
+                          <Badge variant="outline" className="text-[11px]">{getGapTypeLabel(gap)}</Badge>
+                          <Badge variant="outline" className="text-[11px]">{getGapOwnershipLabel(gap)}</Badge>
+                        </div>
+                        <p className="text-xs mt-2 opacity-80">{gap.description}</p>
+                        <div className="grid gap-2 mt-3 md:grid-cols-2">
+                          <FindingMeta label="Module" value={gap.module || 'Application'} />
+                          <FindingMeta label="Action" value={gap.actionType === 'create_bdd' ? 'Create new BDD coverage' : gap.actionType === 'regenerate_document' ? 'Update existing document' : 'Manual review'} />
+                          <FindingMeta label="Related document" value={gap.relatedDocument || 'No safe existing owner'} />
+                          <FindingMeta label="Source hint" value={gap.packageSignal || (Array.isArray(gap.sourceEvidence) ? gap.sourceEvidence[0] : '') || 'Not specified'} />
+                        </div>
+                        {Array.isArray(gap.missingScenarios) && gap.missingScenarios.length > 0 && (
+                          <p className="text-xs mt-3 opacity-80">What is missing: {gap.missingScenarios.slice(0, 4).join(' | ')}</p>
+                        )}
+                        {gap.recommendedFix && <p className="text-xs mt-2 font-medium">Fix: {gap.recommendedFix}</p>}
+                        {Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length > 0 && (
+                          <p className="text-xs mt-2 opacity-80">Source evidence: {gap.sourceEvidence.slice(0, 3).join(' | ')}</p>
+                        )}
+                        {Array.isArray(gap.documentEvidence) && gap.documentEvidence.length > 0 && (
+                          <p className="text-xs mt-1 opacity-80">Document evidence: {gap.documentEvidence.slice(0, 3).join(' | ')}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -396,11 +415,6 @@ function buildDisplaySummary(result, activeFindings, coveredFindings) {
   };
 }
 
-function isCoveredGap(gap) {
-  const status = String(gap?.status || gap?.coverageStatus || '').toLowerCase();
-  return status === 'covered' || status.includes('covered_after_regeneration');
-}
-
 function buildDocumentSignature(documents) {
   return documents
     .map((doc) => `${doc.id}:${doc.lastEdited || ''}:${doc.approved ? '1' : '0'}`)
@@ -450,16 +464,22 @@ function downloadGapAnalysis(result, workspaceData) {
       ? activeFindings.flatMap((gap, index) => [
           `${index + 1}. ${gap.gapId ? `${gap.gapId}: ` : ''}${gap.title || 'Coverage finding'}`,
           `   Gap Type: ${gap.gapType || 'Not specified'}`,
+          `   Ownership: ${getGapOwnershipLabel(gap)}`,
+          `   Target Document Type: ${gap.targetDocumentType || 'Not specified'}`,
           `   Severity: ${gap.severity || 'medium'}`,
           `   Confidence: ${gap.confidence || 'Not specified'}`,
           `   Module: ${gap.module || 'Application'}`,
           `   Related Document: ${gap.relatedDocument || gap.relatedDocumentId || 'Unlinked'}`,
           `   Evidence: ${gap.packageSignal || 'Not specified'}`,
+          ...(gap.sourceCapability ? [`   Source Capability: ${gap.sourceCapability}`] : []),
           ...(Array.isArray(gap.sourceEvidence) && gap.sourceEvidence.length
             ? [`   Source Evidence: ${gap.sourceEvidence.join(' | ')}`]
             : []),
           ...(Array.isArray(gap.documentEvidence) && gap.documentEvidence.length
             ? [`   Document Evidence: ${gap.documentEvidence.join(' | ')}`]
+            : []),
+          ...(Array.isArray(gap.targetScenarioRefs) && gap.targetScenarioRefs.length
+            ? [`   Target Scenario Refs: ${gap.targetScenarioRefs.join(' | ')}`]
             : []),
           ...(Array.isArray(gap.evidenceAnchors) && gap.evidenceAnchors.length
             ? [`   Evidence Anchors: ${gap.evidenceAnchors.join(' | ')}`]
@@ -524,79 +544,13 @@ function findImpactedDocumentIds(gapResults, documents) {
     ? gapResults.findings.filter((gap) => !isCoveredGap(gap))
     : [];
   findings.forEach((gap) => {
-    findMatchingDocuments(gap, documents).forEach((matched) => impacted.add(matched.id));
+    findMatchingDocumentsForGap(gap, documents).forEach((matched) => impacted.add(matched.id));
   });
   return impacted;
 }
 
 function findMatchingDocument(gap, documents) {
-  return findMatchingDocuments(gap, documents)[0] || null;
-}
-
-function findMatchingDocuments(gap, documents) {
-  const bddMissingGap = isMissingBddGap(gap);
-  const candidateDocs = bddMissingGap ? documents.filter((doc) => doc.type === 'BDD') : documents;
-  const explicitId = String(gap?.relatedDocumentId || '').trim();
-  if (explicitId) {
-    const byId = candidateDocs.find((doc) => doc.id === explicitId);
-    if (byId) return [byId];
-  }
-  const relatedTokens = [
-    gap?.relatedDocument,
-    gap?.module,
-    gap?.title,
-    ...(Array.isArray(gap?.documentEvidence) ? gap.documentEvidence : []),
-    ...(Array.isArray(gap?.evidenceAnchors) ? gap.evidenceAnchors : []),
-    ...(Array.isArray(gap?.missingScenarios) ? gap.missingScenarios : []),
-  ].map(normalize).filter(Boolean);
-  const meaningfulTokens = relatedTokens.filter((token) => !isGenericDocumentToken(token));
-  const matches = candidateDocs.filter((doc) => {
-    const title = normalize(doc.title);
-    const module = normalize(doc.module);
-    return meaningfulTokens.some((token) => tokenIncludesDocument(token, title, module));
-  });
-  if (matches.length) return matches;
-  if (bddMissingGap || gap?.linkStatus === 'unlinked' || gap?.actionType === 'create_bdd') return [];
-  return [];
-}
-
-function normalize(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function isGenericDocumentToken(value) {
-  return [
-    'brd',
-    'bdd',
-    'brd bdd',
-    'requirement',
-    'requirements',
-    'business requirements document',
-    'traceability matrix',
-    'risk register',
-  ].includes(value);
-}
-
-function tokenIncludesDocument(token, title, module) {
-  if (!token) return false;
-  return title && (title.includes(token) || token.includes(title))
-    || module && (module.includes(token) || token.includes(module));
-}
-
-function isMissingBddGap(gap) {
-  const text = [
-    gap?.gapType,
-    gap?.coverageStatus,
-    gap?.actionType,
-    gap?.title,
-    gap?.description,
-    gap?.recommendedFix,
-  ].map(normalize).join(' ');
-  return text.includes('missing bdd')
-    || text.includes('no bdd')
-    || text.includes('bdd coverage')
-    || text.includes('create bdd')
-    || text.includes('generate bdd');
+  return findFirstMatchingDocumentForGap(gap, documents);
 }
 
 function SummaryCard({ label, value, tone }) {
@@ -634,6 +588,15 @@ function TraceBadge({ label, value }) {
     <div>
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <Badge variant="outline" className={`mt-1 text-xs ${tone}`}>{value || 'Not specified'}</Badge>
+    </div>
+  );
+}
+
+function FindingMeta({ label, value }) {
+  return (
+    <div className="rounded-lg border border-white/70 bg-white/60 p-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
+      <p className="mt-1 text-xs">{value || 'Not specified'}</p>
     </div>
   );
 }
