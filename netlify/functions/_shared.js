@@ -123,7 +123,7 @@ export function buildEvidenceDigest(signals = {}) {
 function getPackageUploadStore() {
   if (packageUploadStore !== null) return packageUploadStore;
   try {
-    packageUploadStore = getStore({ name: "ai-package-uploads", consistency: "strong" });
+    packageUploadStore = getStore({ name: "ai-package-uploads" });
   } catch (error) {
     if (isNetlifyRuntime()) {
       throw error;
