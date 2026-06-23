@@ -4,7 +4,6 @@ import { BarChart3, ArrowRight, ArrowLeft, AlertTriangle, CheckCircle2, Lightbul
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { runGapAnalysis } from '@/services/documentService';
-import AiLoadingVisual from './AiLoadingVisual';
 import AiJobTimeline from './AiJobTimeline';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
@@ -151,11 +150,7 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              <AiLoadingVisual
-                title="Analyzing Package-to-Document Coverage"
-                description="Reviewing the evidence in the background. This can take a bit longer for large projects."
-              />
+            <div className="mx-auto max-w-6xl py-2">
               {jobStatus && (
                 <AiJobTimeline
                   status={jobStatus}

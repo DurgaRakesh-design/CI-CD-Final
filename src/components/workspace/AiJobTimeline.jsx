@@ -38,6 +38,7 @@ export default function AiJobTimeline({
   const currentMessage = status?.message || 'Waiting for background progress updates.';
   const tone = statusTone[status?.status] || statusTone.queued;
   const recentLogs = useMemo(() => [...logs].slice(-6).reverse(), [logs]);
+  const latestInteraction = recentLogs[0] || null;
   const completedStages = useMemo(
     () => getCompletedStages(logs, stageKey, status?.status).map((key) => getStageMeta(key)),
     [logs, stageKey, status?.status],
@@ -45,9 +46,9 @@ export default function AiJobTimeline({
   const spotlightIcon = currentStageMeta.icon;
 
   return (
-    <div className="mx-auto mt-6 w-full max-w-5xl overflow-hidden rounded-[32px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
+    <div className="mx-auto mt-2 w-full max-w-6xl overflow-hidden rounded-[34px] border border-violet-100 bg-white/95 shadow-[0_28px_90px_rgba(91,78,255,0.14)]">
       <div className="bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.22),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(34,211,238,0.18),_transparent_24%),linear-gradient(135deg,rgba(248,245,255,0.98),rgba(240,253,255,0.94))] p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col items-center gap-4 text-center">
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white/80 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-violet-700">
               <Sparkles className="h-3.5 w-3.5" />
@@ -64,7 +65,7 @@ export default function AiJobTimeline({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.72fr)]">
+        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.85fr)_minmax(280px,0.72fr)]">
           <AnimatePresence mode="wait">
             <motion.div
               key={`${stageKey}-${status?.status || 'running'}`}
@@ -79,13 +80,7 @@ export default function AiJobTimeline({
               <div className="relative">
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex items-start gap-4">
-                    <motion.div
-                      animate={status?.status === 'running' ? { scale: [1, 1.08, 1] } : { scale: 1 }}
-                      transition={{ repeat: status?.status === 'running' ? Infinity : 0, duration: 2.4, ease: 'easeInOut' }}
-                      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${currentStageMeta.accent} text-white shadow-lg`}
-                    >
-                      <spotlightIcon className="h-6 w-6" />
-                    </motion.div>
+                    <AnimatedAiOrb accent={currentStageMeta.accent} icon={spotlightIcon} running={status?.status === 'running'} />
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Active Stage</p>
                       <h4 className="mt-1 text-2xl font-semibold text-slate-950">{currentStageMeta.label}</h4>
@@ -178,11 +173,34 @@ export default function AiJobTimeline({
       <div className="border-t border-slate-100 bg-white px-6 py-5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Technical activity feed</p>
-            <p className="text-xs text-slate-500">Compact audit trail from `ai-job-status`, kept for debugging and verification.</p>
+            <p className="text-sm font-semibold text-slate-900">Live interaction</p>
+            <p className="text-xs text-slate-500">The latest background messages are surfaced here as the AI interacts with your package and workspace state.</p>
           </div>
         </div>
-        <div className="grid gap-3">
+        {latestInteraction && (
+          <div className="mb-4 rounded-[26px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 text-white shadow-md">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-600">AI says</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700">{latestInteraction.message}</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-violet-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700">
+                  {getStageMeta(latestInteraction.stage).label}
+                </span>
+                <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-700">
+                  {formatTime(latestInteraction.at)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="grid gap-3 lg:grid-cols-2">
           {recentLogs.length > 0 ? recentLogs.map((entry, index) => (
             <motion.div
               key={`${entry.at || 'log'}-${index}`}
@@ -210,7 +228,7 @@ export default function AiJobTimeline({
               </div>
             </motion.div>
           )) : (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500 lg:col-span-2">
               Waiting for the first detailed event from the background job.
             </div>
           )}
@@ -225,6 +243,30 @@ function MicroStat({ label, value }) {
     <div className="rounded-2xl border border-white/80 bg-white/80 px-3.5 py-2.5 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-semibold text-slate-900">{value || 'Pending'}</p>
+    </div>
+  );
+}
+
+function AnimatedAiOrb({ accent, icon: Icon, running }) {
+  return (
+    <div className="relative flex h-16 w-16 shrink-0 items-center justify-center">
+      <motion.div
+        animate={running ? { scale: [1, 1.16, 1], opacity: [0.42, 0.18, 0.42] } : { scale: 1, opacity: 0.28 }}
+        transition={{ repeat: running ? Infinity : 0, duration: 2.1, ease: 'easeInOut' }}
+        className={`absolute inset-0 rounded-[22px] bg-gradient-to-br ${accent} blur-md`}
+      />
+      <motion.div
+        animate={running ? { rotate: [0, 180, 360] } : { rotate: 0 }}
+        transition={{ repeat: running ? Infinity : 0, duration: 6, ease: 'linear' }}
+        className="absolute inset-1 rounded-[20px] border border-white/40"
+      />
+      <motion.div
+        animate={running ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+        transition={{ repeat: running ? Infinity : 0, duration: 1.9, ease: 'easeInOut' }}
+        className={`relative flex h-14 w-14 items-center justify-center rounded-[20px] bg-gradient-to-br ${accent} text-white shadow-lg`}
+      >
+        <Icon className="h-6 w-6" />
+      </motion.div>
     </div>
   );
 }

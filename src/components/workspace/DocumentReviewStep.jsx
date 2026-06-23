@@ -9,7 +9,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
-import AiLoadingVisual from './AiLoadingVisual';
 import AiJobTimeline from './AiJobTimeline';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
@@ -293,16 +292,12 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
 
   if (loading) {
     return (
-      <div className="max-w-xl mx-auto py-16 text-center space-y-4 pb-24">
-        <AiLoadingVisual
-          title="Preparing Review Documents"
-          description="Generating production-grade BRD and BDD drafts in the background. This can take a bit longer for large projects."
-        />
+      <div className="mx-auto max-w-6xl py-12 pb-24">
         {jobStatus && (
           <AiJobTimeline
             status={jobStatus}
             title="Document generation progress"
-            description="Track package upload, OpenAI file handling, and BRD/BDD generation stages live while the workspace prepares your review set."
+            description="Track package upload, OpenAI file handling, and BRD/BDD generation live while the workspace prepares your review set."
           />
         )}
         <WorkspaceActionBar
