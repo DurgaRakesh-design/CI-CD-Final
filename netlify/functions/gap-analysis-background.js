@@ -162,11 +162,13 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
       auditInstructions: [
         "First build an internal source inventory grouped by capability: authentication, catalog/product, category, cart, wishlist, order/payment, review, admin, profile, integration, security, validation, error handling, persistence, tests, frontend.",
         "Map source capabilities to BRD requirement coverage and BDD feature/scenario coverage using the exact reviewed document ids/titles provided in documentCatalog.",
+        "Do not emit duplicate coverageMatrix rows for the same capability/evidence pair. If a BDD scenario outline repeats the same capability across examples, consolidate it into one matrix row and mention the examples in notes instead.",
         "For each capability classify coverageStatus as covered, partial, missing_brd, missing_bdd, unsupported_document_claim, weak_traceability, or not_applicable.",
         "Flag BDD quality gaps when scenarios are too generic, lack concrete validations, omit negative/security/boundary cases evidenced by code, or cannot be traced to source methods/endpoints.",
         "BDD rule: treat BDD as requirement/scenario documentation, not as automated unit/integration/UI tests. Never classify missing automated tests, test coverage, or unit-test implementation as gapType='missing_bdd'. missing_bdd is only for absent or insufficient BDD feature/scenario documentation.",
         "Flag BRD quality gaps when source capabilities are omitted, requirements are unsupported by source, risks are missing, or evidence anchors are vague.",
         "Automation/test audit rule: do not create a high-severity finding merely because the uploaded source repository has no automated tests or no BDD files. In this product flow, generated/uploaded BDD documents may intentionally live outside the source ZIP and are valid requirements artifacts. Only create an automation/test finding when reviewed documents explicitly claim executable automation, CI test coverage, or implemented BDD tests that the source/package evidence does not support. Otherwise report source test absence as a quality note or low-priority recommendation, not as a blocking BRD/BDD traceability gap.",
+        "If the BRD or BDD already documents an open risk, limitation, or known caveat, put it in documentedOpenRisks instead of findings unless the source code contradicts the document or required traceability is missing.",
         "Missing BDD ownership rule: if a source capability is covered in the BRD but no specific BDD feature/scenario covers it, set gapType='missing_bdd', linkStatus='unlinked', relatedDocumentId='', relatedDocument='', and actionType='create_bdd'. Do not attach the finding only to the BRD just because the BRD mentions the capability.",
         "Strict ownership rule: only set linkStatus='linked' when an existing reviewed document is the precise owner to update now. Use the exact document id/title from documentCatalog. If ownership is uncertain, set linkStatus='ambiguous'. If a new BDD is needed, set linkStatus='unlinked'. Never guess-link a gap to a document by module similarity alone.",
         "missing_brd rule: only use gapType='missing_brd' when the reviewed BRD genuinely lacks the capability or acceptance coverage. Do not use missing_brd when the capability exists in code and the BRD already describes it.",
@@ -372,6 +374,8 @@ async function buildGapAssessmentReport(context, plan) {
       "Use missing_in_code or unsupported_document_claim when the documents describe behavior that the source package does not implement.",
       "Do not report a gap unless you can point to source evidence or an uploaded requirement.",
       "If a document includes behavior unsupported by source evidence, report it as unsupported coverage.",
+      "Do not emit duplicate findings or repeated matrix rows for the same capability just because multiple BDD examples exercise the same underlying behavior.",
+      "If BRD or BDD already documents a known risk, limitation, or open caveat, include it under documentedOpenRisks instead of findings unless it is itself a traceability mismatch.",
       "If source evidence is too weak to decide, make a low-severity review recommendation instead of a high-confidence gap.",
       "Include qualityNotes in the response when the evidence is thin or ambiguous.",
       "For each finding, include the concrete evidence hint that would let a reviewer verify it quickly.",
@@ -380,6 +384,7 @@ async function buildGapAssessmentReport(context, plan) {
     outputShape: {
       summary: "Object with totalFindings, high, medium, low, readiness.",
       findings: "Array of findings with severity, title, description, gapType, sourceCapabilityId, sourceCapability, targetDocumentType, targetDocumentTitle, relatedDocumentId, relatedDocument, linkStatus, module, packageSignal, impact, recommendedFix, actionType, targetScenarioRefs, evidenceAnchors.",
+      documentedOpenRisks: "Array of known risks or limitations already documented in BRD or BDD and therefore not counted as open traceability findings.",
       recommendations: "Array of concise business-readable next steps.",
       qualityNotes: "Array of evidence caveats or confidence notes.",
     },
@@ -394,7 +399,7 @@ async function buildGapAssessmentReport(context, plan) {
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["summary", "findings", "recommendations", "qualityNotes"],
+        required: ["summary", "findings", "documentedOpenRisks", "recommendations", "qualityNotes"],
         properties: {
           summary: {
             type: "object",
@@ -436,6 +441,25 @@ async function buildGapAssessmentReport(context, plan) {
               },
             },
           },
+          documentedOpenRisks: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["title", "severity", "relatedDocumentId", "relatedDocument", "documentType", "evidence", "explanation", "recommendation"],
+              properties: {
+                riskId: { type: "string" },
+                title: { type: "string" },
+                severity: { type: "string" },
+                relatedDocumentId: { type: "string" },
+                relatedDocument: { type: "string" },
+                documentType: { type: "string" },
+                evidence: { type: "array", items: { type: "string" } },
+                explanation: { type: "string" },
+                recommendation: { type: "string" },
+              },
+            },
+          },
           recommendations: { type: "array", items: { type: "string" } },
           qualityNotes: { type: "array", items: { type: "string" } },
         },
@@ -454,29 +478,33 @@ async function buildGapAssessmentReport(context, plan) {
 
 function normalizeGapPayload(payload, documents = []) {
   const findings = (Array.isArray(payload.findings) ? payload.findings : []).map((item) => sanitizeGapFinding(item, documents));
+  const documentedOpenRisks = normalizeDocumentedOpenRisks(payload.documentedOpenRisks, documents);
+  const qualityNotes = normalizeQualityNotes(payload.qualityNotes);
   const high = findings.filter((item) => item.severity === "high").length;
   const medium = findings.filter((item) => item.severity === "medium").length;
   const low = findings.filter((item) => item.severity === "low").length;
   const summary = payload.summary || {};
+  const readiness = computeGapReadiness({ findings, documentedOpenRisks, summary });
   return {
     summary: {
+      ...summary,
       totalFindings: findings.length,
       high,
       medium,
       low,
-      readiness: high ? "Blocked" : medium ? "Needs Review" : "Ready",
+      readiness,
       traceabilityScore: typeof summary.traceabilityScore === "number" ? summary.traceabilityScore : null,
       documentCoverageScore: typeof summary.documentCoverageScore === "number" ? summary.documentCoverageScore : null,
       bddQualityScore: typeof summary.bddQualityScore === "number" ? summary.bddQualityScore : null,
-      ...summary,
     },
     findings,
+    documentedOpenRisks,
     coverageMatrix: normalizeCoverageMatrix(payload.coverageMatrix),
     unsupportedClaims: normalizeSimpleRows(payload.unsupportedClaims),
     missingScenarios: normalizeSimpleRows(payload.missingScenarios),
     sourceInventory: normalizeSimpleRows(payload.sourceInventory),
     recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
-    qualityNotes: Array.isArray(payload.qualityNotes) ? payload.qualityNotes : [],
+    qualityNotes,
   };
 }
 
@@ -540,15 +568,30 @@ function sanitizeGapFinding(item, documents) {
 }
 
 function normalizeCoverageMatrix(value) {
-  return (Array.isArray(value) ? value : []).map((row) => ({
-    capability: row.capability || "",
-    sourceEvidence: Array.isArray(row.sourceEvidence) ? row.sourceEvidence : [],
-    brdCoverage: row.brdCoverage || "",
-    bddCoverage: row.bddCoverage || "",
-    coverageStatus: row.coverageStatus || "",
-    confidence: row.confidence || "",
-    notes: row.notes || "",
-  }));
+  const seen = new Set();
+  const rows = [];
+  for (const row of Array.isArray(value) ? value : []) {
+    const normalized = {
+      capability: row.capability || "",
+      sourceEvidence: Array.isArray(row.sourceEvidence) ? row.sourceEvidence : [],
+      brdCoverage: row.brdCoverage || "",
+      bddCoverage: row.bddCoverage || "",
+      coverageStatus: row.coverageStatus || "",
+      confidence: row.confidence || "",
+      notes: row.notes || "",
+    };
+    const key = [
+      normalizeGapToken(normalized.capability),
+      normalized.sourceEvidence.map(normalizeGapToken).join("|"),
+      normalizeGapToken(normalized.brdCoverage),
+      normalizeGapToken(normalized.bddCoverage),
+      normalizeGapToken(normalized.coverageStatus),
+    ].join("::");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(normalized);
+  }
+  return rows;
 }
 
 function normalizeSimpleRows(value) {
@@ -647,6 +690,76 @@ function normalizeRecommendedFix(value, gapType) {
     return "Create or expand BDD feature/scenario coverage for this capability with exact expected behavior and validations.";
   }
   return text;
+}
+
+function normalizeDocumentedOpenRisks(value, documents) {
+  const rows = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const normalized = [];
+  for (const item of rows) {
+    const relatedDocumentId = String(item?.relatedDocumentId || "").trim();
+    const relatedDocument = String(item?.relatedDocument || "").trim();
+    const documentType = String(item?.documentType || item?.targetDocumentType || "").toUpperCase();
+    const resolvedDoc = resolveRelatedDocument(documents, {
+      relatedDocumentId,
+      relatedDocument,
+      targetDocumentType: documentType === "BRD" || documentType === "BDD" ? documentType : "",
+    });
+    const record = {
+      riskId: String(item?.riskId || item?.gapId || "").trim(),
+      title: String(item?.title || item?.riskTitle || "Documented open risk").trim(),
+      severity: ["high", "medium", "low"].includes(String(item?.severity || "").toLowerCase())
+        ? String(item.severity).toLowerCase()
+        : "low",
+      relatedDocumentId: resolvedDoc?.id || relatedDocumentId,
+      relatedDocument: resolvedDoc?.title || relatedDocument,
+      documentType: resolvedDoc?.type || (documentType === "BRD" || documentType === "BDD" ? documentType : ""),
+      evidence: Array.isArray(item?.evidence)
+        ? item.evidence.filter(Boolean).map(String)
+        : Array.isArray(item?.documentEvidence)
+          ? item.documentEvidence.filter(Boolean).map(String)
+          : [],
+      explanation: String(item?.explanation || item?.description || "").trim(),
+      recommendation: String(item?.recommendation || item?.recommendedFix || "").trim(),
+    };
+    const key = [
+      normalizeGapToken(record.title),
+      normalizeGapToken(record.relatedDocumentId || record.relatedDocument),
+      record.evidence.map(normalizeGapToken).join("|"),
+    ].join("::");
+    if (!record.title || seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(record);
+  }
+  return normalized;
+}
+
+function normalizeQualityNotes(value) {
+  const filtered = [];
+  const seen = new Set();
+  for (const item of Array.isArray(value) ? value : []) {
+    const text = String(item || "").trim();
+    if (!text) continue;
+    if (/no automated tests are present|implementing unit tests|create unit tests for bdd/i.test(text)) continue;
+    const key = normalizeGapToken(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    filtered.push(text);
+  }
+  return filtered;
+}
+
+function computeGapReadiness({ findings, documentedOpenRisks, summary }) {
+  const explicit = String(summary?.readiness || "").trim();
+  if (/skipped/i.test(explicit)) return "Skipped by user";
+  const high = findings.filter((item) => item.severity === "high").length;
+  const medium = findings.filter((item) => item.severity === "medium").length;
+  const low = findings.filter((item) => item.severity === "low").length;
+  if (high) return "Blocked";
+  if (medium) return "Needs Review";
+  if (low) return "Partial";
+  if (documentedOpenRisks.length) return "Ready With Known Risks";
+  return "Ready";
 }
 
 function buildGapContext(request, jobId) {
@@ -1107,6 +1220,19 @@ function traceabilityAuditOutputShape() {
         missingScenarios: ["BDD scenario titles to add when applicable"],
       },
     ],
+    documentedOpenRisks: [
+      {
+        riskId: "RISK-001",
+        title: "documented risk or limitation title",
+        severity: "high | medium | low",
+        relatedDocumentId: "exact reviewed doc id",
+        relatedDocument: "exact reviewed doc title",
+        documentType: "BRD | BDD",
+        evidence: ["risk section, GAP/RISK ID, feature/scenario title"],
+        explanation: "why this is a documented open risk rather than a traceability finding",
+        recommendation: "optional reviewer guidance",
+      },
+    ],
     unsupportedClaims: [
       {
         claim: "documented claim",
@@ -1136,7 +1262,7 @@ function traceabilityAuditResponseSchema() {
     schema: {
       type: "object",
       additionalProperties: false,
-      required: ["summary", "sourceInventory", "coverageMatrix", "findings", "unsupportedClaims", "missingScenarios", "recommendations", "qualityNotes"],
+      required: ["summary", "sourceInventory", "coverageMatrix", "findings", "documentedOpenRisks", "unsupportedClaims", "missingScenarios", "recommendations", "qualityNotes"],
       properties: {
         summary: {
           type: "object",
@@ -1213,6 +1339,25 @@ function traceabilityAuditResponseSchema() {
               targetScenarioRefs: stringArray,
               evidenceAnchors: stringArray,
               missingScenarios: stringArray,
+            },
+          },
+        },
+        documentedOpenRisks: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "severity", "relatedDocumentId", "relatedDocument", "documentType", "evidence", "explanation", "recommendation"],
+            properties: {
+              riskId: { type: "string" },
+              title: { type: "string" },
+              severity: { type: "string" },
+              relatedDocumentId: { type: "string" },
+              relatedDocument: { type: "string" },
+              documentType: { type: "string" },
+              evidence: stringArray,
+              explanation: { type: "string" },
+              recommendation: { type: "string" },
             },
           },
         },

@@ -106,6 +106,7 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
 
   const activeFindings = result?.findings?.filter((gap) => !isCoveredGap(gap)) || [];
   const coveredFindings = result?.findings?.filter(isCoveredGap) || [];
+  const documentedOpenRisks = Array.isArray(result?.documentedOpenRisks) ? result.documentedOpenRisks : [];
   const groupedFindings = groupGapFindings(activeFindings);
   const summary = buildDisplaySummary(result, activeFindings, coveredFindings);
   const canDownload = Boolean(result);
@@ -203,7 +204,7 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
 
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">
             <p className="text-xs font-semibold uppercase tracking-wide">Readiness Summary</p>
-            <p className="mt-1 text-sm leading-relaxed">{summary.readiness || 'Ready'}</p>
+            <p className="mt-1 text-sm leading-relaxed">{formatReadinessSummary(summary.readiness, documentedOpenRisks.length)}</p>
           </div>
 
           {Array.isArray(result.coverageMatrix) && result.coverageMatrix.length > 0 && (
@@ -231,12 +232,44 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
             </div>
           )}
 
+          {documentedOpenRisks.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm">Documented Open Risks</h3>
+              <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-4">
+                <p className="text-xs text-rose-700">
+                  These items are already documented in the reviewed BRD/BDD set. They are shown separately so known risks are visible without being misreported as open traceability gaps.
+                </p>
+              </div>
+              <div className="grid gap-3">
+                {documentedOpenRisks.map((risk, index) => (
+                  <div key={`${risk.title}-${index}`} className="rounded-xl border border-rose-200 bg-white p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-sm text-slate-900">{risk.title}</p>
+                      <Badge variant="outline" className="text-[11px]">{String(risk.documentType || 'Document').toUpperCase()}</Badge>
+                      <Badge variant="outline" className="text-[11px]">{String(risk.severity || 'low').toUpperCase()}</Badge>
+                    </div>
+                    <div className="grid gap-2 mt-3 md:grid-cols-2">
+                      <FindingMeta label="Document owner" value={risk.relatedDocument || 'Not specified'} />
+                      <FindingMeta label="Evidence" value={Array.isArray(risk.evidence) && risk.evidence.length ? risk.evidence.join(' | ') : 'Not specified'} />
+                    </div>
+                    {risk.explanation && <p className="mt-3 text-xs text-slate-700">{risk.explanation}</p>}
+                    {risk.recommendation && <p className="mt-2 text-xs font-medium text-slate-800">Recommendation: {risk.recommendation}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-3">
             <h3 className="font-semibold text-sm">Coverage Findings</h3>
             {activeFindings.length === 0 ? (
               <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4" />
-                {result.skipped ? 'Gap analysis was skipped. You can still continue to manual approval.' : 'No open gaps detected. Review is ready for approval.'}
+                {result.skipped
+                  ? 'Gap analysis was skipped. You can still continue to manual approval.'
+                  : documentedOpenRisks.length
+                    ? 'No open traceability gaps detected. Documented known risks are listed separately below.'
+                    : 'No open gaps detected. Review is ready for approval.'}
               </div>
             ) : groupedFindings.map((group) => (
               <div key={group.key} className="space-y-3">
@@ -424,6 +457,7 @@ function buildDocumentSignature(documents) {
 function downloadGapAnalysis(result, workspaceData) {
   const activeFindings = Array.isArray(result.findings) ? result.findings.filter((gap) => !isCoveredGap(gap)) : [];
   const coveredFindings = Array.isArray(result.findings) ? result.findings.filter(isCoveredGap) : [];
+  const documentedOpenRisks = Array.isArray(result.documentedOpenRisks) ? result.documentedOpenRisks : [];
   const summary = buildDisplaySummary(result, activeFindings, coveredFindings);
   const lines = [
     '# Gap Analysis Report',
@@ -458,6 +492,22 @@ function downloadGapAnalysis(result, workspaceData) {
           '',
         ])
       : ['No traceability matrix returned.', '']),
+    '',
+    '## Documented Open Risks',
+    ...(documentedOpenRisks.length
+      ? documentedOpenRisks.flatMap((risk, index) => [
+          `${index + 1}. ${risk.riskId ? `${risk.riskId}: ` : ''}${risk.title || 'Documented open risk'}`,
+          `   Severity: ${risk.severity || 'low'}`,
+          `   Document Type: ${risk.documentType || 'Not specified'}`,
+          `   Related Document: ${risk.relatedDocument || risk.relatedDocumentId || 'Not specified'}`,
+          ...(Array.isArray(risk.evidence) && risk.evidence.length
+            ? [`   Evidence: ${risk.evidence.join(' | ')}`]
+            : []),
+          `   Explanation: ${risk.explanation || ''}`,
+          `   Recommendation: ${risk.recommendation || ''}`,
+          '',
+        ])
+      : ['No documented open risks.', '']),
     '',
     '## Findings',
     ...(activeFindings.length
@@ -533,9 +583,20 @@ function readinessLabel(value) {
   const normalized = String(value || 'Ready').toLowerCase();
   if (normalized.includes('blocked')) return 'Blocked';
   if (normalized.includes('partial')) return 'Partial';
+  if (normalized.includes('known risks')) return 'Known Risks';
   if (normalized.includes('review')) return 'Needs Review';
   if (normalized.includes('ready')) return 'Ready';
   return 'Review';
+}
+
+function formatReadinessSummary(value, documentedRiskCount = 0) {
+  const normalized = String(value || 'Ready').toLowerCase();
+  if (normalized.includes('known risks')) {
+    return documentedRiskCount
+      ? `Traceability is complete, but ${documentedRiskCount} documented open risk${documentedRiskCount === 1 ? '' : 's'} remain visible in the approved BRD/BDD set.`
+      : 'Traceability is complete, with known risks already documented in the reviewed requirement set.';
+  }
+  return value || 'Ready';
 }
 
 function findImpactedDocumentIds(gapResults, documents) {

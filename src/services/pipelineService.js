@@ -234,6 +234,7 @@ function buildGapAnalysisUploadFile(gapResults, context = {}) {
   if (!gapResults || gapResults.skipped || !Array.isArray(gapResults.findings)) return null;
   const openFindings = gapResults.findings.filter((gap) => !isCoveredGap(gap));
   const coveredFindings = gapResults.findings.filter(isCoveredGap);
+  const documentedOpenRisks = Array.isArray(gapResults.documentedOpenRisks) ? gapResults.documentedOpenRisks : [];
   const summary = gapResults.summary || {};
   const lines = [
     '# Gap Analysis Report',
@@ -252,7 +253,20 @@ function buildGapAnalysisUploadFile(gapResults, context = {}) {
     `- Low: ${summary.low ?? openFindings.filter((gap) => gap.severity === 'low').length}`,
     `- Open Findings: ${openFindings.length}`,
     `- Covered Findings: ${coveredFindings.length}`,
+    `- Documented Open Risks: ${documentedOpenRisks.length}`,
     '',
+    '## Documented Open Risks',
+    '',
+    ...(documentedOpenRisks.length ? documentedOpenRisks.flatMap((risk, index) => [
+      `${index + 1}. ${risk.riskId ? `${risk.riskId}: ` : ''}${risk.title || 'Documented open risk'}`,
+      `   Severity: ${risk.severity || 'low'}`,
+      `   Document Type: ${risk.documentType || 'Not specified'}`,
+      `   Related Document: ${risk.relatedDocument || risk.relatedDocumentId || 'Not specified'}`,
+      ...(Array.isArray(risk.evidence) && risk.evidence.length ? [`   Evidence: ${risk.evidence.join(' | ')}`] : []),
+      `   Explanation: ${risk.explanation || ''}`,
+      `   Recommendation: ${risk.recommendation || ''}`,
+      '',
+    ]) : ['No documented open risks.', '']),
     '## Open Findings',
     '',
     ...(openFindings.length ? openFindings.flatMap((gap, index) => formatGapMarkdown(gap, index)) : ['No open findings.', '']),
