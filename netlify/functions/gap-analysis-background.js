@@ -64,6 +64,7 @@ export const handler = async (event) => {
 
 async function analyzeWithAI(context, reportProgress) {
   if (hasPackageUploadPayload(context.packageUpload)) {
+    await preloadPackageMaterial(context);
     await reportProgress({ stage: "file-analysis", progress: 10, message: "Uploading package to OpenAI for source-to-document traceability audit." });
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "file-analysis",
@@ -184,7 +185,7 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
     if (!result) throw new Error("File-based traceability audit returned no response.");
 
     const qualityGate = evaluateTraceabilityAuditDepth(result, context.documents);
-    if (!qualityGate.passed) {
+    if (!qualityGate.passed && isGapAuditRetryEnabled()) {
       await appendAiJobLog(JOB_TYPE, context.jobId, {
         stage: "analyzing",
         message: "Initial traceability audit was too shallow; requesting deeper source-to-document audit.",
@@ -204,6 +205,12 @@ async function buildFileBasedTraceabilityAudit(context, reportProgress) {
         responseSchema: traceabilityAuditResponseSchema(),
         temperature: 0.06,
         maxOutputTokens: Number(process.env.OPENAI_GAP_MAX_OUTPUT_TOKENS || process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
+      });
+    } else if (!qualityGate.passed) {
+      await appendAiJobLog(JOB_TYPE, context.jobId, {
+        stage: "analyzing",
+        message: "Initial traceability audit was shallow, but automatic deep retry is disabled for faster portal feedback.",
+        meta: qualityGate,
       });
     }
 
@@ -573,7 +580,7 @@ function hasPackageUploadPayload(value) {
 async function uploadPackageToOpenAI(packageUpload) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based gap analysis.");
-  const storedPackage = packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null;
+  const storedPackage = packageUpload.packageMaterial || (packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null);
   const bytes = storedPackage?.bytes || Buffer.from(packageUpload.contentBase64 || "", "base64");
   if (!bytes.length) throw new Error("Package upload was empty.");
   const form = new FormData();
@@ -794,7 +801,7 @@ async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIn
       throw new Error(`OpenAI file-tool returned no response id for polling. ${summarizeResponsePayload(payload)}`);
     }
     await sleep(pollIntervalMs);
-    payload = await retrieveOpenAIResponse({ apiKey, responseId: payload.id });
+    payload = await retrieveOpenAIResponseWithRetry({ apiKey, responseId: payload.id });
   }
 
   throw new Error(`OpenAI file-tool processing timed out after ${timeoutMs}ms`);
@@ -813,6 +820,45 @@ async function retrieveOpenAIResponse({ apiKey, responseId }) {
     throw new Error(payload?.error?.message || `OpenAI response retrieve failed with ${response.status}: ${raw.slice(0, 400)}`);
   }
   return payload;
+}
+
+async function retrieveOpenAIResponseWithRetry({ apiKey, responseId, maxAttempts = Number(process.env.OPENAI_RESPONSE_RETRY_ATTEMPTS || 4) }) {
+  let lastError;
+  for (let attempt = 1; attempt <= Math.max(1, maxAttempts); attempt += 1) {
+    try {
+      return await retrieveOpenAIResponse({ apiKey, responseId });
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableOpenAIResponseError(error) || attempt === maxAttempts) break;
+      await sleep(Math.min(1500 * attempt, 5000));
+    }
+  }
+  throw lastError;
+}
+
+async function preloadPackageMaterial(context) {
+  if (!context?.packageUpload?.blobUploadId || context.packageUpload.packageMaterial) return;
+  const storedPackage = await getPackageUploadBytes(context.packageUpload.blobUploadId);
+  context.packageUpload = {
+    ...context.packageUpload,
+    packageMaterial: storedPackage,
+  };
+}
+
+function isRetryableOpenAIResponseError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("openai response retrieve failed with 429") ||
+    message.includes("openai response retrieve failed with 500") ||
+    message.includes("openai response retrieve failed with 502") ||
+    message.includes("openai response retrieve failed with 503") ||
+    message.includes("openai response retrieve failed with 504") ||
+    message.includes("connection refused") ||
+    message.includes("upstream connect error") ||
+    message.includes("transport failure");
+}
+
+function isGapAuditRetryEnabled() {
+  return String(process.env.OPENAI_GAP_ENABLE_DEEP_RETRY || "false").toLowerCase() === "true";
 }
 
 function sleep(ms) {

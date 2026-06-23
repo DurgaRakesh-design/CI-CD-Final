@@ -104,6 +104,7 @@ export const handler = async (event) => {
 
 async function generateWithAI(context, reportProgress) {
   if (hasPackageUploadPayload(context.packageUpload) && context.generationMode === "initial") {
+    await preloadPackageMaterial(context);
     await reportProgress({ stage: "file-analysis", progress: 10, message: "Uploading package to OpenAI for full source analysis." });
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "file-analysis",
@@ -224,7 +225,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
     });
 
     await reportProgress({ stage: "drafting", progress: 55, message: "Generating BRD and BDD suite from full package evidence." });
-    let result = await callOpenAIFileTool({
+    const result = await callOpenAIFileTool({
       system,
       user,
       fileId,
@@ -232,32 +233,14 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
       temperature: 0.12,
     });
     if (!result) throw new Error("File-based document generation returned no response.");
-    let normalized = normalizeSuite(result, "ai_file_tool_generated");
+    const normalized = normalizeSuite(result, "ai_file_tool_generated");
     const qualityGate = evaluateSuiteDepth(normalized);
     if (!qualityGate.passed) {
       await appendAiJobLog(JOB_TYPE, context.jobId, {
         stage: "drafting",
-        message: "Initial file-based generation was too shallow; requesting expanded enterprise output.",
+        message: "Generated suite did not meet the full quality gate, but retry regeneration is disabled for single-pass deep analysis.",
         meta: qualityGate,
       });
-      result = await callOpenAIFileTool({
-        system,
-        user: JSON.stringify(buildFileAnalysisUserPayload({
-          context,
-          evidenceDigest,
-          requiredOutputShape: requiredSuiteShape(),
-          qualityGateFeedback: {
-            status: "previous_output_missing_critical_depth_requirements",
-            missing: qualityGate.criticalIssues,
-            advisory: qualityGate.advisoryIssues,
-            requiredAction: "Regenerate from the attached ZIP with a formal enterprise BRD, source-driven BDD feature files for every real evidenced business capability/workflow, detailed FR/BR/GAP/RISK catalogues, and richer traceability. Do not summarize or use app-specific templates.",
-          },
-        })),
-        fileId,
-        responseSchema: suiteResponseSchema(),
-        temperature: 0.1,
-      });
-      normalized = normalizeSuite(result, "ai_file_tool_generated");
     }
     await appendAiJobLog(JOB_TYPE, context.jobId, {
       stage: "drafting",
@@ -273,7 +256,7 @@ async function buildSuiteFromPackageFile(context, reportProgress) {
 async function uploadPackageToOpenAI(packageUpload) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required for file-based document generation.");
-  const storedPackage = packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null;
+  const storedPackage = packageUpload.packageMaterial || (packageUpload.blobUploadId ? await getPackageUploadBytes(packageUpload.blobUploadId) : null);
   const bytes = storedPackage?.bytes || Buffer.from(packageUpload.contentBase64 || "", "base64");
   if (!bytes.length) throw new Error("Package upload was empty.");
   const form = new FormData();
@@ -460,7 +443,7 @@ async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIn
       throw new Error(`OpenAI file-tool returned no response id for polling. ${summarizeResponsePayload(payload)}`);
     }
     await sleep(pollIntervalMs);
-    payload = await retrieveOpenAIResponse({ apiKey, responseId: payload.id });
+    payload = await retrieveOpenAIResponseWithRetry({ apiKey, responseId: payload.id });
   }
 
   throw new Error(`OpenAI file-tool processing timed out after ${timeoutMs}ms`);
@@ -479,6 +462,41 @@ async function retrieveOpenAIResponse({ apiKey, responseId }) {
     throw new Error(payload?.error?.message || `OpenAI response retrieve failed with ${response.status}: ${raw.slice(0, 400)}`);
   }
   return payload;
+}
+
+async function retrieveOpenAIResponseWithRetry({ apiKey, responseId, maxAttempts = Number(process.env.OPENAI_RESPONSE_RETRY_ATTEMPTS || 4) }) {
+  let lastError;
+  for (let attempt = 1; attempt <= Math.max(1, maxAttempts); attempt += 1) {
+    try {
+      return await retrieveOpenAIResponse({ apiKey, responseId });
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableOpenAIResponseError(error) || attempt === maxAttempts) break;
+      await sleep(Math.min(1500 * attempt, 5000));
+    }
+  }
+  throw lastError;
+}
+
+async function preloadPackageMaterial(context) {
+  if (!context?.packageUpload?.blobUploadId || context.packageUpload.packageMaterial) return;
+  const storedPackage = await getPackageUploadBytes(context.packageUpload.blobUploadId);
+  context.packageUpload = {
+    ...context.packageUpload,
+    packageMaterial: storedPackage,
+  };
+}
+
+function isRetryableOpenAIResponseError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("openai response retrieve failed with 429") ||
+    message.includes("openai response retrieve failed with 500") ||
+    message.includes("openai response retrieve failed with 502") ||
+    message.includes("openai response retrieve failed with 503") ||
+    message.includes("openai response retrieve failed with 504") ||
+    message.includes("connection refused") ||
+    message.includes("upstream connect error") ||
+    message.includes("transport failure");
 }
 
 function sleep(ms) {

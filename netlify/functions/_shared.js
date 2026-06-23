@@ -10,6 +10,7 @@ let aiJobStore = null;
 let aiJobStoreFallback = new Map();
 let packageUploadStore = null;
 let packageUploadFallback = new Map();
+let aiJobRuntimeCache = new Map();
 
 function getAiJobStore() {
   if (aiJobStore !== null) return aiJobStore;
@@ -217,6 +218,7 @@ export async function upsertAiJob(type, jobId, data) {
     ...data,
   };
   if (!payload.createdAt) payload.createdAt = now;
+  aiJobRuntimeCache.set(jobKey(type, jobId), payload);
   const store = getAiJobStore();
   if (store) {
     await store.setJSON(jobKey(type, jobId), payload);
@@ -227,9 +229,13 @@ export async function upsertAiJob(type, jobId, data) {
 }
 
 export async function getAiJob(type, jobId) {
+  const cached = aiJobRuntimeCache.get(jobKey(type, jobId));
+  if (cached) return cached;
   const store = getAiJobStore();
   if (store) {
-    return await store.get(jobKey(type, jobId), { type: "json" });
+    const payload = await store.get(jobKey(type, jobId), { type: "json" });
+    if (payload) aiJobRuntimeCache.set(jobKey(type, jobId), payload);
+    return payload;
   }
   return aiJobStoreFallback.get(jobKey(type, jobId)) || null;
 }

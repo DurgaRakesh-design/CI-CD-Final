@@ -3,6 +3,7 @@ import { safeFileName } from './encoding';
 const PACKAGE_CHUNK_BYTES = 2 * 1024 * 1024;
 const PACKAGE_UPLOAD_CONCURRENCY = 3;
 const inFlightRequirementSuites = new Map();
+const packageUploadCache = new Map();
 
 export async function generateRequirementSuite({
   packageSignals,
@@ -63,7 +64,7 @@ async function generateRequirementSuiteRequest({
   }
   const jobId = createJobId();
   const packageUpload = packageFile && generationMode === 'initial'
-    ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
+    ? await getOrCreatePackageUpload({ jobId, packageFile, packageSignals, onStatusUpdate })
     : null;
   const response = await fetch('/.netlify/functions/generate-documents-background', {
     method: 'POST',
@@ -157,6 +158,51 @@ async function uploadPackageForAi({ jobId, packageFile, packageSignals, onStatus
   };
 }
 
+async function getOrCreatePackageUpload({ jobId, packageFile, packageSignals, onStatusUpdate }) {
+  const cacheKey = buildPackageUploadCacheKey({ packageFile, packageSignals });
+  const cached = packageUploadCache.get(cacheKey);
+  if (cached?.packageUpload?.blobUploadId) {
+    onStatusUpdate?.({
+      status: 'running',
+      stage: 'package-upload',
+      progress: 8,
+      message: 'Reusing the uploaded source package for this workspace session.',
+    });
+    return cached.packageUpload;
+  }
+
+  const packageUpload = await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate });
+  packageUploadCache.set(cacheKey, {
+    packageUpload,
+    cachedAt: Date.now(),
+  });
+  trimPackageUploadCache();
+  return packageUpload;
+}
+
+function buildPackageUploadCacheKey({ packageFile, packageSignals }) {
+  return JSON.stringify({
+    fileName: packageFile?.name || packageSignals?.fileName || '',
+    fileSize: packageFile?.size || 0,
+    fileModified: packageFile?.lastModified || 0,
+    projectName: packageSignals?.projectName || '',
+  });
+}
+
+function trimPackageUploadCache() {
+  const now = Date.now();
+  for (const [key, value] of packageUploadCache.entries()) {
+    if (!value?.cachedAt || now - value.cachedAt > 45 * 60 * 1000) {
+      packageUploadCache.delete(key);
+    }
+  }
+  while (packageUploadCache.size > 6) {
+    const oldestKey = packageUploadCache.keys().next().value;
+    if (!oldestKey) break;
+    packageUploadCache.delete(oldestKey);
+  }
+}
+
 async function initializePackageUpload({ jobId, name, type, fileSize, chunkCount }) {
   const response = await fetch('/.netlify/functions/ai-package-upload', {
     method: 'POST',
@@ -195,7 +241,7 @@ async function runConcurrentUploads(total, concurrency, worker) {
 export async function runGapAnalysis({ packageSignals, documents, packageFile = null, jobTimeoutMs = 900000, onStatusUpdate = null }) {
   const jobId = createJobId();
   const packageUpload = packageFile
-    ? await uploadPackageForAi({ jobId, packageFile, packageSignals, onStatusUpdate })
+    ? await getOrCreatePackageUpload({ jobId, packageFile, packageSignals, onStatusUpdate })
     : null;
   const response = await fetch('/.netlify/functions/gap-analysis-background', {
     method: 'POST',
