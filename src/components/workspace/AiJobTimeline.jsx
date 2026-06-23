@@ -172,7 +172,7 @@ export default function AiJobTimeline({
           </div>
         </div>
         {latestInteraction && (
-          <div className="rounded-[26px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
+          <div className="mb-3 rounded-[26px] border border-violet-100 bg-[linear-gradient(135deg,rgba(245,243,255,0.95),rgba(236,254,255,0.92))] p-4 shadow-[0_16px_40px_rgba(91,78,255,0.08)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-500 text-white shadow-md">
@@ -194,6 +194,11 @@ export default function AiJobTimeline({
             </div>
           </div>
         )}
+        <div className="rounded-[22px] border border-violet-100 bg-violet-50/60 p-4">
+          <p className="text-sm leading-6 text-slate-700">
+            {buildNarrative({ stage: currentStageMeta.label, status: status?.status, progress, message: currentMessage })}
+          </p>
+        </div>
       </div>
     </div>
   );
