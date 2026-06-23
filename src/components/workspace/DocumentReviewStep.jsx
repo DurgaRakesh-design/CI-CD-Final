@@ -10,6 +10,7 @@ import { generateRequirementSuite } from '@/services/documentService';
 import { fileToText } from '@/services/encoding';
 import { createDocumentDocxBlob } from '@/services/docx';
 import AiLoadingVisual from './AiLoadingVisual';
+import AiJobTimeline from './AiJobTimeline';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
 const DOCUMENT_PAGE_SIZE = 6;
@@ -25,6 +26,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
   const [regenLoading, setRegenLoading] = useState(false);
   const [docPage, setDocPage] = useState(1);
   const [gapPage, setGapPage] = useState(1);
+  const [jobStatus, setJobStatus] = useState(null);
   const activeGenerationRef = useRef({ signature: '', status: 'idle' });
 
   useEffect(() => {
@@ -59,6 +61,14 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
       activeGenerationRef.current = { signature, status: 'running' };
       setLoading(true);
       setError('');
+      setJobStatus({
+        status: 'running',
+        stage: 'queued',
+        progress: 1,
+        message: 'Preparing the AI document generation job.',
+        logs: [],
+        updatedAt: new Date().toISOString(),
+      });
       try {
         let nextDocs;
         if (workspaceData.requirement_source === 'uploaded') {
@@ -69,6 +79,7 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
             packageFile: workspaceData.package_file,
             uploadedRequirements: [],
             gapResults,
+            onStatusUpdate: setJobStatus,
           });
         }
         if (!cancelled) {
@@ -287,6 +298,13 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
           title="Preparing Review Documents"
           description="Generating production-grade BRD and BDD drafts in the background. This can take a bit longer for large projects."
         />
+        {jobStatus && (
+          <AiJobTimeline
+            status={jobStatus}
+            title="Document generation progress"
+            description="Track package upload, OpenAI file handling, and BRD/BDD generation stages live while the workspace prepares your review set."
+          />
+        )}
         <WorkspaceActionBar
           onReset={onReset}
           left={(

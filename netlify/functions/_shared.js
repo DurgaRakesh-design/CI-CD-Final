@@ -236,17 +236,26 @@ export async function getAiJob(type, jobId) {
 
 export async function appendAiJobLog(type, jobId, entry) {
   const current = await getAiJob(type, jobId);
+  const normalizedEntry = {
+    at: new Date().toISOString(),
+    level: entry?.level || "info",
+    stage: entry?.stage || "",
+    message: String(entry?.message || ""),
+    meta: entry?.meta || {},
+  };
   const existingLogs = Array.isArray(current?.logs) ? current.logs : [];
   const nextLogs = [
     ...existingLogs,
-    {
-      at: new Date().toISOString(),
-      level: entry?.level || "info",
-      stage: entry?.stage || "",
-      message: String(entry?.message || ""),
-      meta: entry?.meta || {},
-    },
+    normalizedEntry,
   ].slice(-50);
+  const logLabel = `[ai-job:${type}:${jobId}] [${normalizedEntry.level}] [${normalizedEntry.stage || "step"}] ${normalizedEntry.message}`;
+  if (normalizedEntry.level === "error") {
+    console.error(logLabel, normalizedEntry.meta);
+  } else if (normalizedEntry.level === "warn") {
+    console.warn(logLabel, normalizedEntry.meta);
+  } else {
+    console.info(logLabel, normalizedEntry.meta);
+  }
   return await upsertAiJob(type, jobId, {
     ...(current || {}),
     logs: nextLogs,

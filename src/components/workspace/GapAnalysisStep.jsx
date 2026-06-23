@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { runGapAnalysis } from '@/services/documentService';
 import AiLoadingVisual from './AiLoadingVisual';
+import AiJobTimeline from './AiJobTimeline';
 import WorkspaceActionBar from './WorkspaceActionBar';
 
 const severityColors = {
@@ -39,17 +40,27 @@ const gapStatusMeta = {
 export default function GapAnalysisStep({ workspaceData, documents, setDocuments, gapResults, onNext, onBack, onGapsFound, onReset }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState('');
+  const [jobStatus, setJobStatus] = useState(null);
   const result = gapResults || null;
   const statusMeta = getGapStatusMeta(result);
 
   const runAnalysis = async () => {
     setRunning(true);
     setError('');
+    setJobStatus({
+      status: 'running',
+      stage: 'queued',
+      progress: 1,
+      message: 'Preparing the AI gap analysis job.',
+      logs: [],
+      updatedAt: new Date().toISOString(),
+    });
     try {
       const payload = await runGapAnalysis({
         packageSignals: workspaceData.package_signals,
         packageFile: workspaceData.package_file,
         documents,
+        onStatusUpdate: setJobStatus,
       });
       const stampedPayload = stampGapResult(payload, documents, 'fresh');
       onGapsFound?.(stampedPayload);
@@ -140,10 +151,19 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
               </div>
             </div>
           ) : (
-            <AiLoadingVisual
-              title="Analyzing Package-to-Document Coverage"
-              description="Reviewing the evidence in the background. This can take a bit longer for large projects."
-            />
+            <div className="space-y-4">
+              <AiLoadingVisual
+                title="Analyzing Package-to-Document Coverage"
+                description="Reviewing the evidence in the background. This can take a bit longer for large projects."
+              />
+              {jobStatus && (
+                <AiJobTimeline
+                  status={jobStatus}
+                  title="Gap analysis progress"
+                  description="This live timeline shows the package audit stages, source-to-document traceability checks, and the final verification pass as they happen."
+                />
+              )}
+            </div>
           )}
         </div>
       )}
