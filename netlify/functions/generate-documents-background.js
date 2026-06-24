@@ -464,7 +464,6 @@ async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId,
     timeoutMs,
     body: {
       model,
-      background: true,
       previous_response_id: previousResponseId,
       input: [
         {
@@ -486,12 +485,25 @@ async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId,
     },
     timeoutLabel: "finalization",
   });
-  const payload = await waitForOpenAIResponse({
-    apiKey,
-    initialPayload: createPayload,
-    timeoutMs,
-    pollIntervalMs,
-  });
+  const immediateOutputText = extractResponseText(createPayload);
+  if (String(immediateOutputText || "").trim()) {
+    return {
+      payload: createPayload,
+      outputText: immediateOutputText,
+    };
+  }
+  let payload = createPayload;
+  if (payload?.id) {
+    const waitResult = await waitForOpenAIResponse({
+      apiKey,
+      initialPayload: createPayload,
+      timeoutMs,
+      pollIntervalMs,
+    });
+    payload = waitResult.payload;
+  } else if (!hasMeaningfulResponsePayload(payload)) {
+    throw new Error(`OpenAI file-tool finalization returned an empty response envelope. ${summarizeResponsePayload(payload)}`);
+  }
   return {
     payload,
     outputText: extractResponseText(payload),
@@ -536,8 +548,14 @@ async function waitForOpenAIResponse({ apiKey, initialPayload, timeoutMs, pollIn
 
   while (Date.now() - startedAt < timeoutMs) {
     const status = String(payload?.status || "").toLowerCase();
-    if (!status || status === "completed") {
+    if (status === "completed") {
       return { payload, retrieveMs, retrieveAttempts };
+    }
+    if (!status && hasMeaningfulResponsePayload(payload)) {
+      return { payload, retrieveMs, retrieveAttempts };
+    }
+    if (!status && !payload?.id) {
+      throw new Error(`OpenAI file-tool returned an empty response envelope while polling. ${summarizeResponsePayload(payload)}`);
     }
     if (status === "failed" || status === "cancelled" || status === "incomplete" || status === "expired") {
       throw new Error(`OpenAI file-tool did not complete successfully. ${summarizeResponsePayload(payload)}`);
@@ -669,6 +687,14 @@ function summarizeResponsePayload(payload) {
   const output = Array.isArray(payload?.output) ? payload.output : [];
   const outputTypes = output.map((item) => item?.type || item?.role || "unknown").slice(0, 8);
   return `Response status=${payload?.status || "unknown"} outputTypes=${outputTypes.join(",") || "none"} incompleteReason=${payload?.incomplete_details?.reason || ""}`;
+}
+
+function hasMeaningfulResponsePayload(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  if (String(payload.output_text || "").trim()) return true;
+  if (payload.output_parsed) return true;
+  if (Array.isArray(payload.output) && payload.output.length > 0) return true;
+  return false;
 }
 
 function buildOpenAiDebugInfo({
