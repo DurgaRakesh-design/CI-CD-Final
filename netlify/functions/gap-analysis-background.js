@@ -523,19 +523,24 @@ function sanitizeGapFinding(item, documents) {
   let targetDocumentType = inferGapTargetDocumentType({ ...item, gapType });
   const relatedDocumentId = String(item.relatedDocumentId || "").trim();
   const relatedDocument = String(item.relatedDocument || "").trim();
-  const resolvedDoc = resolveRelatedDocument(documents, {
+  const explicitlyResolvedDoc = resolveRelatedDocument(documents, {
     relatedDocumentId,
     relatedDocument,
     targetDocumentType,
   });
+  const evidenceResolvedDoc = explicitlyResolvedDoc
+    || resolveRelatedDocumentFromEvidence(documents, {
+      documentEvidence: Array.isArray(item.documentEvidence) ? item.documentEvidence : [],
+      targetDocumentType,
+    });
   const normalizedLinkStatus = normalizeLinkStatus(item.linkStatus, {
-    resolvedDoc,
+    resolvedDoc: evidenceResolvedDoc,
     relatedDocumentId,
     relatedDocument,
   });
   const actionType = normalizeActionType(item.actionType, gapType, normalizedLinkStatus);
-  const documentOwner = normalizedLinkStatus === "linked" && resolvedDoc
-    ? resolvedDoc
+  const documentOwner = normalizedLinkStatus === "linked" && evidenceResolvedDoc
+    ? evidenceResolvedDoc
     : null;
 
   return {
@@ -654,6 +659,29 @@ function resolveRelatedDocument(documents, { relatedDocumentId, relatedDocument,
 
   if (targetDocumentType === "BRD" && candidates.length === 1 && !relatedDocumentId && !relatedDocument) {
     return candidates[0];
+  }
+  return null;
+}
+
+function resolveRelatedDocumentFromEvidence(documents, { documentEvidence, targetDocumentType }) {
+  const candidates = targetDocumentType
+    ? documents.filter((doc) => doc.type === targetDocumentType)
+    : documents;
+  if (!candidates.length) return null;
+
+  const evidenceValues = Array.isArray(documentEvidence) ? documentEvidence : [];
+  for (const value of evidenceValues) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+
+    const exactById = candidates.find((doc) => String(doc.id || "").trim() === raw);
+    if (exactById) return exactById;
+
+    const normalized = normalizeGapToken(raw);
+    if (!normalized) continue;
+
+    const exactByTitle = candidates.find((doc) => normalizeGapToken(doc.title) === normalized);
+    if (exactByTitle) return exactByTitle;
   }
   return null;
 }
