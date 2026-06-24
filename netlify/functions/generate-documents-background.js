@@ -374,7 +374,6 @@ async function callOpenAIFileTool({
   const payload = waitResult.payload;
   let outputText = extractResponseText(payload);
   let finalizationMs = 0;
-  let recoveryMs = 0;
   if (!String(outputText || "").trim() && payload?.id) {
     const finalizationStartedAt = Date.now();
     outputText = await requestFinalJsonFromResponse({
@@ -386,22 +385,6 @@ async function callOpenAIFileTool({
       pollIntervalMs: effectivePollIntervalMs,
     });
     finalizationMs = Date.now() - finalizationStartedAt;
-  }
-  if (!String(outputText || "").trim() && isFileToolRecoveryEnabled()) {
-    const recoveryStartedAt = Date.now();
-    outputText = await requestRecoveryJsonWithFile({
-      apiKey,
-      model,
-      system,
-      user,
-      fileId,
-      responseSchema,
-      temperature,
-      timeoutMs: effectiveTimeoutMs,
-      requestTimeoutMs: effectiveRequestTimeoutMs,
-      pollIntervalMs: effectivePollIntervalMs,
-    });
-    recoveryMs = Date.now() - recoveryStartedAt;
   }
   if (!String(outputText || "").trim()) {
     throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
@@ -415,7 +398,6 @@ async function callOpenAIFileTool({
         responseRetrieveMs: waitResult.retrieveMs,
         responseRetrieveAttempts: waitResult.retrieveAttempts,
         finalizationMs,
-        recoveryMs,
         totalOpenAiMs: Date.now() - totalOpenAiStartedAt,
       },
     };
@@ -425,102 +407,22 @@ async function callOpenAIFileTool({
 }
 
 async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId, responseSchema, timeoutMs, pollIntervalMs }) {
-  const attempts = [
-    {
-      label: "finalization",
-      body: {
-        model,
-        background: true,
-        previous_response_id: previousResponseId,
-        input:
-          "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
-        temperature: 0,
-        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
-        tools: [],
-        text: {
-          format: {
-            type: "json_schema",
-            name: responseSchema.name,
-            schema: responseSchema.schema,
-            strict: true,
-          },
-        },
-      },
-    },
-    {
-      label: "finalization-fallback",
-      body: {
-        model,
-        background: false,
-        previous_response_id: previousResponseId,
-        instructions:
-          "Return the final structured JSON using the already completed analysis from the previous response. Do not call tools again. Do not add prose or markdown.",
-        input: "Return only the final JSON payload now.",
-        temperature: 0,
-        max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
-        tools: [],
-        text: {
-          format: {
-            type: "json_schema",
-            name: responseSchema.name,
-            schema: responseSchema.schema,
-            strict: true,
-          },
-        },
-      },
-    },
-  ];
-
-  for (const attempt of attempts) {
-    const createPayload = await postOpenAIResponse({
-      apiKey,
-      timeoutMs,
-      body: attempt.body,
-      timeoutLabel: attempt.label,
-    });
-    const payload = await waitForOpenAIResponse({
-      apiKey,
-      initialPayload: createPayload,
-      timeoutMs,
-      pollIntervalMs,
-    });
-    const extracted = extractResponseText(payload);
-    if (String(extracted || "").trim()) return extracted;
-  }
-  return "";
-}
-
-async function requestRecoveryJsonWithFile({
-  apiKey,
-  model,
-  system,
-  user,
-  fileId,
-  responseSchema,
-  temperature,
-  timeoutMs,
-  requestTimeoutMs,
-  pollIntervalMs,
-}) {
   const createPayload = await postOpenAIResponse({
     apiKey,
-    timeoutMs: requestTimeoutMs,
+    timeoutMs,
     body: {
       model,
-      background: false,
-      instructions: `${system}\n\nIf the prior tool run finished without returning the final schema payload, rerun the analysis and return only the final JSON that matches the schema exactly. Do not return prose or markdown.`,
-      input: user,
-      temperature,
-      max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
-      tools: [
+      background: true,
+      previous_response_id: previousResponseId,
+      input: [
         {
-          type: "code_interpreter",
-          container: {
-            type: "auto",
-            file_ids: [fileId],
-          },
+          role: "user",
+          content:
+            "The prior tool run completed without a final assistant message. Using the analysis already performed in that response, return the final deliverable JSON only. Do not call tools again. Do not include markdown, prose, or code fences.",
         },
       ],
+      temperature: 0,
+      max_output_tokens: Number(process.env.OPENAI_DOCUMENT_MAX_OUTPUT_TOKENS || 30000),
       text: {
         format: {
           type: "json_schema",
@@ -530,15 +432,15 @@ async function requestRecoveryJsonWithFile({
         },
       },
     },
-    timeoutLabel: "recovery",
+    timeoutLabel: "finalization",
   });
-  const waitResult = await waitForOpenAIResponse({
+  const payload = await waitForOpenAIResponse({
     apiKey,
     initialPayload: createPayload,
     timeoutMs,
     pollIntervalMs,
   });
-  return extractResponseText(waitResult.payload);
+  return extractResponseText(payload);
 }
 
 async function postOpenAIResponse({ apiKey, body, timeoutMs, timeoutLabel }) {
@@ -925,10 +827,6 @@ function resolveDocumentGenerationModel() {
     throw new Error("No OpenAI model configured. Set OPENAI_DOCUMENT_GENERATION_MODEL, OPENAI_DOCUMENT_MODEL, or OPENAI_MODEL.");
   }
   return model;
-}
-
-function isFileToolRecoveryEnabled() {
-  return String(process.env.OPENAI_FILE_TOOL_RECOVERY_ENABLED || "").trim().toLowerCase() === "true";
 }
 
 function normalizeJobId(value) {
