@@ -892,7 +892,7 @@ async function callOpenAIFileTool({
       maxOutputTokens,
     });
   }
-  if (!String(outputText || "").trim()) {
+  if (!String(outputText || "").trim() && isFileToolRecoveryEnabled()) {
     outputText = await requestRecoveryJsonWithFile({
       apiKey,
       model,
@@ -923,6 +923,10 @@ function parseJsonOrNull(raw) {
   } catch {
     return null;
   }
+}
+
+function isFileToolRecoveryEnabled() {
+  return String(process.env.OPENAI_FILE_TOOL_RECOVERY_ENABLED || "").trim().toLowerCase() === "true";
 }
 
 function extractResponseText(payload) {

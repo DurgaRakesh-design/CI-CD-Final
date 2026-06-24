@@ -387,7 +387,7 @@ async function callOpenAIFileTool({
     });
     finalizationMs = Date.now() - finalizationStartedAt;
   }
-  if (!String(outputText || "").trim()) {
+  if (!String(outputText || "").trim() && isFileToolRecoveryEnabled()) {
     const recoveryStartedAt = Date.now();
     outputText = await requestRecoveryJsonWithFile({
       apiKey,
@@ -925,6 +925,10 @@ function resolveDocumentGenerationModel() {
     throw new Error("No OpenAI model configured. Set OPENAI_DOCUMENT_GENERATION_MODEL, OPENAI_DOCUMENT_MODEL, or OPENAI_MODEL.");
   }
   return model;
+}
+
+function isFileToolRecoveryEnabled() {
+  return String(process.env.OPENAI_FILE_TOOL_RECOVERY_ENABLED || "").trim().toLowerCase() === "true";
 }
 
 function normalizeJobId(value) {
