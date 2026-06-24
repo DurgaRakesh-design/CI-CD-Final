@@ -34,7 +34,7 @@ const pipelineTabs = [
   { id: 'bdd', label: 'BDD Scenarios' },
   { id: 'test-cases', label: 'Test Cases' },
   { id: 'test-scripts', label: 'Test Scripts' },
-  { id: 'quality', label: 'Quality' },
+  { id: 'quality', label: 'Backend Quality' },
   { id: 'frontend', label: 'Frontend' },
   { id: 'reports', label: 'Reports' },
   { id: 'stages', label: 'Stages' },
@@ -119,7 +119,7 @@ export default function PipelineSummary() {
   const visiblePipelineTabs = useMemo(
     () => pipelineTabs.filter((tab) => {
       if (tab.id === 'quality') {
-        return Boolean((codeQuality.hotspotCount || 0) || (codeQuality.improvementCount || 0) || (codeQuality.aiTests || 0) || (codeQuality.existingTests || 0));
+        return Boolean((codeQuality.hotspotCount || 0) || (codeQuality.actionItemCount || 0) || (codeQuality.aiTests || 0));
       }
       if (tab.id === 'frontend') {
         return Boolean((frontend.totalJourneys || 0) || (frontend.totalDesignCases || 0) || (frontend.totalTraceabilityRows || 0) || (frontend.screenshots || []).length);
@@ -1323,22 +1323,23 @@ function QualityTab({ codeQuality, reports }) {
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
-        title="Quality findings"
-        eyebrow="Coverage gaps and suggestions"
-        description="Coverage hotspots and improvement suggestions come from their own quality files, not from AI or traceability tabs."
+        title="Backend quality"
+        eyebrow="Coverage hotspots and follow-up actions"
+        description="This view keeps only the backend quality signals that matter for this run: JaCoCo hotspots, coverage actions, and scenario follow-ups from AI-generated backend automation."
       />
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="AI tests" value={codeQuality.aiTests || 0} tone="bg-violet-50/70" />
-        <MetricCard label="Existing tests" value={codeQuality.existingTests || 0} tone="bg-emerald-50/70" />
-        <MetricCard label="Hotspots" value={codeQuality.hotspotCount || 0} tone="bg-amber-50/70" />
-        <MetricCard label="Suggestions" value={codeQuality.improvementCount || 0} tone="bg-rose-50/70" />
+        <MetricCard label="AI scripts measured" value={codeQuality.aiTests || 0} tone="bg-violet-50/70" />
+        <MetricCard label="Coverage hotspots" value={codeQuality.hotspotCount || 0} tone="bg-amber-50/70" />
+        <MetricCard label="Coverage fixes" value={codeQuality.coverageActions || 0} tone="bg-sky-50/70" />
+        <MetricCard label="Scenario fixes" value={codeQuality.scenarioFollowups || 0} tone="bg-rose-50/70" />
       </div>
       <div className="mt-4 rounded-2xl border border-border bg-slate-50 p-4 text-sm text-muted-foreground">
-        <div><strong className="text-foreground">Coverage scope:</strong> {codeQuality.coverageScope || 'Not available'}</div>
-        <div className="mt-1"><strong className="text-foreground">Verdict:</strong> {codeQuality.verdict || 'Review'}</div>
+        <div><strong className="text-foreground">Coverage basis:</strong> {codeQuality.coverageScope === 'ai-generated-backend-tests' ? 'JaCoCo against AI-generated backend tests' : (codeQuality.coverageScope || 'Not available')}</div>
+        <div className="mt-1"><strong className="text-foreground">Quality verdict:</strong> {codeQuality.verdict || 'Review'}</div>
       </div>
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Low-coverage hotspots</p>
           {(codeQuality.hotspots || []).map((item) => (
             <div key={item.name} className="rounded-2xl border border-border bg-white p-4">
               <p className="font-semibold text-foreground">{item.name}</p>
@@ -1347,13 +1348,37 @@ function QualityTab({ codeQuality, reports }) {
               </p>
             </div>
           ))}
+          {!codeQuality.hotspots?.length && (
+            <div className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">
+              No low-coverage backend hotspots were packaged for this run.
+            </div>
+          )}
         </div>
         <div className="space-y-2">
-          {(codeQuality.findings || []).map((item) => (
-            <div key={item} className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">
-              {item}
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Recommended next actions</p>
+          {(codeQuality.actionItems || []).map((item, index) => (
+            <div key={`${item.title}-${index}`} className="rounded-2xl border border-border bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                  {item.category || 'Action item'}
+                </span>
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                  String(item.priority || '').toLowerCase() === 'high'
+                    ? 'bg-rose-50 text-rose-700'
+                    : 'bg-amber-50 text-amber-700'
+                }`}>
+                  {String(item.priority || 'medium').toUpperCase()}
+                </span>
+              </div>
+              <p className="mt-3 text-sm font-semibold text-foreground">{item.title || 'Follow-up action'}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{item.suggestion}</p>
             </div>
           ))}
+          {!codeQuality.actionItems?.length && (
+            <div className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">
+              No packaged backend follow-up actions are available for this run.
+            </div>
+          )}
         </div>
       </div>
     </section>

@@ -948,21 +948,53 @@ function buildLiveCodeQuality(reports) {
   const coverage = reports?.coverageGap || {};
   const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
   const classes = Array.isArray(coverage.classes_with_gaps) ? coverage.classes_with_gaps : [];
+  const suggestionSummary = reports?.codeSuggestions?.summary || {};
   const aiTests = Array.isArray(coverage.ai_tests) ? coverage.ai_tests.length : numberFrom(coverage.ai_tests);
-  const existingTests = Array.isArray(coverage.existing_tests) ? coverage.existing_tests.length : numberFrom(coverage.existing_tests);
+  const normalizedSuggestions = suggestions.map((item) => {
+    const sourceType = String(item?.source_type || item?.type || '').toLowerCase();
+    const category = String(item?.category || item?.type || '').toLowerCase();
+    return {
+      title: item?.title || item?.category || 'Action item',
+      category: item?.category || 'Action item',
+      priority: item?.priority || 'medium',
+      suggestion: item?.suggestion || item?.message || String(item),
+      sourceType,
+      categoryKey: category,
+    };
+  });
+  const derivedCoverageActions = normalizedSuggestions.filter(
+    (item) => item.sourceType === 'coverage-gap' || item.categoryKey === 'coverage action',
+  ).length;
+  const derivedFailingScenarioFollowups = normalizedSuggestions.filter(
+    (item) => item.sourceType === 'scenario-failure' || item.categoryKey === 'failing scenario follow-up',
+  ).length;
+  const derivedUncoveredScenarioFollowups = normalizedSuggestions.filter(
+    (item) => item.sourceType === 'traceability-gap' || item.categoryKey === 'uncovered scenario follow-up',
+  ).length;
+  const coverageActions = numberFrom(suggestionSummary.coverage_actions) || derivedCoverageActions;
+  const failingScenarioFollowups = numberFrom(suggestionSummary.failing_scenario_followups) || derivedFailingScenarioFollowups;
+  const uncoveredScenarioFollowups = numberFrom(suggestionSummary.uncovered_scenario_followups) || derivedUncoveredScenarioFollowups;
+  const scenarioFollowups = failingScenarioFollowups + uncoveredScenarioFollowups;
   return {
-    coverageScope: coverage.coverage_scope || 'GitHub artifact',
+    coverageScope: coverage.coverage_scope || 'ai-generated-backend-tests',
     aiTests,
-    existingTests,
     hotspotCount: classes.length,
-    improvementCount: suggestions.length,
-    verdict: classes.length ? 'Coverage gaps remain' : 'No coverage gap artifact findings',
+    actionItemCount: normalizedSuggestions.length,
+    coverageActions,
+    failingScenarioFollowups,
+    uncoveredScenarioFollowups,
+    scenarioFollowups,
+    verdict: normalizedSuggestions.length
+      ? 'Coverage and scenario follow-ups remain'
+      : classes.length
+        ? 'Coverage hotspots remain'
+        : 'No packaged backend quality findings',
     hotspots: classes.slice(0, 8).map((item) => ({
       name: item.class || item.name || 'Class',
       lineCoverage: numberFrom(item.line_coverage),
       branchCoverage: item.branch_coverage,
     })),
-    findings: suggestions.slice(0, 8).map((item) => item.message || String(item)),
+    actionItems: normalizedSuggestions.slice(0, 8),
   };
 }
 
