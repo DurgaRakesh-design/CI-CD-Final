@@ -1320,6 +1320,18 @@ function frontendCoverageTone(value) {
 }
 
 function QualityTab({ codeQuality, reports }) {
+  const {
+    pageRows: pagedHotspots,
+    page: hotspotPage,
+    totalPages: hotspotPages,
+    setPage: setHotspotPage,
+  } = usePagination(codeQuality.hotspots || [], 8);
+  const {
+    pageRows: pagedActionItems,
+    page: actionPage,
+    totalPages: actionPages,
+    setPage: setActionPage,
+  } = usePagination(codeQuality.actionItems || [], 8);
   return (
     <section className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:p-6">
       <TabHeader
@@ -1340,7 +1352,7 @@ function QualityTab({ codeQuality, reports }) {
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Low-coverage hotspots</p>
-          {(codeQuality.hotspots || []).map((item) => (
+          {pagedHotspots.map((item) => (
             <div key={item.name} className="rounded-2xl border border-border bg-white p-4">
               <p className="font-semibold text-foreground">{item.name}</p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1353,10 +1365,16 @@ function QualityTab({ codeQuality, reports }) {
               No low-coverage backend hotspots were packaged for this run.
             </div>
           )}
+          <PaginationControls
+            page={hotspotPage}
+            totalPages={hotspotPages}
+            onPageChange={setHotspotPage}
+            totalItems={codeQuality.hotspots?.length || 0}
+          />
         </div>
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Recommended next actions</p>
-          {(codeQuality.actionItems || []).map((item, index) => (
+          {pagedActionItems.map((item, index) => (
             <div key={`${item.title}-${index}`} className="rounded-2xl border border-border bg-white p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
@@ -1377,8 +1395,15 @@ function QualityTab({ codeQuality, reports }) {
           {!codeQuality.actionItems?.length && (
             <div className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">
               No packaged backend follow-up actions are available for this run.
+              {codeQuality.suggestionReason ? ` Reason: ${codeQuality.suggestionReason}.` : ''}
             </div>
           )}
+          <PaginationControls
+            page={actionPage}
+            totalPages={actionPages}
+            onPageChange={setActionPage}
+            totalItems={codeQuality.actionItems?.length || 0}
+          />
         </div>
       </div>
     </section>

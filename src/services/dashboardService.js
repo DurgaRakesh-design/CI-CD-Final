@@ -949,6 +949,7 @@ function buildLiveCodeQuality(reports) {
   const suggestions = Array.isArray(reports?.codeSuggestions?.findings) ? reports.codeSuggestions.findings : [];
   const classes = Array.isArray(coverage.classes_with_gaps) ? coverage.classes_with_gaps : [];
   const suggestionSummary = reports?.codeSuggestions?.summary || {};
+  const suggestionReason = reports?.codeSuggestions?.fallback_reason || '';
   const aiTests = Array.isArray(coverage.ai_tests) ? coverage.ai_tests.length : numberFrom(coverage.ai_tests);
   const normalizedSuggestions = suggestions.map((item) => {
     const sourceType = String(item?.source_type || item?.type || '').toLowerCase();
@@ -980,6 +981,7 @@ function buildLiveCodeQuality(reports) {
     aiTests,
     hotspotCount: classes.length,
     actionItemCount: normalizedSuggestions.length,
+    suggestionReason,
     coverageActions,
     failingScenarioFollowups,
     uncoveredScenarioFollowups,
@@ -989,12 +991,12 @@ function buildLiveCodeQuality(reports) {
       : classes.length
         ? 'Coverage hotspots remain'
         : 'No packaged backend quality findings',
-    hotspots: classes.slice(0, 8).map((item) => ({
+    hotspots: classes.map((item) => ({
       name: item.class || item.name || 'Class',
       lineCoverage: numberFrom(item.line_coverage),
       branchCoverage: item.branch_coverage,
     })),
-    actionItems: normalizedSuggestions.slice(0, 8),
+    actionItems: normalizedSuggestions,
   };
 }
 
