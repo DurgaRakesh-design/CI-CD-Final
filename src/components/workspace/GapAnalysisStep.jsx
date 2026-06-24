@@ -134,36 +134,36 @@ export default function GapAnalysisStep({ workspaceData, documents, setDocuments
         </div>
       )}
 
-      {!result && (
-        <div className="text-center py-8">
-          {!running ? (
-            <div className="space-y-6">
-              <div className="w-20 h-20 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto">
-                <BarChart3 className="w-8 h-8 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-4">Run a production-grade review before allowing the pipeline trigger.</p>
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
-                  <Button variant="outline" onClick={skipAnalysis} className="rounded-xl h-11 px-6">
-                    Skip for now
-                  </Button>
-                  <Button onClick={runAnalysis} className="rounded-xl h-11 px-6">
-                    <BarChart3 className="w-4 h-4 mr-2" />
-                    Run Gap Analysis
-                  </Button>
-                </div>
+      {!result && !running && (
+        <div className="py-8 text-center">
+          <div className="space-y-6">
+            <div className="w-20 h-20 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto">
+              <BarChart3 className="w-8 h-8 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-4">Run a production-grade review before allowing the pipeline trigger.</p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                <Button variant="outline" onClick={skipAnalysis} className="rounded-xl h-11 px-6">
+                  Skip for now
+                </Button>
+                <Button onClick={runAnalysis} className="rounded-xl h-11 px-6">
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                  Run Gap Analysis
+                </Button>
               </div>
             </div>
-          ) : (
-            <div className="mx-auto max-w-6xl py-4">
-              {jobStatus && (
-                <AiJobTimeline
-                  status={jobStatus}
-                  title="Gap analysis progress"
-                  description="This live timeline shows the package audit stages, source-to-document traceability checks, and the final verification pass as they happen."
-                />
-              )}
-            </div>
+          </div>
+        </div>
+      )}
+
+      {!result && running && (
+        <div className="mx-auto max-w-6xl py-12 pb-24">
+          {jobStatus && (
+            <AiJobTimeline
+              status={jobStatus}
+              title="Gap analysis progress"
+              description="This live timeline shows the package audit stages, source-to-document traceability checks, and the final verification pass as they happen."
+            />
           )}
         </div>
       )}

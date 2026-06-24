@@ -82,6 +82,12 @@ export const handler = async (event) => {
       stack: error.stack,
       cause: error.cause,
     });
+    if (error.debugInfo) {
+      console.error("generate-documents-background debug", {
+        jobId,
+        openAiDebug: error.debugInfo,
+      });
+    }
     if (jobId) {
       await appendAiJobLog(JOB_TYPE, jobId, {
         level: "error",
@@ -89,6 +95,7 @@ export const handler = async (event) => {
         message: error.message || "Document generation failed.",
         meta: {
           stack: String(error.stack || "").slice(0, 1200),
+          debugAvailable: Boolean(error.debugInfo),
         },
       }).catch(() => {});
       await upsertAiJob(JOB_TYPE, jobId, {
@@ -96,6 +103,7 @@ export const handler = async (event) => {
         stage: "failed",
         progress: 100,
         message: error.message || "Document generation failed.",
+        debug: error.debugInfo ? { openAiDebug: error.debugInfo } : undefined,
       });
     }
     return json(500, { message: error.message || "Document generation failed." });
@@ -374,9 +382,10 @@ async function callOpenAIFileTool({
   const payload = waitResult.payload;
   let outputText = extractResponseText(payload);
   let finalizationMs = 0;
+  let finalizationPayload = null;
   if (!String(outputText || "").trim() && payload?.id) {
     const finalizationStartedAt = Date.now();
-    outputText = await requestFinalJsonFromResponse({
+    const finalizationResult = await requestFinalJsonFromResponse({
       apiKey,
       model,
       previousResponseId: payload.id,
@@ -384,10 +393,32 @@ async function callOpenAIFileTool({
       timeoutMs: effectiveFinalizationTimeoutMs,
       pollIntervalMs: effectivePollIntervalMs,
     });
+    outputText = finalizationResult.outputText;
+    finalizationPayload = finalizationResult.payload;
     finalizationMs = Date.now() - finalizationStartedAt;
   }
   if (!String(outputText || "").trim()) {
-    throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
+    const debugInfo = buildOpenAiDebugInfo({
+      model,
+      fileId,
+      responseSchemaName: responseSchema?.name,
+      timings: {
+        responseCreateMs,
+        responseWaitMs,
+        responseRetrieveMs: waitResult.retrieveMs,
+        responseRetrieveAttempts: waitResult.retrieveAttempts,
+        finalizationMs,
+        totalOpenAiMs: Date.now() - totalOpenAiStartedAt,
+      },
+      initialPayload: payload,
+      finalizationPayload,
+      extractedInitialText: extractResponseText(payload),
+      extractedFinalizationText: extractResponseText(finalizationPayload),
+      failureType: "no_final_text_output",
+    });
+    const error = new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
+    error.debugInfo = debugInfo;
+    throw error;
   }
   try {
     return {
@@ -402,7 +433,28 @@ async function callOpenAIFileTool({
       },
     };
   } catch {
-    throw new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)} ${summarizeResponsePayload(payload)}`);
+    const debugInfo = buildOpenAiDebugInfo({
+      model,
+      fileId,
+      responseSchemaName: responseSchema?.name,
+      timings: {
+        responseCreateMs,
+        responseWaitMs,
+        responseRetrieveMs: waitResult.retrieveMs,
+        responseRetrieveAttempts: waitResult.retrieveAttempts,
+        finalizationMs,
+        totalOpenAiMs: Date.now() - totalOpenAiStartedAt,
+      },
+      initialPayload: payload,
+      finalizationPayload,
+      extractedInitialText: extractResponseText(payload),
+      extractedFinalizationText: extractResponseText(finalizationPayload),
+      rawOutputPreview: String(outputText || "").slice(0, 1000),
+      failureType: "invalid_json_output",
+    });
+    const error = new Error(`OpenAI file-tool returned invalid JSON content: ${String(outputText || "").slice(0, 180)} ${summarizeResponsePayload(payload)}`);
+    error.debugInfo = debugInfo;
+    throw error;
   }
 }
 
@@ -440,7 +492,10 @@ async function requestFinalJsonFromResponse({ apiKey, model, previousResponseId,
     timeoutMs,
     pollIntervalMs,
   });
-  return extractResponseText(payload);
+  return {
+    payload,
+    outputText: extractResponseText(payload),
+  };
 }
 
 async function postOpenAIResponse({ apiKey, body, timeoutMs, timeoutLabel }) {
@@ -614,6 +669,61 @@ function summarizeResponsePayload(payload) {
   const output = Array.isArray(payload?.output) ? payload.output : [];
   const outputTypes = output.map((item) => item?.type || item?.role || "unknown").slice(0, 8);
   return `Response status=${payload?.status || "unknown"} outputTypes=${outputTypes.join(",") || "none"} incompleteReason=${payload?.incomplete_details?.reason || ""}`;
+}
+
+function buildOpenAiDebugInfo({
+  model,
+  fileId,
+  responseSchemaName,
+  timings = {},
+  initialPayload,
+  finalizationPayload,
+  extractedInitialText,
+  extractedFinalizationText,
+  rawOutputPreview = "",
+  failureType = "",
+}) {
+  return {
+    capturedAt: new Date().toISOString(),
+    failureType,
+    model: model || "",
+    fileId: fileId || "",
+    responseSchemaName: responseSchemaName || "",
+    timings,
+    initialResponse: summarizeOpenAiPayload(initialPayload, extractedInitialText),
+    finalizationResponse: summarizeOpenAiPayload(finalizationPayload, extractedFinalizationText),
+    rawOutputPreview: String(rawOutputPreview || "").slice(0, 1000),
+  };
+}
+
+function summarizeOpenAiPayload(payload, extractedText = "") {
+  if (!payload || typeof payload !== "object") return null;
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return {
+    id: payload.id || "",
+    status: payload.status || "",
+    outputTypes: output.map((item) => item?.type || item?.role || "unknown").slice(0, 20),
+    incompleteReason: payload?.incomplete_details?.reason || "",
+    outputCount: output.length,
+    hasOutputText: Boolean(String(payload.output_text || "").trim()),
+    extractedTextPreview: String(extractedText || "").slice(0, 1000),
+    outputPreview: output.slice(0, 5).map((item) => ({
+      type: item?.type || item?.role || "unknown",
+      id: item?.id || "",
+      name: item?.name || "",
+      status: item?.status || "",
+      contentTypes: Array.isArray(item?.content) ? item.content.map((content) => content?.type || typeof content).slice(0, 12) : [],
+      outputTypes: Array.isArray(item?.outputs) ? item.outputs.map((entry) => entry?.type || typeof entry).slice(0, 12) : [],
+      summaryPreview: Array.isArray(item?.summary)
+        ? item.summary.map((entry) => {
+            if (typeof entry === "string") return entry.slice(0, 180);
+            if (entry?.text) return String(entry.text).slice(0, 180);
+            if (entry?.content) return String(entry.content).slice(0, 180);
+            return "";
+          }).filter(Boolean).slice(0, 6)
+        : [],
+    })),
+  };
 }
 
 async function buildDocumentPlan(context) {
