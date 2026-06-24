@@ -249,12 +249,15 @@ export async function appendAiJobLog(type, jobId, entry) {
     normalizedEntry,
   ].slice(-50);
   const logLabel = `[ai-job:${type}:${jobId}] [${normalizedEntry.level}] [${normalizedEntry.stage || "step"}] ${normalizedEntry.message}`;
+  const verboseConsoleLogs = String(process.env.AI_JOB_VERBOSE_CONSOLE_LOGS || "").trim().toLowerCase() === "true";
   if (normalizedEntry.level === "error") {
     console.error(logLabel, normalizedEntry.meta);
   } else if (normalizedEntry.level === "warn") {
-    console.warn(logLabel, normalizedEntry.meta);
+    if (verboseConsoleLogs) console.warn(logLabel, normalizedEntry.meta);
+    else console.warn(logLabel);
   } else {
-    console.info(logLabel, normalizedEntry.meta);
+    if (verboseConsoleLogs) console.info(logLabel, normalizedEntry.meta);
+    else console.info(logLabel);
   }
   return await upsertAiJob(type, jobId, {
     ...(current || {}),
