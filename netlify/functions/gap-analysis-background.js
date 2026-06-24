@@ -893,6 +893,21 @@ async function callOpenAIFileTool({
     });
   }
   if (!String(outputText || "").trim()) {
+    outputText = await requestRecoveryJsonWithFile({
+      apiKey,
+      model,
+      system,
+      user,
+      fileId,
+      responseSchema,
+      temperature,
+      timeoutMs: effectiveTimeoutMs,
+      requestTimeoutMs: effectiveRequestTimeoutMs,
+      pollIntervalMs: effectivePollIntervalMs,
+      maxOutputTokens,
+    });
+  }
+  if (!String(outputText || "").trim()) {
     throw new Error(`OpenAI file-tool returned no final text output. ${summarizeResponsePayload(payload)}`);
   }
   try {
@@ -911,11 +926,26 @@ function parseJsonOrNull(raw) {
 }
 
 function extractResponseText(payload) {
-  if (payload?.output_text) return payload.output_text;
   const chunks = [];
+  const pushChunk = (value) => {
+    if (typeof value === "string" && value.trim()) {
+      chunks.push(value);
+      return;
+    }
+    if (value && typeof value === "object") {
+      try {
+        chunks.push(JSON.stringify(value));
+      } catch {
+        // Ignore unstringifiable fragments.
+      }
+    }
+  };
+  if (payload?.output_text) return payload.output_text;
+  pushChunk(payload?.output_parsed);
   for (const item of payload?.output || []) {
-    if (typeof item?.text === "string" && item.text.trim()) chunks.push(item.text);
-    if (typeof item?.result === "string" && item.result.trim()) chunks.push(item.result);
+    pushChunk(item?.parsed);
+    pushChunk(item?.text);
+    pushChunk(item?.result);
     if (Array.isArray(item?.summary)) {
       for (const summaryItem of item.summary) {
         if (typeof summaryItem === "string" && summaryItem.trim()) chunks.push(summaryItem);
@@ -924,11 +954,15 @@ function extractResponseText(payload) {
       }
     }
     for (const content of item?.content || []) {
+      pushChunk(content?.parsed);
+      pushChunk(content?.json);
       if (content?.type === "output_text" && content?.text) chunks.push(content.text);
       if (content?.type === "text" && content?.text) chunks.push(content.text);
       if (typeof content === "string" && content.trim()) chunks.push(content);
     }
     for (const output of item?.outputs || []) {
+      pushChunk(output?.parsed);
+      pushChunk(output?.json);
       if (output?.type === "output_text" && output?.text) chunks.push(output.text);
       if (output?.type === "text" && output?.text) chunks.push(output.text);
       if (typeof output === "string" && output.trim()) chunks.push(output);
@@ -1012,6 +1046,57 @@ async function requestFinalJsonFromResponse({
     if (String(extracted || "").trim()) return extracted;
   }
   return "";
+}
+
+async function requestRecoveryJsonWithFile({
+  apiKey,
+  model,
+  system,
+  user,
+  fileId,
+  responseSchema,
+  temperature,
+  timeoutMs,
+  requestTimeoutMs,
+  pollIntervalMs,
+  maxOutputTokens,
+}) {
+  const createPayload = await postOpenAIResponse({
+    apiKey,
+    timeoutMs: requestTimeoutMs,
+    body: {
+      model,
+      background: false,
+      instructions: `${system}\n\nIf the prior tool run finished without returning the final schema payload, rerun the analysis and return only the final JSON that matches the schema exactly. Do not return prose or markdown.`,
+      input: user,
+      temperature,
+      max_output_tokens: maxOutputTokens,
+      tools: [
+        {
+          type: "code_interpreter",
+          container: {
+            type: "auto",
+            file_ids: [fileId],
+          },
+        },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: responseSchema.name,
+          schema: responseSchema.schema,
+          strict: true,
+        },
+      },
+    },
+  });
+  const payload = await waitForOpenAIResponse({
+    apiKey,
+    initialPayload: createPayload,
+    timeoutMs,
+    pollIntervalMs,
+  });
+  return extractResponseText(payload);
 }
 
 async function postOpenAIResponse({ apiKey, body, timeoutMs }) {
