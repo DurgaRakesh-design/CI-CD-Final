@@ -59,21 +59,23 @@ export default function DocumentReviewStep({ workspaceData, documents, setDocume
         return;
       }
       activeGenerationRef.current = { signature, status: 'running' };
-      setLoading(true);
       setError('');
-      setJobStatus({
-        status: 'running',
-        stage: 'queued',
-        progress: 1,
-        message: 'Preparing the AI document generation job.',
-        logs: [],
-        updatedAt: new Date().toISOString(),
-      });
       try {
         let nextDocs;
         if (workspaceData.requirement_source === 'uploaded') {
+          setLoading(false);
+          setJobStatus(null);
           nextDocs = await buildUploadedDocuments(workspaceData);
         } else {
+          setLoading(true);
+          setJobStatus({
+            status: 'running',
+            stage: 'queued',
+            progress: 1,
+            message: 'Preparing the AI document generation job.',
+            logs: [],
+            updatedAt: new Date().toISOString(),
+          });
           nextDocs = await generateRequirementSuite({
             packageSignals: workspaceData.package_signals,
             packageFile: workspaceData.package_file,
